@@ -95,10 +95,10 @@ export const RegistrationForm = () => {
             if (response.ok) {
                 if (Platform.OS === 'web') {
                     window.alert('Registration Successful!');
-                    router.replace('/(auth)/login');
+                    router.replace('/(auth)');
                 } else {
                     Alert.alert('Success', 'Registration Successful!', [
-                        { text: 'OK', onPress: () => router.replace('/(auth)/login') }
+                        { text: 'OK', onPress: () => router.replace('/(auth)') }
                     ]);
                 }
             } else {
@@ -402,7 +402,7 @@ export const RegistrationForm = () => {
                     <View style={styles.footer}>
                         <Text style={styles.footerText}>Already have an account? </Text>
                         <TouchableOpacity
-                            onPress={() => router.push('/(auth)/login')}
+                            onPress={() => router.replace('/(auth)')}
                             accessibilityRole="button"
                             accessibilityLabel="Login Here"
                         >
