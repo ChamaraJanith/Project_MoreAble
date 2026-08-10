@@ -10,29 +10,38 @@ export function getFirebaseAdminApp() {
         if (getApps().length > 0) {
             appInstance = getApps()[0];
         } else {
-            let serviceAccount: any;
+            let serviceAccount: any = null;
+            
+            // Try loading service account JSON from root .env or serviceAccountKey.json
             try {
                 const envPath = path.resolve(process.cwd(), '.env');
-                const envContent = fs.readFileSync(envPath, 'utf8');
-                serviceAccount = JSON.parse(envContent);
+                if (fs.existsSync(envPath)) {
+                    const rawContent = fs.readFileSync(envPath, 'utf8');
+                    
+                    // Extract valid JSON object bounds (from first { to last })
+                    const startIdx = rawContent.indexOf('{');
+                    const endIdx = rawContent.lastIndexOf('}');
+                    
+                    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                        const jsonString = rawContent.substring(startIdx, endIdx + 1);
+                        serviceAccount = JSON.parse(jsonString);
+                    }
+                }
             } catch (e) {
-                console.error('Error reading .env service account file:', e);
+                console.error('Failed to parse service account JSON from .env:', e);
             }
 
-            const projectId = serviceAccount?.project_id || serviceAccount?.projectId || process.env.project_id;
-            const clientEmail = serviceAccount?.client_email || serviceAccount?.clientEmail || process.env.client_email;
-            let privateKey = serviceAccount?.private_key || serviceAccount?.privateKey || process.env.private_key;
+            if (!serviceAccount || !serviceAccount.project_id || !serviceAccount.private_key) {
+                throw new Error('Firebase Service Account JSON could not be parsed from .env file.');
+            }
 
-            if (privateKey) {
-                privateKey = privateKey.replace(/\\n/g, '\n');
+            // Ensure private key newlines are properly unescaped
+            if (serviceAccount.private_key) {
+                serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
             }
 
             appInstance = initializeApp({
-                credential: cert({
-                    projectId,
-                    clientEmail,
-                    privateKey,
-                }),
+                credential: cert(serviceAccount),
             });
         }
     }

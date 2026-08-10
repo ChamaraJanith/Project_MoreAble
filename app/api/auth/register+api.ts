@@ -3,6 +3,19 @@ import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdm
 import { Guardian, User, UserRegistrationDTO } from '../../../src/entities/user/model/types';
 import { parseSriLankanNic } from '../../../src/shared/utils/nicUtils';
 
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS() {
+    return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+    });
+}
+
 //POST Method for User Registration
 export async function POST(request: Request) {
     try {
@@ -11,7 +24,7 @@ export async function POST(request: Request) {
         //Check NIC Number
         const nicInfo = parseSriLankanNic(data.nicNo);
         if (!nicInfo.isValid) {
-            return Response.json({ message: 'Invalid NIC Number provided.' }, { status: 400 });
+            return Response.json({ message: 'Invalid NIC Number provided.' }, { status: 400, headers: corsHeaders });
         }
 
         const adminAuth = getAdminAuth();
@@ -26,7 +39,7 @@ export async function POST(request: Request) {
                 displayName: data.userName,
             });
         } catch (authError: any) {
-            return Response.json({ message: authError.message }, { status: 400 });
+            return Response.json({ message: authError.message }, { status: 400, headers: corsHeaders });
         }
 
         const uid = userRecord.uid;
@@ -95,20 +108,20 @@ export async function POST(request: Request) {
             updatedAt: now,
         };
 
-        await adminDb.collection('users').doc(uid).set(newUser);
+        await adminDb.collection('users').doc(passengerId).set(newUser);
 
         // 4. Success Response
         return Response.json({
             message: 'User registered successfully!',
             user: newUser,
             guardian: guardianRecord,
-        }, { status: 201 });
+        }, { status: 201, headers: corsHeaders });
 
     } catch (error: any) {
         console.error('Registration Error:', error);
         return Response.json({
             message: 'Internal server error during registration.',
             error: error.message
-        }, { status: 500 });
+        }, { status: 500, headers: corsHeaders });
     }
 }
