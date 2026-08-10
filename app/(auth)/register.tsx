@@ -1,14 +1,14 @@
 import React from 'react';
 import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
-import { LoginForm } from '../../src/features/auth/ui/LoginForm';
+import { RegistrationForm } from '../../src/features/auth/ui/RegistrationForm';
 
-export default function LoginScreen() {
+export default function RegisterScreen() {
     return (
         <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="dark-content" />
 
-            {/* Render Login UI */}
-            <LoginForm />
+            {/* Render UI */}
+            <RegistrationForm />
 
         </SafeAreaView>
     );

@@ -1,12 +1,11 @@
-//Explore screen of tab
-
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-export default function ExploreScreen() {
+export default function HomeScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Explore</Text>
+      <Text style={styles.title}>Home</Text>
+      <Text style={styles.subtitle}>Welcome to MoreAble Application</Text>
     </View>
   );
 }
@@ -17,10 +16,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 10,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
   },
 });
