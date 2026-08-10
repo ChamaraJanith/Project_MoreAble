@@ -1,6 +1,4 @@
-/**
- * User & Guardian Entity Models and Types
- */
+// User & Guardian Entity Models and Types
 
 export type UserRole = 'PASSENGER' | 'GUARDIAN' | 'ADMIN';
 
