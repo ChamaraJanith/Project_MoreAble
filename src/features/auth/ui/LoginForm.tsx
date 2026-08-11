@@ -57,12 +57,16 @@ export const LoginForm = () => {
             }
 
             if (response.ok) {
+                const isAdmin = result.user?.role === 'ADMIN';
+                const successMsg = isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
+                const targetRoute = isAdmin ? '/(admin)' : '/(tabs)';
+
                 if (Platform.OS === 'web') {
-                    window.alert('Login Successful!');
-                    router.replace('/(tabs)');
+                    window.alert(successMsg);
+                    router.replace(targetRoute);
                 } else {
-                    Alert.alert('Success', 'Login Successful!', [
-                        { text: 'OK', onPress: () => router.replace('/(tabs)') }
+                    Alert.alert('Success', successMsg, [
+                        { text: 'OK', onPress: () => router.replace(targetRoute) }
                     ]);
                 }
             } else {
