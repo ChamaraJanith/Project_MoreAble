@@ -31,10 +31,29 @@ async function seedAdmin() {
             }
         }
 
+        const currentYear = new Date().getFullYear();
+        const counterRef = adminDb.collection('counters').doc(`admins_${currentYear}`);
+
+        const nextCount = await adminDb.runTransaction(async (transaction: any) => {
+            const counterDoc = await transaction.get(counterRef);
+            let count = 1;
+            if (counterDoc.exists) {
+                const counterData = counterDoc.data();
+                if (counterData && counterData.lastCount) {
+                    count = counterData.lastCount + 1;
+                }
+            }
+            transaction.set(counterRef, { lastCount: count, year: currentYear }, { merge: true });
+            return count;
+        });
+
+        const formattedSequence = String(nextCount).padStart(5, '0');
+        const adminId = `ADM-${currentYear}-${formattedSequence}`;
+
         // Add to Firestore
         const adminUserDoc: User = {
             uid,
-            passengerId: 'ADM-00000', // Admin doesn't need a real passenger ID
+            passengerId: adminId,
             userName: 'System Admin',
             email,
             nicNo: '000000000V', // Dummy NIC
@@ -47,8 +66,11 @@ async function seedAdmin() {
             updatedAt: new Date().toISOString(),
         };
 
-        console.log('Saving admin to Firestore...');
-        await adminDb.collection('users').doc(uid).set(adminUserDoc, { merge: true });
+        console.log('Cleaning up old UID-based document if it exists...');
+        await adminDb.collection('users').doc(uid).delete();
+
+        console.log(`Saving admin to Firestore with ID: ${adminId}...`);
+        await adminDb.collection('users').doc(adminId).set(adminUserDoc, { merge: true });
         
         console.log('Admin user successfully seeded in the database!');
         process.exit(0);
