@@ -48,6 +48,7 @@ export const RegistrationForm = () => {
         if (!formData.email.includes('@')) newErrors.email = 'Valid email address is required';
         if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
         if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
+        if (!formData.phoneNumber.trim()) newErrors.phoneNumber = 'Phone number is required';
 
         const nicCheck = parseSriLankanNic(formData.nicNo);
         if (!nicCheck.isValid) newErrors.nicNo = 'Invalid Sri Lankan NIC Number';
@@ -91,17 +92,27 @@ export const RegistrationForm = () => {
             } catch (parseError) {
                 console.error('Failed to parse JSON response:', parseError);
             }
-
             if (response.ok) {
                 if (Platform.OS === 'web') {
-                    window.alert('Registration Successful!');
-                    router.replace('/(auth)');
+                    window.alert('Registration Successful! Please verify your phone number.');
+                    router.push({
+                        pathname: '/(auth)/verify-otp',
+                        params: { phoneNumber: formData.phoneNumber, passengerId: result.user.passengerId }
+                    });
                 } else {
-                    Alert.alert('Success', 'Registration Successful!', [
-                        { text: 'OK', onPress: () => router.replace('/(auth)') }
+                    Alert.alert('Success', 'Registration Successful! Please verify your phone number.', [
+                        {
+                            text: 'OK',
+                            onPress: () => router.push({
+                                pathname: '/(auth)/verify-otp',
+                                params: { phoneNumber: formData.phoneNumber, passengerId: result.user.passengerId }
+                            })
+                        }
                     ]);
                 }
             } else {
+
+
                 Alert.alert('Registration Failed', result.message || 'Something went wrong');
             }
         } catch (error) {
@@ -211,7 +222,7 @@ export const RegistrationForm = () => {
                     {/* Phone Number Input */}
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Phone Number</Text>
-                        <View style={styles.inputWrapper}>
+                        <View style={[styles.inputWrapper, errors.phoneNumber ? styles.inputErrorBorder : null]}>
                             <Ionicons name="call-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
@@ -223,6 +234,12 @@ export const RegistrationForm = () => {
                                 accessibilityLabel="Phone Number"
                             />
                         </View>
+                        {errors.phoneNumber && (
+                            <View style={styles.errorContainer}>
+                                <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                                <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+                            </View>
+                        )}
                     </View>
 
                     {/* Password Input */}
