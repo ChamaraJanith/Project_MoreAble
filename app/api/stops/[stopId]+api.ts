@@ -14,20 +14,24 @@ export async function OPTIONS() {
 }
 
 // ============================================================
-// GET /api/routes/:routeId
-// Get a single route by routeId
+// GET /api/stops/:stopId
+// Get a single stop by stopId
 // ============================================================
 
 export async function GET(
   request: Request,
-  { routeId }: { routeId: string }
+  { stopId }: { stopId: string }
 ) {
   try {
-    if (!routeId) {
+    // --------------------------------------------------------
+    // Validate stopId
+    // --------------------------------------------------------
+
+    if (!stopId) {
       return Response.json(
         {
           success: false,
-          message: 'Route ID is required.',
+          message: 'Stop ID is required.',
         },
         {
           status: 400,
@@ -38,14 +42,18 @@ export async function GET(
 
     const adminDb = getAdminDb();
 
-    const routeRef = adminDb.collection('routes').doc(routeId);
-    const routeSnapshot = await routeRef.get();
+    // --------------------------------------------------------
+    // Get stop document
+    // --------------------------------------------------------
 
-    if (!routeSnapshot.exists) {
+    const stopRef = adminDb.collection('stops').doc(stopId);
+    const stopSnapshot = await stopRef.get();
+
+    if (!stopSnapshot.exists) {
       return Response.json(
         {
           success: false,
-          message: 'Route not found.',
+          message: 'Stop not found.',
         },
         {
           status: 404,
@@ -54,16 +62,20 @@ export async function GET(
       );
     }
 
-    const route = {
-      ...routeSnapshot.data(),
-      documentId: routeSnapshot.id,
+    // --------------------------------------------------------
+    // Build stop response
+    // --------------------------------------------------------
+
+    const stop = {
+      stopId: stopSnapshot.id,
+      ...stopSnapshot.data(),
     };
 
     return Response.json(
       {
         success: true,
-        message: 'Route retrieved successfully.',
-        route,
+        message: 'Stop retrieved successfully.',
+        stop,
       },
       {
         status: 200,
@@ -71,12 +83,12 @@ export async function GET(
       }
     );
   } catch (error: any) {
-    console.error('Get Route API Error:', error);
+    console.error('Get Stop API Error:', error);
 
     return Response.json(
       {
         success: false,
-        message: 'Internal server error while retrieving route.',
+        message: 'Internal server error while retrieving stop.',
         error: error.message,
       },
       {
@@ -88,8 +100,8 @@ export async function GET(
 }
 
 // ============================================================
-// PUT /api/routes/:routeId
-// Update an existing route
+// PUT /api/stops/:stopId
+// Update an existing stop
 // ============================================================
 
 export async function PUT(request: Request) {
@@ -97,21 +109,21 @@ export async function PUT(request: Request) {
     const adminDb = getAdminDb();
 
     // --------------------------------------------------------
-    // Get routeId from URL
+    // Get stopId from URL
     // --------------------------------------------------------
 
     const url = new URL(request.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
 
-    const routeId = pathParts[pathParts.length - 1];
+    const stopId = pathParts[pathParts.length - 1];
 
-    console.log('PUT Route ID:', routeId);
+    console.log('PUT Stop ID:', stopId);
 
-    if (!routeId || routeId === 'routes') {
+    if (!stopId || stopId === 'stops') {
       return Response.json(
         {
           success: false,
-          message: 'Route ID is required.',
+          message: 'Stop ID is required.',
         },
         {
           status: 400,
@@ -127,33 +139,25 @@ export async function PUT(request: Request) {
     const body = await request.json();
 
     const {
-      routeNumber,
-      routeName,
-      direction,
-      startLocation,
-      endLocation,
-      startStopId,
-      endStopId,
-      stops,
-      distanceKm,
-      estimatedDuration,
-      status,
+      name,
+      latitude,
+      longitude,
     } = body;
 
     // --------------------------------------------------------
-    // Firestore route reference
+    // Firestore stop reference
     // --------------------------------------------------------
 
-    const routeRef = adminDb.collection('routes').doc(routeId);
+    const stopRef = adminDb.collection('stops').doc(stopId);
 
-    // Check whether route exists
-    const routeDoc = await routeRef.get();
+    // Check whether stop exists
+    const stopDoc = await stopRef.get();
 
-    if (!routeDoc.exists) {
+    if (!stopDoc.exists) {
       return Response.json(
         {
           success: false,
-          message: 'Route not found.',
+          message: 'Stop not found.',
         },
         {
           status: 404,
@@ -163,62 +167,15 @@ export async function PUT(request: Request) {
     }
 
     // --------------------------------------------------------
-    // Validate direction
+    // Validate name
     // --------------------------------------------------------
 
-    if (
-      direction !== undefined &&
-      !['OUTBOUND', 'RETURN'].includes(direction)
-    ) {
-      return Response.json(
-        {
-          success: false,
-          message: 'Direction must be OUTBOUND or RETURN.',
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
-      );
-    }
-
-    // --------------------------------------------------------
-    // Validate stops
-    // --------------------------------------------------------
-
-    if (stops !== undefined) {
-      if (!Array.isArray(stops)) {
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim() === '') {
         return Response.json(
           {
             success: false,
-            message: 'Stops must be an array.',
-          },
-          {
-            status: 400,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      if (stops.length < 2) {
-        return Response.json(
-          {
-            success: false,
-            message: 'A route must contain at least two stops.',
-          },
-          {
-            status: 400,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      // Every stop must be a string
-      if (!stops.every((stop: any) => typeof stop === 'string')) {
-        return Response.json(
-          {
-            success: false,
-            message: 'Every stop in the stops array must be a string.',
+            message: 'Stop name must be a non-empty string.',
           },
           {
             status: 400,
@@ -229,118 +186,110 @@ export async function PUT(request: Request) {
     }
 
     // --------------------------------------------------------
-    // Validate distance
+    // Validate latitude
     // --------------------------------------------------------
 
-    if (
-      distanceKm !== undefined &&
-      distanceKm !== null &&
-      (typeof distanceKm !== 'number' || distanceKm < 0)
-    ) {
-      return Response.json(
-        {
-          success: false,
-          message: 'Distance must be a valid positive number.',
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
-      );
+    if (latitude !== undefined) {
+      if (
+        typeof latitude !== 'number' ||
+        latitude < -90 ||
+        latitude > 90
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message:
+              'Latitude must be a valid number between -90 and 90.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
     }
 
     // --------------------------------------------------------
-    // Validate status
+    // Validate longitude
     // --------------------------------------------------------
 
-    if (
-      status !== undefined &&
-      !['ACTIVE', 'INACTIVE'].includes(status)
-    ) {
-      return Response.json(
-        {
-          success: false,
-          message: 'Status must be ACTIVE or INACTIVE.',
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
-      );
+    if (longitude !== undefined) {
+      if (
+        typeof longitude !== 'number' ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message:
+              'Longitude must be a valid number between -180 and 180.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
     }
 
     // --------------------------------------------------------
     // Build update object
     // --------------------------------------------------------
 
-    const updateData: Record<string, any> = {
-      updatedAt: new Date(),
-    };
+    const updateData: Record<string, any> = {};
 
-    if (routeNumber !== undefined) {
-      updateData.routeNumber = routeNumber;
+    if (name !== undefined) {
+      updateData.name = name.trim();
     }
 
-    if (routeName !== undefined) {
-      updateData.routeName = routeName;
+    if (latitude !== undefined) {
+      updateData.latitude = latitude;
     }
 
-    if (direction !== undefined) {
-      updateData.direction = direction;
+    if (longitude !== undefined) {
+      updateData.longitude = longitude;
     }
 
-    if (startLocation !== undefined) {
-      updateData.startLocation = startLocation;
-    }
+    // --------------------------------------------------------
+    // Make sure there is something to update
+    // --------------------------------------------------------
 
-    if (endLocation !== undefined) {
-      updateData.endLocation = endLocation;
-    }
-
-    if (startStopId !== undefined) {
-      updateData.startStopId = startStopId;
-    }
-
-    if (endStopId !== undefined) {
-      updateData.endStopId = endStopId;
-    }
-
-    if (stops !== undefined) {
-      updateData.stops = stops;
-    }
-
-    if (distanceKm !== undefined) {
-      updateData.distanceKm = distanceKm;
-    }
-
-    if (estimatedDuration !== undefined) {
-      updateData.estimatedDuration = estimatedDuration;
-    }
-
-    if (status !== undefined) {
-      updateData.status = status;
+    if (Object.keys(updateData).length === 0) {
+      return Response.json(
+        {
+          success: false,
+          message: 'No valid fields were provided for update.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
     }
 
     // --------------------------------------------------------
     // Update Firestore
     // --------------------------------------------------------
 
-    await routeRef.update(updateData);
+    await stopRef.update(updateData);
 
     // --------------------------------------------------------
-    // Get updated route document
+    // Get updated stop document
     // --------------------------------------------------------
 
-    const updatedRouteDoc = await routeRef.get();
+    const updatedStopDoc = await stopRef.get();
+
+    const updatedStop = {
+      stopId: updatedStopDoc.id,
+      ...updatedStopDoc.data(),
+    };
 
     return Response.json(
       {
         success: true,
-        message: 'Route updated successfully.',
-        route: {
-          ...updatedRouteDoc.data(),
-          documentId: updatedRouteDoc.id,
-        },
+        message: 'Stop updated successfully.',
+        stop: updatedStop,
       },
       {
         status: 200,
@@ -348,12 +297,12 @@ export async function PUT(request: Request) {
       }
     );
   } catch (error: any) {
-    console.error('Update Route API Error:', error);
+    console.error('Update Stop API Error:', error);
 
     return Response.json(
       {
         success: false,
-        message: 'Failed to update route.',
+        message: 'Failed to update stop.',
         error: error.message,
       },
       {
@@ -365,8 +314,8 @@ export async function PUT(request: Request) {
 }
 
 // ============================================================
-// DELETE /api/routes/:routeId
-// Delete a route
+// DELETE /api/stops/:stopId
+// Delete a stop
 // ============================================================
 
 export async function DELETE(request: Request) {
@@ -374,21 +323,21 @@ export async function DELETE(request: Request) {
     const adminDb = getAdminDb();
 
     // --------------------------------------------------------
-    // Get routeId from URL
+    // Get stopId from URL
     // --------------------------------------------------------
 
     const url = new URL(request.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
 
-    const routeId = pathParts[pathParts.length - 1];
+    const stopId = pathParts[pathParts.length - 1];
 
-    console.log('DELETE Route ID:', routeId);
+    console.log('DELETE Stop ID:', stopId);
 
-    if (!routeId || routeId === 'routes') {
+    if (!stopId || stopId === 'stops') {
       return Response.json(
         {
           success: false,
-          message: 'Route ID is required.',
+          message: 'Stop ID is required.',
         },
         {
           status: 400,
@@ -398,19 +347,19 @@ export async function DELETE(request: Request) {
     }
 
     // --------------------------------------------------------
-    // Firestore route reference
+    // Firestore stop reference
     // --------------------------------------------------------
 
-    const routeRef = adminDb.collection('routes').doc(routeId);
+    const stopRef = adminDb.collection('stops').doc(stopId);
 
-    // Check route exists
-    const routeDoc = await routeRef.get();
+    // Check whether stop exists
+    const stopDoc = await stopRef.get();
 
-    if (!routeDoc.exists) {
+    if (!stopDoc.exists) {
       return Response.json(
         {
           success: false,
-          message: 'Route not found.',
+          message: 'Stop not found.',
         },
         {
           status: 404,
@@ -420,16 +369,16 @@ export async function DELETE(request: Request) {
     }
 
     // --------------------------------------------------------
-    // Delete route
+    // Delete stop
     // --------------------------------------------------------
 
-    await routeRef.delete();
+    await stopRef.delete();
 
     return Response.json(
       {
         success: true,
-        message: 'Route deleted successfully.',
-        routeId,
+        message: 'Stop deleted successfully.',
+        stopId,
       },
       {
         status: 200,
@@ -437,12 +386,12 @@ export async function DELETE(request: Request) {
       }
     );
   } catch (error: any) {
-    console.error('Delete Route API Error:', error);
+    console.error('Delete Stop API Error:', error);
 
     return Response.json(
       {
         success: false,
-        message: 'Failed to delete route.',
+        message: 'Failed to delete stop.',
         error: error.message,
       },
       {
