@@ -1,5 +1,7 @@
 // POST /api/auth/login
+import bcrypt from 'bcryptjs';
 import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { generateToken } from '../../../src/shared/config/jwt';
 import { parseSriLankanNic } from '../../../src/shared/utils/nicUtils';
 
 const corsHeaders = {
@@ -29,16 +31,6 @@ export async function POST(request: Request) {
 
     const adminDb = getAdminDb();
     const cleanIdentifier = identifier.trim();
-
-    // Verify admin password if it's the admin email
-    if (cleanIdentifier.toLowerCase() === 'admin@gmail.com') {
-      if (password !== 'SecureAdmin123.me') {
-        return Response.json(
-          { success: false, message: 'Invalid credentials.' },
-          { status: 401, headers: corsHeaders }
-        );
-      }
-    }
 
     // Check if identifier is a valid Sri Lankan NIC or Email
     const nicInfo = parseSriLankanNic(cleanIdentifier);
@@ -75,12 +67,56 @@ export async function POST(request: Request) {
       );
     }
 
-    // Return successful login response with User profile
+    // Verify password using bcrypt
+    // Admin account uses hardcoded check as a fallback
+    const isAdmin = userQueryDoc.role === 'ADMIN';
+
+    if (isAdmin && cleanIdentifier.toLowerCase() === 'admin@gmail.com') {
+      // Admin hardcoded password verification (legacy fallback)
+      if (password !== 'SecureAdmin123.me') {
+        return Response.json(
+          { success: false, message: 'Invalid credentials.' },
+          { status: 401, headers: corsHeaders }
+        );
+      }
+    } else {
+      // Standard bcrypt password verification
+      const storedHash = userQueryDoc.passwordHash;
+
+      if (!storedHash) {
+        return Response.json(
+          { success: false, message: 'Account requires password reset. No password hash found.' },
+          { status: 401, headers: corsHeaders }
+        );
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, storedHash);
+      if (!isPasswordValid) {
+        return Response.json(
+          { success: false, message: 'Invalid credentials.' },
+          { status: 401, headers: corsHeaders }
+        );
+      }
+    }
+
+    // Generate JWT token
+    const token = await generateToken({
+      uid: userQueryDoc.uid,
+      passengerId: userQueryDoc.passengerId,
+      role: userQueryDoc.role,
+      email: userQueryDoc.email,
+    });
+
+    // Build sanitized user object (exclude passwordHash from response)
+    const { passwordHash: _hash, ...sanitizedUser } = userQueryDoc;
+
+    // Return successful login response with JWT token and user profile
     return Response.json(
       {
         success: true,
         message: 'Login successful!',
-        user: userQueryDoc,
+        token,
+        user: sanitizedUser,
       },
       { status: 200, headers: corsHeaders }
     );
