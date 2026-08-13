@@ -1,5 +1,7 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { Bus } from '../../../src/entities/bus/model/types';
 import { JourneySearchMatch, Route } from '../../../src/entities/route/model/types';
+import { Trip } from '../../../src/entities/trip/model/types';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,10 +64,75 @@ export function findMatchingRoutes(
       journeyStops: route.stops.slice(originIndex, destinationIndex + 1),
       distanceKm: route.distanceKm ?? null,
       estimatedDuration: route.estimatedDuration ?? null,
+      // Populated afterwards by attachNextTrip — a route can match without any
+      // currently-available trip.
+      trip: null,
+      bus: null,
     });
   }
 
   return matches;
+}
+
+// Picks the earliest ACTIVE trip departing at/after the requested travel time.
+// Trips that have already departed are ignored. Keeps the previously-existing
+// route matching untouched — this only chooses among trips already known to
+// belong to one matched route.
+export function selectNextTrip(trips: Trip[], travelTime: string): Trip | null {
+  const upcoming = trips
+    .filter((trip) => trip.status === 'ACTIVE' && trip.departureTime >= travelTime)
+    .sort((a, b) => a.departureTime.localeCompare(b.departureTime));
+
+  return upcoming.length > 0 ? upcoming[0] : null;
+}
+
+async function fetchActiveTripsForRoute(adminDb: any, routeId: string): Promise<Trip[]> {
+  const tripsSnapshot = await adminDb
+    .collection('trips')
+    .where('routeId', '==', routeId)
+    .where('status', '==', 'ACTIVE')
+    .get();
+
+  return tripsSnapshot.docs.map((doc: any) => doc.data() as Trip);
+}
+
+// Enriches a matched route with its next upcoming trip and that trip's bus, if
+// any. A route with no qualifying trip is still a valid match — trip/bus are
+// simply left null so the UI can render the route without crashing.
+async function attachNextTrip(
+  adminDb: any,
+  match: JourneySearchMatch,
+  travelTime: string
+): Promise<JourneySearchMatch> {
+  const trips = await fetchActiveTripsForRoute(adminDb, match.routeId);
+  const nextTrip = selectNextTrip(trips, travelTime);
+
+  if (!nextTrip) {
+    return match;
+  }
+
+  const busDoc = await adminDb.collection('buses').doc(nextTrip.busId).get();
+  const bus = busDoc.exists ? (busDoc.data() as Bus) : null;
+
+  return {
+    ...match,
+    trip: {
+      tripId: nextTrip.tripId,
+      departureTime: nextTrip.departureTime,
+      estimatedArrivalTime: nextTrip.estimatedArrivalTime,
+      turnNumber: nextTrip.turnNumber,
+    },
+    bus: bus
+      ? {
+          busId: bus.busId,
+          numberPlate: bus.numberPlate,
+          busModel: bus.busModel,
+          manufacturer: bus.manufacturer,
+          seatCapacity: bus.seatCapacity,
+          accessibilityFacilities: bus.accessibilityFacilities,
+        }
+      : null,
+  };
 }
 
 export async function OPTIONS() {
@@ -170,13 +237,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // Attach each route's next upcoming trip (and that trip's bus), if any.
+    const enrichedRoutes = await Promise.all(
+      matchedRoutes.map((match) => attachNextTrip(adminDb, match, travelTime))
+    );
+
     return Response.json(
       {
         success: true,
-        message: `${matchedRoutes.length} matching route${matchedRoutes.length > 1 ? 's' : ''} found.`,
+        message: `${enrichedRoutes.length} matching route${enrichedRoutes.length > 1 ? 's' : ''} found.`,
         searchCriteria,
-        count: matchedRoutes.length,
-        routes: matchedRoutes,
+        count: enrichedRoutes.length,
+        routes: enrichedRoutes,
       },
       {
         status: 200,

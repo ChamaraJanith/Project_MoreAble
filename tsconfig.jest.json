@@ -1,9 +1,25 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
+    "target": "es2020",
+    "lib": ["es2020"],
     "module": "commonjs",
     "moduleResolution": "node",
     "jsx": "react",
-    "noEmit": false
-  }
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": false,
+    "types": ["jest", "node"],
+    "paths": {
+      "@/*": ["./src/*", "./*"],
+      "@/shared/*": ["./src/shared/*"],
+      "@/components/ui/*": ["./src/shared/ui/ui/*", "./src/shared/ui/*"],
+      "@/components/*": ["./src/shared/ui/*"],
+      "@/constants/*": ["./src/shared/config/*"],
+      "@/hooks/*": ["./src/shared/hooks/*"]
+    }
+  },
+  "include": ["app/**/*.ts", "src/**/*.ts", "tests/**/*.ts"]
 }

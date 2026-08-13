@@ -1,5 +1,6 @@
 import { Route } from '../../../src/entities/route/model/types';
-import { findMatchingRoutes, normalizeLocation } from '../../../app/api/journeys/search+api';
+import { Trip } from '../../../src/entities/trip/model/types';
+import { findMatchingRoutes, normalizeLocation, selectNextTrip } from '../../../app/api/journeys/search+api';
 
 const forwardRoute: Route = {
     routeId: '177_KADUWELA_KOLLUPITIYA',
@@ -109,5 +110,61 @@ describe('findMatchingRoutes', () => {
         expect(results.map((match) => match.routeId)).toEqual(
             expect.arrayContaining(['177_KADUWELA_KOLLUPITIYA', '178_KADUWELA_KOLLUPITIYA_EXPRESS'])
         );
+    });
+});
+
+function buildTrip(overrides: Partial<Trip>): Trip {
+    return {
+        tripId: 'TRIP-00000',
+        routeId: '177_KADUWELA_KOLLUPITIYA',
+        busId: 'BUS-00001',
+        departureTime: '06:00',
+        estimatedArrivalTime: '07:10',
+        turnNumber: 1,
+        status: 'ACTIVE',
+        ...overrides,
+    };
+}
+
+describe('selectNextTrip', () => {
+    it('selects the earliest trip departing at or after the requested time', () => {
+        const trips = [
+            buildTrip({ tripId: 'TRIP-00001', departureTime: '06:00' }),
+            buildTrip({ tripId: 'TRIP-00003', departureTime: '09:00' }),
+        ];
+
+        expect(selectNextTrip(trips, '08:30')?.tripId).toBe('TRIP-00003');
+    });
+
+    it('excludes trips that have already departed', () => {
+        const trips = [buildTrip({ tripId: 'TRIP-00001', departureTime: '06:00' })];
+
+        expect(selectNextTrip(trips, '08:30')).toBeNull();
+    });
+
+    it('includes a trip departing at exactly the requested time', () => {
+        const trips = [buildTrip({ tripId: 'TRIP-00001', departureTime: '08:30' })];
+
+        expect(selectNextTrip(trips, '08:30')?.tripId).toBe('TRIP-00001');
+    });
+
+    it('excludes inactive trips', () => {
+        const trips = [buildTrip({ tripId: 'TRIP-INACTIVE', departureTime: '08:45', status: 'INACTIVE' })];
+
+        expect(selectNextTrip(trips, '08:30')).toBeNull();
+    });
+
+    it('returns null when there are no trips at all', () => {
+        expect(selectNextTrip([], '08:30')).toBeNull();
+    });
+
+    it('picks the earliest among several qualifying trips', () => {
+        const trips = [
+            buildTrip({ tripId: 'TRIP-LATE', departureTime: '12:00' }),
+            buildTrip({ tripId: 'TRIP-EARLIEST', departureTime: '09:00' }),
+            buildTrip({ tripId: 'TRIP-MID', departureTime: '10:30' }),
+        ];
+
+        expect(selectNextTrip(trips, '08:30')?.tripId).toBe('TRIP-EARLIEST');
     });
 });
