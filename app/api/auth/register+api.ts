@@ -1,6 +1,6 @@
 //We Use register+api.ts because this is a backend file.
-import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { Guardian, User, UserRegistrationDTO } from '../../../src/entities/user/model/types';
+import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { parseSriLankanNic } from '../../../src/shared/utils/nicUtils';
 
 const corsHeaders = {
@@ -109,6 +109,18 @@ export async function POST(request: Request) {
         };
 
         await adminDb.collection('users').doc(passengerId).set(newUser);
+        try {
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            await adminDb.collection('otp_codes').doc(data.phoneNumber).set({
+                otp,
+                expiresAt: Date.now() + 5 * 60 * 1000,
+                verified: false
+            });
+            console.log(`\n\n[MOCK SMS] 📱 To: ${data.phoneNumber} | Your MoreAble OTP is: ${otp}\n\n`);
+        } catch (otpErr) {
+            console.error('Error Sending OTP:', otpErr);
+            console.log('Registration might still be valid, but OTP could not be sent.');
+        }
 
         // 4. Success Response
         return Response.json({

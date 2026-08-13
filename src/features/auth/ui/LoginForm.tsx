@@ -292,6 +292,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         paddingVertical: 24,
         // Removed justifyContent: 'center' to prevent layout jumping when keyboard appears
+        justifyContent: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 24,
     },
     cardContainer: {
         backgroundColor: '#FFFFFF',
@@ -305,6 +308,24 @@ const styles = StyleSheet.create({
         marginVertical: 10,
         // Optional: add marginTop if you want it visually centered when keyboard is hidden
         marginTop: 40,
+    },
+    badgeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'center',
+        backgroundColor: '#EBF3FA',
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        borderRadius: 20,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: '#CCE3F8',
+    },
+    badgeText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#0066CC',
+        letterSpacing: 0.3,
     },
     badgeContainer: {
         flexDirection: 'row',
