@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
 import {
+    Alert,
     ScrollView,
     StyleSheet,
     Text,
@@ -14,12 +15,50 @@ export default function AdminDashboard() {
         router.replace('/(auth)');
     };
 
+    // Temporary handlers
+    // We will connect these to real screens after creating them.
+    const handleBuses = () => {
+        Alert.alert(
+            'Bus Management',
+            'Bus Management screen will be connected next.'
+        );
+    };
+
+    const handleAddBus = () => {
+        Alert.alert(
+            'Add Bus',
+            'Add Bus screen will be created next.'
+        );
+    };
+
+    const handleRoutes = () => {
+        Alert.alert(
+            'Bus Routes',
+            'Bus Routes screen will be connected next.'
+        );
+    };
+
+    const handleReports = () => {
+        Alert.alert(
+            'Accessibility Reports',
+            'Accessibility Reports screen will be connected next.'
+        );
+    };
+
+    const handleUsers = () => {
+        Alert.alert(
+            'User Management',
+            'User Management screen will be connected next.'
+        );
+    };
+
     return (
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
                 <View>
                     <Text style={styles.title}>Admin Dashboard</Text>
+
                     <Text style={styles.headerSubtitle}>
                         Manage MoveAble
                     </Text>
@@ -28,13 +67,17 @@ export default function AdminDashboard() {
                 <TouchableOpacity
                     onPress={handleLogout}
                     style={styles.logoutButton}
+                    activeOpacity={0.7}
                 >
                     <Ionicons
                         name="log-out-outline"
                         size={22}
                         color="#D32F2F"
                     />
-                    <Text style={styles.logoutText}>Logout</Text>
+
+                    <Text style={styles.logoutText}>
+                        Logout
+                    </Text>
                 </TouchableOpacity>
             </View>
 
@@ -42,65 +85,95 @@ export default function AdminDashboard() {
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
             >
-                {/* Welcome */}
+                {/* Welcome Section */}
                 <View style={styles.welcomeSection}>
                     <Text style={styles.welcomeText}>
                         Welcome, Admin!
                     </Text>
 
                     <Text style={styles.subtitle}>
-                        Manage transport services and accessibility
+                        Manage buses, routes and accessibility
                         information from here.
                     </Text>
                 </View>
 
-                {/* Statistics */}
-                <Text style={styles.sectionTitle}>Overview</Text>
+                {/* Overview */}
+                <Text style={styles.sectionTitle}>
+                    Overview
+                </Text>
 
                 <View style={styles.statsContainer}>
+                    {/* Total Buses */}
                     <View style={styles.statCard}>
-                        <Ionicons
-                            name="bus-outline"
-                            size={28}
-                            color="#1976D2"
-                        />
-                        <Text style={styles.statNumber}>0</Text>
+                        <View style={styles.statIconBlue}>
+                            <Ionicons
+                                name="bus-outline"
+                                size={28}
+                                color="#1976D2"
+                            />
+                        </View>
+
+                        <Text style={styles.statNumber}>
+                            0
+                        </Text>
+
                         <Text style={styles.statLabel}>
-                            Total Vehicles
+                            Total Buses
                         </Text>
                     </View>
 
+                    {/* Total Routes */}
                     <View style={styles.statCard}>
-                        <Ionicons
-                            name="map-outline"
-                            size={28}
-                            color="#388E3C"
-                        />
-                        <Text style={styles.statNumber}>0</Text>
+                        <View style={styles.statIconGreen}>
+                            <Ionicons
+                                name="map-outline"
+                                size={28}
+                                color="#388E3C"
+                            />
+                        </View>
+
+                        <Text style={styles.statNumber}>
+                            0
+                        </Text>
+
                         <Text style={styles.statLabel}>
                             Total Routes
                         </Text>
                     </View>
 
+                    {/* Reports */}
                     <View style={styles.statCard}>
-                        <Ionicons
-                            name="alert-circle-outline"
-                            size={28}
-                            color="#F57C00"
-                        />
-                        <Text style={styles.statNumber}>0</Text>
+                        <View style={styles.statIconOrange}>
+                            <Ionicons
+                                name="alert-circle-outline"
+                                size={28}
+                                color="#F57C00"
+                            />
+                        </View>
+
+                        <Text style={styles.statNumber}>
+                            0
+                        </Text>
+
                         <Text style={styles.statLabel}>
                             Reports
                         </Text>
                     </View>
 
+                    {/* Users */}
                     <View style={styles.statCard}>
-                        <Ionicons
-                            name="people-outline"
-                            size={28}
-                            color="#7B1FA2"
-                        />
-                        <Text style={styles.statNumber}>0</Text>
+                        <View style={styles.statIconPurple}>
+                            <Ionicons
+                                name="people-outline"
+                                size={28}
+                                color="#7B1FA2"
+                            />
+                        </View>
+
+                        <Text style={styles.statNumber}>
+                            0
+                        </Text>
+
                         <Text style={styles.statLabel}>
                             Users
                         </Text>
@@ -108,9 +181,16 @@ export default function AdminDashboard() {
                 </View>
 
                 {/* Management */}
-                <Text style={styles.sectionTitle}>Management</Text>
+                <Text style={styles.sectionTitle}>
+                    Management
+                </Text>
 
-                <TouchableOpacity style={styles.managementCard}>
+                {/* Buses */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleBuses}
+                    activeOpacity={0.75}
+                >
                     <View style={styles.iconContainer}>
                         <Ionicons
                             name="bus-outline"
@@ -121,11 +201,11 @@ export default function AdminDashboard() {
 
                     <View style={styles.cardTextContainer}>
                         <Text style={styles.cardTitle}>
-                            Vehicles
+                            Buses
                         </Text>
 
                         <Text style={styles.cardDescription}>
-                            Add, update and remove transport vehicles
+                            Add, update and remove transport buses
                         </Text>
                     </View>
 
@@ -136,7 +216,12 @@ export default function AdminDashboard() {
                     />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.managementCard}>
+                {/* Bus Routes */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleRoutes}
+                    activeOpacity={0.75}
+                >
                     <View style={styles.iconContainer}>
                         <Ionicons
                             name="navigate-outline"
@@ -147,11 +232,11 @@ export default function AdminDashboard() {
 
                     <View style={styles.cardTextContainer}>
                         <Text style={styles.cardTitle}>
-                            Routes
+                            Bus Routes
                         </Text>
 
                         <Text style={styles.cardDescription}>
-                            Manage transport routes and stops
+                            Manage bus routes and stops
                         </Text>
                     </View>
 
@@ -162,7 +247,12 @@ export default function AdminDashboard() {
                     />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.managementCard}>
+                {/* Accessibility Reports */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleReports}
+                    activeOpacity={0.75}
+                >
                     <View style={styles.iconContainer}>
                         <Ionicons
                             name="accessibility-outline"
@@ -188,7 +278,12 @@ export default function AdminDashboard() {
                     />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.managementCard}>
+                {/* Users */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleUsers}
+                    activeOpacity={0.75}
+                >
                     <View style={styles.iconContainer}>
                         <Ionicons
                             name="people-outline"
@@ -215,26 +310,44 @@ export default function AdminDashboard() {
                 </TouchableOpacity>
 
                 {/* Quick Actions */}
-                <Text style={styles.sectionTitle}>Quick Actions</Text>
+                <Text style={styles.sectionTitle}>
+                    Quick Actions
+                </Text>
 
                 <View style={styles.quickActions}>
-                    <TouchableOpacity style={styles.quickAction}>
-                        <Ionicons
-                            name="add-circle-outline"
-                            size={26}
-                            color="#1976D2"
-                        />
+                    {/* Add Bus */}
+                    <TouchableOpacity
+                        style={styles.quickAction}
+                        onPress={handleAddBus}
+                        activeOpacity={0.75}
+                    >
+                        <View style={styles.quickIconBlue}>
+                            <Ionicons
+                                name="add"
+                                size={28}
+                                color="#1976D2"
+                            />
+                        </View>
+
                         <Text style={styles.quickActionText}>
-                            Add Vehicle
+                            Add Bus
                         </Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.quickAction}>
-                        <Ionicons
-                            name="add-circle-outline"
-                            size={26}
-                            color="#388E3C"
-                        />
+                    {/* Add Route */}
+                    <TouchableOpacity
+                        style={styles.quickAction}
+                        onPress={handleRoutes}
+                        activeOpacity={0.75}
+                    >
+                        <View style={styles.quickIconGreen}>
+                            <Ionicons
+                                name="add"
+                                size={28}
+                                color="#388E3C"
+                            />
+                        </View>
+
                         <Text style={styles.quickActionText}>
                             Add Route
                         </Text>
@@ -345,6 +458,42 @@ const styles = StyleSheet.create({
         },
     },
 
+    statIconBlue: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#EEF5FF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    statIconGreen: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#EEF8EF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    statIconOrange: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#FFF5E8',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    statIconPurple: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#F5EEFA',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
     statNumber: {
         fontSize: 24,
         fontWeight: '700',
@@ -423,9 +572,27 @@ const styles = StyleSheet.create({
         },
     },
 
+    quickIconBlue: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#EEF5FF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    quickIconGreen: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#EEF8EF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
     quickActionText: {
         marginTop: 8,
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
         color: '#1A2530',
     },
