@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
     Alert, KeyboardAvoidingView, Platform,
     ScrollView,
@@ -8,44 +8,15 @@ import {
     Text, TextInput, TouchableOpacity,
     View
 } from 'react-native';
-import { formatFriendlyDate, formatFriendlyTime, TimeOfDay } from '../utils/dateTime';
+import {
+    formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString,
+    TimeOfDay, toApiDateString, toApiTimeString
+} from '../utils/dateTime';
+import { getRecentSearches, RecentSearch, saveRecentSearch } from '../utils/recentSearchesStorage';
 import { TravelDatePickerModal } from './TravelDatePickerModal';
 import { TravelTimePickerModal } from './TravelTimePickerModal';
 
 type FieldName = 'origin' | 'destination';
-
-interface RecentSearch {
-    id: string;
-    origin: string;
-    destination: string;
-    historyLabel: string;
-    hour: number;
-    minute: number;
-    period: TimeOfDay['period'];
-}
-
-// Static demo data only — no backend/Firebase involved. For UI demonstration of the
-// Recent Searches pattern only.
-const RECENT_SEARCHES: RecentSearch[] = [
-    {
-        id: '1',
-        origin: 'Kaduwela',
-        destination: 'Battaramulla',
-        historyLabel: 'Today · 8:30 AM',
-        hour: 8,
-        minute: 30,
-        period: 'AM',
-    },
-    {
-        id: '2',
-        origin: 'Malabe',
-        destination: 'Kollupitiya',
-        historyLabel: 'Yesterday · 5:30 PM',
-        hour: 5,
-        minute: 30,
-        period: 'PM',
-    },
-];
 
 export const JourneyPlannerForm = () => {
     const [focusedInput, setFocusedInput] = useState<FieldName | null>(null);
@@ -59,6 +30,28 @@ export const JourneyPlannerForm = () => {
     const [selectedTime, setSelectedTime] = useState<TimeOfDay | null>(null);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
+
+    const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+    const [hasLoadedRecentSearches, setHasLoadedRecentSearches] = useState(false);
+
+    // Reload whenever the screen regains focus (e.g. returning from the results
+    // screen) so a just-saved search shows up without needing a full remount.
+    useFocusEffect(
+        useCallback(() => {
+            let isActive = true;
+
+            getRecentSearches().then((searches) => {
+                if (isActive) {
+                    setRecentSearches(searches);
+                    setHasLoadedRecentSearches(true);
+                }
+            });
+
+            return () => {
+                isActive = false;
+            };
+        }, [])
+    );
 
     const updateField = (field: FieldName, value: string) => {
         setFormData((prev) => ({ ...prev, [field]: value }));
@@ -77,8 +70,8 @@ export const JourneyPlannerForm = () => {
             origin: search.origin,
             destination: search.destination,
         });
-        setSelectedDate(new Date());
-        setSelectedTime({ hour: search.hour, minute: search.minute, period: search.period });
+        setSelectedDate(parseApiDateString(search.travelDate));
+        setSelectedTime(parseApiTimeString(search.travelTime));
     };
 
     const handleSelectDate = (date: Date) => {
@@ -91,24 +84,43 @@ export const JourneyPlannerForm = () => {
         setShowTimePicker(false);
     };
 
+    const showValidationMessage = (message: string) => {
+        if (Platform.OS === 'web') {
+            window.alert(message);
+        } else {
+            Alert.alert('Missing Information', message);
+        }
+    };
+
     const handleSearch = () => {
         if (!formData.origin.trim() || !formData.destination.trim()) {
-            const message = 'Please enter both a starting location and a destination.';
-            if (Platform.OS === 'web') {
-                window.alert(message);
-            } else {
-                Alert.alert('Missing Information', message);
-            }
+            showValidationMessage('Please enter both a starting location and a destination.');
             return;
         }
 
-        const summary = `From: ${formData.origin}\nTo: ${formData.destination}\nDate: ${selectedDate ? formatFriendlyDate(selectedDate) : 'Not selected'}\nTime: ${selectedTime ? formatFriendlyTime(selectedTime) : 'Not selected'}`;
-
-        if (Platform.OS === 'web') {
-            window.alert(`Journey details captured:\n\n${summary}`);
-        } else {
-            Alert.alert('Journey Details', summary, [{ text: 'OK' }]);
+        if (!selectedDate) {
+            showValidationMessage('Please select a travel date.');
+            return;
         }
+
+        if (!selectedTime) {
+            showValidationMessage('Please select a travel time.');
+            return;
+        }
+
+        const origin = formData.origin.trim();
+        const destination = formData.destination.trim();
+        const travelDate = toApiDateString(selectedDate);
+        const travelTime = toApiTimeString(selectedTime);
+
+        // Fire-and-forget: recent searches are a convenience feature and should
+        // never block or fail the actual navigation to results.
+        saveRecentSearch({ origin, destination, travelDate, travelTime }).catch(() => {});
+
+        router.push({
+            pathname: '/journey/results',
+            params: { origin, destination, travelDate, travelTime },
+        });
     };
 
     return (
@@ -287,33 +299,46 @@ export const JourneyPlannerForm = () => {
                 <View style={styles.recentSection}>
                     <Text style={styles.sectionTitle}>Recent Searches</Text>
 
-                    {RECENT_SEARCHES.map((search) => (
-                        <TouchableOpacity
-                            key={search.id}
-                            style={styles.recentCard}
-                            onPress={() => handleRepeatSearch(search)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Repeat search from ${search.origin} to ${search.destination}`}
-                            accessibilityHint={`${search.historyLabel}. Double tap to fill the journey form with this search`}
-                        >
-                            <View style={styles.recentIconBadge}>
-                                <Ionicons name="time-outline" size={20} color="#0066CC" />
-                            </View>
-                            <View style={styles.recentTextContainer}>
-                                <Text style={styles.recentOriginText} numberOfLines={1}>
-                                    {search.origin}
-                                </Text>
-                                <View style={styles.recentDestinationRow}>
-                                    <Ionicons name="arrow-forward" size={13} color="#64748B" style={{ marginRight: 4 }} />
-                                    <Text style={styles.recentDestinationText} numberOfLines={1}>
-                                        {search.destination}
-                                    </Text>
+                    {hasLoadedRecentSearches && recentSearches.length === 0 && (
+                        <View style={styles.recentEmptyState}>
+                            <Ionicons name="time-outline" size={22} color="#94A3B8" style={styles.recentEmptyIcon} />
+                            <Text style={styles.recentEmptyText}>
+                                No recent searches yet. Journeys you search for will show up here.
+                            </Text>
+                        </View>
+                    )}
+
+                    {recentSearches.map((search) => {
+                        const whenLabel = `${formatFriendlyDate(parseApiDateString(search.travelDate))} · ${formatFriendlyTime(parseApiTimeString(search.travelTime))}`;
+
+                        return (
+                            <TouchableOpacity
+                                key={search.id}
+                                style={styles.recentCard}
+                                onPress={() => handleRepeatSearch(search)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Repeat search from ${search.origin} to ${search.destination}`}
+                                accessibilityHint={`${whenLabel}. Double tap to fill the journey form with this search`}
+                            >
+                                <View style={styles.recentIconBadge}>
+                                    <Ionicons name="time-outline" size={20} color="#0066CC" />
                                 </View>
-                                <Text style={styles.recentWhenText}>{search.historyLabel}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={22} color="#94A3B8" />
-                        </TouchableOpacity>
-                    ))}
+                                <View style={styles.recentTextContainer}>
+                                    <Text style={styles.recentOriginText} numberOfLines={1}>
+                                        {search.origin}
+                                    </Text>
+                                    <View style={styles.recentDestinationRow}>
+                                        <Ionicons name="arrow-forward" size={13} color="#64748B" style={{ marginRight: 4 }} />
+                                        <Text style={styles.recentDestinationText} numberOfLines={1}>
+                                            {search.destination}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.recentWhenText}>{whenLabel}</Text>
+                                </View>
+                                <Ionicons name="chevron-forward" size={22} color="#94A3B8" />
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
             </ScrollView>
 
@@ -541,5 +566,24 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: '#64748B',
         marginTop: 4,
+    },
+    recentEmptyState: {
+        alignItems: 'center',
+        paddingVertical: 24,
+        paddingHorizontal: 16,
+        backgroundColor: '#F8FAFC',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    recentEmptyIcon: {
+        marginBottom: 8,
+    },
+    recentEmptyText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#64748B',
+        textAlign: 'center',
+        lineHeight: 20,
     },
 });

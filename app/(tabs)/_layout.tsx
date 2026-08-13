@@ -33,6 +33,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="journey/results"
+        options={{
+          // Reached via router.push from the Journey Planner search, not a standalone tab.
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
