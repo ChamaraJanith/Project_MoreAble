@@ -262,3 +262,79 @@ export async function PUT(request: Request) {
     );
   }
 }
+
+// DELETE /api/routes/:routeId
+export async function DELETE(request: Request) {
+  try {
+    const adminDb = getAdminDb();
+
+    // Get routeId from URL
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+
+    const routeId = pathParts[pathParts.length - 1];
+
+    console.log('DELETE Route ID:', routeId);
+
+    if (!routeId || routeId === 'routes') {
+      return Response.json(
+        {
+          success: false,
+          message: 'Route ID is required.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Firestore route reference
+    const routeRef = adminDb.collection('routes').doc(routeId);
+
+    // Check route exists
+    const routeDoc = await routeRef.get();
+
+    if (!routeDoc.exists) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Route not found.',
+        },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Delete route
+    await routeRef.delete();
+
+    return Response.json(
+      {
+        success: true,
+        message: 'Route deleted successfully.',
+        routeId,
+      },
+      {
+        status: 200,
+        headers: corsHeaders,
+      }
+    );
+  } catch (error: any) {
+    console.error('Delete Route API Error:', error);
+
+    return Response.json(
+      {
+        success: false,
+        message: 'Failed to delete route.',
+        error: error.message,
+      },
+      {
+        status: 500,
+        headers: corsHeaders,
+      }
+    );
+  }
+}
