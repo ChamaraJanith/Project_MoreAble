@@ -140,25 +140,59 @@ export async function POST(request: Request) {
 
       seatCapacity: Number(seatCapacity),
 
-      accessibilityFacilities: {
-        wheelchairRamp:
-          accessibilityFacilities?.wheelchairRamp ?? false,
+  accessibilityFacilities: {
+  wheelchairRamp:
+    accessibilityFacilities?.wheelchairRamp ?? false,
 
-        wheelchairSpace:
-          accessibilityFacilities?.wheelchairSpace ?? false,
+  audioAnnouncement:
+    accessibilityFacilities?.audioAnnouncement ?? false,
 
-        prioritySeats:
-          accessibilityFacilities?.prioritySeats ?? false,
+  lowFloorVehicle:
+    accessibilityFacilities?.lowFloorVehicle ?? false,
 
-        audioAnnouncement:
-          accessibilityFacilities?.audioAnnouncement ?? false,
+  walkingAssistance:
+    accessibilityFacilities?.walkingAssistance ?? false,
 
-        lowFloorVehicle:
-          accessibilityFacilities?.lowFloorVehicle ?? false,
+  wheelchairSpace: {
+    available:
+      accessibilityFacilities?.wheelchairSpace?.available ?? false,
 
-        walkingAssistance:
-          accessibilityFacilities?.walkingAssistance ?? false,
-      },
+    count:
+      accessibilityFacilities?.wheelchairSpace?.available
+        ? Number(accessibilityFacilities?.wheelchairSpace?.count ?? 0)
+        : 0,
+  },
+
+  guardianSeats: {
+    available:
+      accessibilityFacilities?.guardianSeats?.available ?? false,
+
+    count:
+      accessibilityFacilities?.guardianSeats?.available
+        ? Number(accessibilityFacilities?.guardianSeats?.count ?? 0)
+        : 0,
+  },
+
+  prioritySeats: {
+    available:
+      accessibilityFacilities?.prioritySeats?.available ?? false,
+
+    count:
+      accessibilityFacilities?.prioritySeats?.available
+        ? Number(accessibilityFacilities?.prioritySeats?.count ?? 0)
+        : 0,
+  },
+
+  elderlySeats: {
+    available:
+      accessibilityFacilities?.elderlySeats?.available ?? false,
+
+    count:
+      accessibilityFacilities?.elderlySeats?.available
+        ? Number(accessibilityFacilities?.elderlySeats?.count ?? 0)
+        : 0,
+  },
+},
 
       status: status || 'ACTIVE',
 
