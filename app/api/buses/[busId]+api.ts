@@ -6,7 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-// OPTIONS /api/buses/:identifier
+// --------------------------------------------------
+// OPTIONS
+// --------------------------------------------------
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -14,26 +16,69 @@ export async function OPTIONS() {
   });
 }
 
-// GET /api/buses/:identifier
-//
-// Can retrieve using:
-// 1. Bus ID      -> /api/buses/BUS-00001
-// 2. Number Plate -> /api/buses/NB-1234
-//
-export async function GET(request: Request) {
+
+// --------------------------------------------------
+// Resolve a bus using either Bus ID or Number Plate
+// Example:
+// BUS-00003 -> finds by document ID
+// NB-8899   -> finds by numberPlate
+// --------------------------------------------------
+async function resolveBus(adminDb: any, identifier: string) {
+  const value = identifier.trim();
+
+  // 1. Try Bus ID first
+  const busRef = adminDb.collection('buses').doc(value);
+  const busDoc = await busRef.get();
+
+  if (busDoc.exists) {
+    return {
+      busRef,
+      busDoc,
+    };
+  }
+
+  // 2. If not found, try Number Plate
+  const numberPlate = value.toUpperCase();
+
+  const snapshot = await adminDb
+    .collection('buses')
+    .where('numberPlate', '==', numberPlate)
+    .limit(1)
+    .get();
+
+  if (!snapshot.empty) {
+    const doc = snapshot.docs[0];
+
+    return {
+      busRef: adminDb.collection('buses').doc(doc.id),
+      busDoc: doc,
+    };
+  }
+
+  return null;
+}
+
+// --------------------------------------------------
+// GET /api/buses/:busId
+// --------------------------------------------------
+export async function GET(
+  request: Request,
+  context: any
+) {
   try {
-    // --------------------------------
-    // Get identifier from URL
-    // --------------------------------
-    const url = new URL(request.url);
+    const adminDb = getAdminDb();
 
-    const pathParts = url.pathname.split('/').filter(Boolean);
+    // Get identifier safely from Expo Router context
+    // Identifier can be either BUS-00001 or a number plate such as NB-8899.
+    let identifier = context?.params?.busId;
 
-    const identifier = pathParts[pathParts.length - 1];
+    // Fallback: extract identifier from URL
+    if (!identifier) {
+      const url = new URL(request.url);
+      const parts = url.pathname.split('/').filter(Boolean);
+      identifier = parts[parts.length - 1];
+    }
 
-    // --------------------------------
-    // Validate identifier
-    // --------------------------------
     if (!identifier) {
       return Response.json(
         {
@@ -47,52 +92,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const searchValue = decodeURIComponent(identifier)
-      .trim()
-      .toUpperCase();
+    const resolvedBus = await resolveBus(adminDb, identifier);
 
-    const adminDb = getAdminDb();
-
-    let busDoc;
-
-    // --------------------------------
-    // Search by Bus ID
-    // Example:
-    // BUS-00001
-    // --------------------------------
-    if (searchValue.startsWith('BUS-')) {
-      busDoc = await adminDb
-        .collection('buses')
-        .doc(searchValue)
-        .get();
-    }
-
-    // --------------------------------
-    // Search by Number Plate
-    // Example:
-    // NB-1234
-    // --------------------------------
-    else {
-      const snapshot = await adminDb
-        .collection('buses')
-        .where('numberPlate', '==', searchValue)
-        .limit(1)
-        .get();
-
-      if (!snapshot.empty) {
-        busDoc = snapshot.docs[0];
-      }
-    }
-
-    // --------------------------------
-    // Bus not found
-    // --------------------------------
-    if (!busDoc || !busDoc.exists) {
+    if (!resolvedBus) {
       return Response.json(
         {
           success: false,
           message: 'Bus not found.',
-          searchValue,
         },
         {
           status: 404,
@@ -101,22 +107,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // --------------------------------
-    // Prepare bus data
-    // --------------------------------
-    const bus = {
-      ...busDoc.data(),
-      documentId: busDoc.id,
-    };
-
-    // --------------------------------
-    // Success response
-    // --------------------------------
     return Response.json(
       {
         success: true,
         message: 'Bus retrieved successfully.',
-        bus,
+        bus: resolvedBus.busDoc.data(),
       },
       {
         status: 200,
@@ -140,20 +135,34 @@ export async function GET(request: Request) {
   }
 }
 
-
+// --------------------------------------------------
 // PUT /api/buses/:busId
-export async function PUT(request: Request) {
+// --------------------------------------------------
+export async function PUT(
+  request: Request,
+  context: any
+) {
   try {
-    const url = new URL(request.url);
-    const pathParts = url.pathname.split('/').filter(Boolean);
+    const adminDb = getAdminDb();
 
-    const busId = pathParts[pathParts.length - 1];
+    // --------------------------------------------------
+    // Get identifier safely
+    // Identifier can be either Bus ID or Number Plate.
+    // --------------------------------------------------
+    let identifier = context?.params?.busId;
 
-    if (!busId || busId === 'buses') {
+    // Fallback if Expo Router context params are unavailable
+    if (!identifier) {
+      const url = new URL(request.url);
+      const parts = url.pathname.split('/').filter(Boolean);
+      identifier = parts[parts.length - 1];
+    }
+
+    if (!identifier) {
       return Response.json(
         {
           success: false,
-          message: 'Bus ID is required.',
+          message: 'Bus ID or number plate is required.',
         },
         {
           status: 400,
@@ -162,12 +171,34 @@ export async function PUT(request: Request) {
       );
     }
 
-    const normalizedBusId = decodeURIComponent(busId)
-      .trim()
-      .toUpperCase();
+    // --------------------------------------------------
+    // Find bus by Bus ID OR Number Plate
+    // --------------------------------------------------
+    const resolvedBus = await resolveBus(adminDb, identifier);
 
+    if (!resolvedBus) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Bus not found.',
+        },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // --------------------------------------------------
+    // Read request body
+    // --------------------------------------------------
     const body = await request.json();
 
+    // --------------------------------------------------
+    // IMPORTANT:
+    // numberPlate is intentionally NOT accepted.
+    // It cannot be updated through this API.
+    // --------------------------------------------------
     const {
       chassisNumber,
       busModel,
@@ -178,82 +209,22 @@ export async function PUT(request: Request) {
       status,
     } = body;
 
-    const adminDb = getAdminDb();
-
-    const busRef = adminDb
-      .collection('buses')
-      .doc(normalizedBusId);
-
-    const busDoc = await busRef.get();
-
-    // Check bus exists
-    if (!busDoc.exists) {
-      return Response.json(
-        {
-          success: false,
-          message: 'Bus not found.',
-          busId: normalizedBusId,
-        },
-        {
-          status: 404,
-          headers: corsHeaders,
-        }
-      );
-    }
-
+    // --------------------------------------------------
     // Build update object
-    const updateData: Record<string, any> = {
-      updatedAt: new Date(),
-    };
+    // Only fields provided by frontend will be updated.
+    // --------------------------------------------------
+    const updates: Record<string, any> = {};
 
+    // Chassis Number
     if (chassisNumber !== undefined) {
-      updateData.chassisNumber = chassisNumber.trim();
-    }
-
-    if (busModel !== undefined) {
-      updateData.busModel = busModel.trim();
-    }
-
-    if (manufacturer !== undefined) {
-      updateData.manufacturer = manufacturer.trim();
-    }
-
-    if (manufactureYear !== undefined) {
-      updateData.manufactureYear = Number(manufactureYear);
-    }
-
-    if (seatCapacity !== undefined) {
-      updateData.seatCapacity = Number(seatCapacity);
-    }
-
-    if (accessibilityFacilities !== undefined) {
-      updateData.accessibilityFacilities = {
-        wheelchairRamp:
-          accessibilityFacilities?.wheelchairRamp ?? false,
-
-        wheelchairSpace:
-          accessibilityFacilities?.wheelchairSpace ?? false,
-
-        prioritySeats:
-          accessibilityFacilities?.prioritySeats ?? false,
-
-        audioAnnouncement:
-          accessibilityFacilities?.audioAnnouncement ?? false,
-
-        lowFloorVehicle:
-          accessibilityFacilities?.lowFloorVehicle ?? false,
-
-        walkingAssistance:
-          accessibilityFacilities?.walkingAssistance ?? false,
-      };
-    }
-
-    if (status !== undefined) {
-      if (!['ACTIVE', 'INACTIVE'].includes(status)) {
+      if (
+        typeof chassisNumber !== 'string' ||
+        !chassisNumber.trim()
+      ) {
         return Response.json(
           {
             success: false,
-            message: 'Status must be ACTIVE or INACTIVE.',
+            message: 'Invalid chassis number.',
           },
           {
             status: 400,
@@ -262,25 +233,316 @@ export async function PUT(request: Request) {
         );
       }
 
-      updateData.status = status;
+      updates.chassisNumber = chassisNumber.trim();
     }
 
+    // Bus Model
+    if (busModel !== undefined) {
+      if (
+        typeof busModel !== 'string' ||
+        !busModel.trim()
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message: 'Invalid bus model.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.busModel = busModel.trim();
+    }
+
+    // Manufacturer
+    if (manufacturer !== undefined) {
+      if (
+        typeof manufacturer !== 'string' ||
+        !manufacturer.trim()
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message: 'Invalid manufacturer.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.manufacturer = manufacturer.trim();
+    }
+
+    // Manufacture Year
+    if (manufactureYear !== undefined) {
+      const year = Number(manufactureYear);
+
+      if (
+        !Number.isInteger(year) ||
+        year < 1900 ||
+        year > new Date().getFullYear()
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message: 'Invalid manufacture year.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.manufactureYear = year;
+    }
+
+    // Seat Capacity
+    if (seatCapacity !== undefined) {
+      const capacity = Number(seatCapacity);
+
+      if (
+        !Number.isInteger(capacity) ||
+        capacity <= 0
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message: 'Seat capacity must be a positive number.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.seatCapacity = capacity;
+    }
+
+    // --------------------------------------------------
+    // Accessibility Facilities
+    //
+    // New format:
+    //
+    // wheelchairRamp: boolean
+    // audioAnnouncement: boolean
+    // lowFloorVehicle: boolean
+    // walkingAssistance: boolean
+    //
+    // wheelchairSpace:
+    // {
+    //   available: boolean,
+    //   count: number
+    // }
+    //
+    // guardianSeats:
+    // {
+    //   available: boolean,
+    //   count: number
+    // }
+    //
+    // prioritySeats:
+    // {
+    //   available: boolean,
+    //   count: number
+    // }
+    //
+    // elderlySeats:
+    // {
+    //   available: boolean,
+    //   count: number
+    // }
+    // --------------------------------------------------
+    if (accessibilityFacilities !== undefined) {
+      if (
+        typeof accessibilityFacilities !== 'object' ||
+        accessibilityFacilities === null
+      ) {
+        return Response.json(
+          {
+            success: false,
+            message: 'Invalid accessibility facilities.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      const accessibility: Record<string, any> = {};
+
+      // Simple boolean facilities
+      const booleanFacilities = [
+        'wheelchairRamp',
+        'audioAnnouncement',
+        'lowFloorVehicle',
+        'walkingAssistance',
+      ];
+
+      for (const field of booleanFacilities) {
+        if (accessibilityFacilities[field] !== undefined) {
+          if (
+            typeof accessibilityFacilities[field] !== 'boolean'
+          ) {
+            return Response.json(
+              {
+                success: false,
+                message: `${field} must be true or false.`,
+              },
+              {
+                status: 400,
+                headers: corsHeaders,
+              }
+            );
+          }
+
+          accessibility[field] =
+            accessibilityFacilities[field];
+        }
+      }
+
+      // Facilities with availability + count
+      const countFacilities = [
+        'wheelchairSpace',
+        'guardianSeats',
+        'prioritySeats',
+        'elderlySeats',
+      ];
+
+      for (const field of countFacilities) {
+        const facility = accessibilityFacilities[field];
+
+        if (facility !== undefined) {
+          if (
+            typeof facility !== 'object' ||
+            facility === null
+          ) {
+            return Response.json(
+              {
+                success: false,
+                message: `Invalid ${field} format.`,
+              },
+              {
+                status: 400,
+                headers: corsHeaders,
+              }
+            );
+          }
+
+          const available = facility.available;
+          const count =
+            facility.count === undefined
+              ? 0
+              : Number(facility.count);
+
+          if (typeof available !== 'boolean') {
+            return Response.json(
+              {
+                success: false,
+                message: `${field}.available must be true or false.`,
+              },
+              {
+                status: 400,
+                headers: corsHeaders,
+              }
+            );
+          }
+
+          if (
+            !Number.isInteger(count) ||
+            count < 0
+          ) {
+            return Response.json(
+              {
+                success: false,
+                message: `${field}.count must be a non-negative number.`,
+              },
+              {
+                status: 400,
+                headers: corsHeaders,
+              }
+            );
+          }
+
+          // If facility is unavailable, count should be 0
+          accessibility[field] = {
+            available,
+            count: available ? count : 0,
+          };
+        }
+      }
+
+      updates.accessibilityFacilities = accessibility;
+    }
+
+    // Status
+    if (status !== undefined) {
+      const allowedStatuses = [
+        'ACTIVE',
+        'INACTIVE',
+        'MAINTENANCE',
+      ];
+
+      if (!allowedStatuses.includes(status)) {
+        return Response.json(
+          {
+            success: false,
+            message:
+              'Invalid status. Allowed values: ACTIVE, INACTIVE, MAINTENANCE.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.status = status;
+    }
+
+    // --------------------------------------------------
+    // Prevent empty update
+    // --------------------------------------------------
+    if (Object.keys(updates).length === 0) {
+      return Response.json(
+        {
+          success: false,
+          message: 'No valid fields were provided for update.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // --------------------------------------------------
+    // Updated timestamp
+    // --------------------------------------------------
+    updates.updatedAt = new Date();
+
+    // --------------------------------------------------
     // Update Firestore
-    await busRef.update(updateData);
+    // --------------------------------------------------
+    await resolvedBus.busRef.update(updates);
 
+    // --------------------------------------------------
     // Get updated bus
-    const updatedBusDoc = await busRef.get();
-
-    const updatedBus = {
-      ...updatedBusDoc.data(),
-      documentId: updatedBusDoc.id,
-    };
+    // --------------------------------------------------
+    const updatedBusDoc = await resolvedBus.busRef.get();
 
     return Response.json(
       {
         success: true,
         message: 'Bus updated successfully.',
-        bus: updatedBus,
+        bus: updatedBusDoc.data(),
       },
       {
         status: 200,
@@ -304,19 +566,30 @@ export async function PUT(request: Request) {
   }
 }
 
+// --------------------------------------------------
 // DELETE /api/buses/:busId
-export async function DELETE(request: Request) {
+// --------------------------------------------------
+export async function DELETE(
+  request: Request,
+  context: any
+) {
   try {
-    const url = new URL(request.url);
-    const pathParts = url.pathname.split('/').filter(Boolean);
+    const adminDb = getAdminDb();
 
-    const busId = pathParts[pathParts.length - 1];
+    let identifier = context?.params?.busId;
 
-    if (!busId || busId === 'buses') {
+    // Fallback for Expo Router
+    if (!identifier) {
+      const url = new URL(request.url);
+      const parts = url.pathname.split('/').filter(Boolean);
+      identifier = parts[parts.length - 1];
+    }
+
+    if (!identifier) {
       return Response.json(
         {
           success: false,
-          message: 'Bus ID is required.',
+          message: 'Bus ID or number plate is required.',
         },
         {
           status: 400,
@@ -325,25 +598,14 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const normalizedBusId = decodeURIComponent(busId)
-      .trim()
-      .toUpperCase();
+    // Find bus by Bus ID OR Number Plate
+    const resolvedBus = await resolveBus(adminDb, identifier);
 
-    const adminDb = getAdminDb();
-
-    const busRef = adminDb
-      .collection('buses')
-      .doc(normalizedBusId);
-
-    const busDoc = await busRef.get();
-
-    // Check whether bus exists
-    if (!busDoc.exists) {
+    if (!resolvedBus) {
       return Response.json(
         {
           success: false,
           message: 'Bus not found.',
-          busId: normalizedBusId,
         },
         {
           status: 404,
@@ -352,14 +614,13 @@ export async function DELETE(request: Request) {
       );
     }
 
-    // Delete bus
-    await busRef.delete();
+    await resolvedBus.busRef.delete();
 
     return Response.json(
       {
         success: true,
         message: 'Bus deleted successfully.',
-        busId: normalizedBusId,
+        busId: resolvedBus.busDoc.data()?.busId,
       },
       {
         status: 200,
