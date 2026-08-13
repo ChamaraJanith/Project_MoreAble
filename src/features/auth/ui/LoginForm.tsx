@@ -9,10 +9,9 @@ import {
     Text, TextInput, TouchableOpacity,
     View
 } from 'react-native';
-import { API_BASE_URL } from '../../../shared/api/config';
+import { useAuthStore } from '../../../shared/store/authStore';
 
 export const LoginForm = () => {
-    const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
@@ -21,6 +20,9 @@ export const LoginForm = () => {
         password: '',
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+
+    // Use Zustand auth store for login
+    const { login, isLoading } = useAuthStore();
 
     const validateForm = () => {
         let newErrors: Record<string, string> = {};
@@ -39,43 +41,26 @@ export const LoginForm = () => {
     const handleLogin = async () => {
         if (!validateForm()) return;
 
-        setIsLoading(true);
+        const result = await login(formData.identifier, formData.password);
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
-            });
+        if (result.success) {
+            const successMsg = result.isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
+            const targetRoute = result.isAdmin ? '/(admin)' : '/(tabs)';
 
-            let result: any = {};
-            try {
-                result = await response.json();
-            } catch (parseError) {
-                console.error('Failed to parse JSON response:', parseError);
-            }
-
-            if (response.ok) {
-                const isAdmin = result.user?.role === 'ADMIN';
-                const successMsg = isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
-                const targetRoute = isAdmin ? '/(admin)' : '/(tabs)';
-
-                if (Platform.OS === 'web') {
-                    window.alert(successMsg);
-                    router.replace(targetRoute);
-                } else {
-                    Alert.alert('Success', successMsg, [
-                        { text: 'OK', onPress: () => router.replace(targetRoute) }
-                    ]);
-                }
+            if (Platform.OS === 'web') {
+                window.alert(successMsg);
+                router.replace(targetRoute);
             } else {
-                Alert.alert('Login Failed', result.message || 'Invalid credentials');
+                Alert.alert('Success', successMsg, [
+                    { text: 'OK', onPress: () => router.replace(targetRoute) }
+                ]);
             }
-        } catch (error) {
-            console.error('Login Error:', error);
-            Alert.alert('Error', 'Network error. Please try again later.');
-        } finally {
-            setIsLoading(false);
+        } else {
+            if (Platform.OS === 'web') {
+                window.alert(result.message);
+            } else {
+                Alert.alert('Login Failed', result.message);
+            }
         }
     };
 

@@ -1,4 +1,5 @@
 //We Use register+api.ts because this is a backend file.
+import bcrypt from 'bcryptjs';
 import { Guardian, User, UserRegistrationDTO } from '../../../src/entities/user/model/types';
 import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { parseSriLankanNic } from '../../../src/shared/utils/nicUtils';
@@ -40,6 +41,13 @@ export async function POST(request: Request) {
             });
         } catch (authError: any) {
             return Response.json({ message: authError.message }, { status: 400, headers: corsHeaders });
+        }
+
+        // Hash password with bcrypt for Firestore storage (used for JWT-based login verification)
+        let passwordHash = '';
+        if (data.password) {
+            const SALT_ROUNDS = 10;
+            passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
         }
 
         const uid = userRecord.uid;
@@ -90,7 +98,7 @@ export async function POST(request: Request) {
             await guardianRef.set(guardianRecord);
         }
 
-        // 3. Save User in Firestore 'users' collection
+        // 3. Save User in Firestore 'users' collection (with passwordHash for JWT auth)
         const newUser: User = {
             uid: uid,
             passengerId: passengerId,
@@ -108,7 +116,11 @@ export async function POST(request: Request) {
             updatedAt: now,
         };
 
-        await adminDb.collection('users').doc(passengerId).set(newUser);
+        // Save user document with passwordHash (not included in User type to keep it out of API responses)
+        await adminDb.collection('users').doc(passengerId).set({
+            ...newUser,
+            passwordHash,
+        });
         try {
             const otp = Math.floor(100000 + Math.random() * 900000).toString();
             await adminDb.collection('otp_codes').doc(data.phoneNumber).set({
