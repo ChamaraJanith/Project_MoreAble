@@ -52,3 +52,34 @@ export interface TimeOfDay {
 export function formatFriendlyTime(time: TimeOfDay): string {
     return `${time.hour}:${time.minute.toString().padStart(2, '0')} ${time.period}`;
 }
+
+// Converts a selected date to the 'YYYY-MM-DD' format the Journey Search API expects.
+export function toApiDateString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// Converts a selected 12-hour time to the 24-hour 'HH:MM' format the Journey Search API expects.
+export function toApiTimeString(time: TimeOfDay): string {
+    let hour24 = time.hour % 12;
+    if (time.period === 'PM') {
+        hour24 += 12;
+    }
+    return `${String(hour24).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
+}
+
+export function parseApiDateString(value: string): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, (month || 1) - 1, day || 1);
+}
+
+export function parseApiTimeString(value: string): TimeOfDay {
+    const [hourStr, minuteStr] = value.split(':');
+    const hour24 = Number(hourStr) || 0;
+    const minute = Number(minuteStr) || 0;
+    const period: TimeOfDay['period'] = hour24 >= 12 ? 'PM' : 'AM';
+    const hour = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    return { hour, minute, period };
+}
