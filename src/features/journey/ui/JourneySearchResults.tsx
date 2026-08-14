@@ -1,13 +1,34 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { JourneySearchMatch } from '../../../entities/route/model/types';
+import { JourneySearchMatch, JourneySearchOption } from '../../../entities/route/model/types';
 import { searchJourneys } from '../api/journeySearchApi';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
-import { RouteResultCard } from './RouteResultCard';
+import { JourneyOptionCard } from './JourneyOptionCard';
 
-type ResultsStatus = 'loading' | 'success' | 'empty' | 'error';
+type ResultsStatus = 'loading' | 'loaded' | 'error';
+
+interface JourneyOption {
+    key: string;
+    route: JourneySearchMatch;
+    option: JourneySearchOption;
+}
+
+// Every trip becomes its own journey option, ordered by departure time across all
+// matched routes — so two trips on the same route appear as separate, comparable
+// departures rather than being collapsed together.
+function toJourneyOptions(routes: JourneySearchMatch[]): JourneyOption[] {
+    return routes
+        .flatMap((route) =>
+            route.trips.map((option) => ({
+                key: `${route.routeId}-${option.trip.tripId}`,
+                route,
+                option,
+            }))
+        )
+        .sort((a, b) => a.option.trip.departureTime.localeCompare(b.option.trip.departureTime));
+}
 
 export const JourneySearchResults = () => {
     const params = useLocalSearchParams<{
@@ -34,8 +55,8 @@ export const JourneySearchResults = () => {
 
         try {
             const response = await searchJourneys({ origin, destination, travelDate, travelTime });
-            setRoutes(response.routes);
-            setStatus(response.routes.length > 0 ? 'success' : 'empty');
+            setRoutes(Array.isArray(response.routes) ? response.routes : []);
+            setStatus('loaded');
         } catch (error: any) {
             setErrorMessage(error?.message || 'Something went wrong while searching for routes.');
             setStatus('error');
@@ -46,12 +67,19 @@ export const JourneySearchResults = () => {
         runSearch();
     }, [runSearch]);
 
+    const journeyOptions = useMemo(() => toJourneyOptions(routes), [routes]);
+
     const handleEditSearch = () => {
         router.back();
     };
 
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
     const friendlyTime = travelTime ? formatFriendlyTime(parseApiTimeString(travelTime)) : '';
+
+    // A route can match without having any upcoming departure, so the two empty
+    // cases need different explanations.
+    const hasMatchedRoutes = routes.length > 0;
+    const isEmpty = status === 'loaded' && journeyOptions.length === 0;
 
     return (
         <View style={styles.container}>
@@ -95,6 +123,7 @@ export const JourneySearchResults = () => {
                         </View>
 
                         <TouchableOpacity
+                            style={styles.editSearchButton}
                             onPress={handleEditSearch}
                             accessibilityRole="button"
                             accessibilityLabel="Edit Search"
@@ -105,22 +134,31 @@ export const JourneySearchResults = () => {
                     </View>
                 </View>
 
-                {/* Content */}
+                {/* Loading */}
                 {status === 'loading' && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
                         <ActivityIndicator size="large" color="#0066CC" />
-                        <Text style={styles.stateText}>Searching for accessible routes…</Text>
+                        <Text style={styles.stateText}>Finding available departures…</Text>
                     </View>
                 )}
 
-                {status === 'empty' && (
+                {/* Empty */}
+                {isEmpty && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
                         <View style={styles.stateIconBadge}>
-                            <Ionicons name="search-outline" size={32} color="#94A3B8" />
+                            <Ionicons
+                                name={hasMatchedRoutes ? 'time-outline' : 'search-outline'}
+                                size={32}
+                                color="#94A3B8"
+                            />
                         </View>
-                        <Text style={styles.stateTitle}>No routes found</Text>
+                        <Text style={styles.stateTitle}>
+                            {hasMatchedRoutes ? 'No departures left' : 'No routes found'}
+                        </Text>
                         <Text style={styles.stateDescription}>
-                            We couldn&apos;t find a route from {origin} to {destination}. Try a nearby location or double-check your search.
+                            {hasMatchedRoutes
+                                ? `Buses do run between ${origin} and ${destination}, but none are scheduled to depart at or after ${friendlyTime}. Try an earlier time.`
+                                : `We couldn't find a route from ${origin} to ${destination}. Try a nearby stop or check the spelling.`}
                         </Text>
                         <TouchableOpacity
                             style={styles.stateButton}
@@ -133,6 +171,7 @@ export const JourneySearchResults = () => {
                     </View>
                 )}
 
+                {/* Error */}
                 {status === 'error' && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="assertive">
                         <View style={[styles.stateIconBadge, styles.stateIconBadgeError]}>
@@ -159,13 +198,14 @@ export const JourneySearchResults = () => {
                     </View>
                 )}
 
-                {status === 'success' && (
+                {/* Results */}
+                {status === 'loaded' && journeyOptions.length > 0 && (
                     <>
                         <Text style={styles.resultsCountText}>
-                            {routes.length} route{routes.length > 1 ? 's' : ''} found
+                            {journeyOptions.length} journey option{journeyOptions.length > 1 ? 's' : ''} · soonest first
                         </Text>
-                        {routes.map((route) => (
-                            <RouteResultCard key={route.routeId} route={route} />
+                        {journeyOptions.map(({ key, route, option }) => (
+                            <JourneyOptionCard key={key} route={route} option={option} />
                         ))}
                     </>
                 )}
@@ -245,6 +285,11 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '500',
         color: '#64748B',
+    },
+    editSearchButton: {
+        minHeight: 44,
+        justifyContent: 'center',
+        paddingLeft: 12,
     },
     editSearchText: {
         fontSize: 14,

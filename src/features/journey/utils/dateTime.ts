@@ -83,3 +83,32 @@ export function parseApiTimeString(value: string): TimeOfDay {
     const hour = hour24 % 12 === 0 ? 12 : hour24 % 12;
     return { hour, minute, period };
 }
+
+// Formats the gap between two 'HH:MM' times as e.g. "1h 10m" / "45m".
+// An arrival earlier than the departure is treated as crossing midnight.
+export function formatDurationBetween(
+    departureTime: string,
+    arrivalTime: string
+): string | null {
+    const toMinutes = (value: string): number | null => {
+        const [hourStr, minuteStr] = value.split(':');
+        const hours = Number(hourStr);
+        const minutes = Number(minuteStr);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+        return hours * 60 + minutes;
+    };
+
+    const start = toMinutes(departureTime);
+    const end = toMinutes(arrivalTime);
+    if (start === null || end === null) return null;
+
+    const totalMinutes = end >= start ? end - start : end + 24 * 60 - start;
+    if (totalMinutes === 0) return null;
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+}

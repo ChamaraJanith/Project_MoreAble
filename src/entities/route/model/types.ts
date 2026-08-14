@@ -16,7 +16,7 @@ export interface Route {
     updatedAt?: unknown;
 }
 
-// The next upcoming trip for a matched route, relative to the requested travel time.
+// A scheduled trip on a matched route, departing at/after the requested travel time.
 export interface JourneySearchTrip {
     tripId: string;
     departureTime: string;
@@ -35,6 +35,14 @@ export interface JourneySearchBus {
     accessibilityFacilities: BusAccessibilityFacilities;
 }
 
+// One travellable journey option: a specific trip on a matched route, together
+// with the bus operating it. `bus` is null only when the referenced bus document
+// is missing, so the UI can still show the departure without crashing.
+export interface JourneySearchOption {
+    trip: JourneySearchTrip;
+    bus: JourneySearchBus | null;
+}
+
 export interface JourneySearchMatch {
     routeId: string;
     routeNumber: string;
@@ -47,8 +55,7 @@ export interface JourneySearchMatch {
     journeyStops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
-    // Earliest ACTIVE trip departing at/after the requested travel time, and its
-    // bus — null when the route matched but no such trip currently exists.
-    trip: JourneySearchTrip | null;
-    bus: JourneySearchBus | null;
+    // Every ACTIVE trip departing at/after the requested travel time, ordered
+    // earliest first. Empty when the route matches but has no upcoming trip.
+    trips: JourneySearchOption[];
 }
