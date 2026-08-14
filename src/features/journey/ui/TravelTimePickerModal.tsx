@@ -8,6 +8,8 @@ interface TravelTimePickerModalProps {
     selectedTime: TimeOfDay | null;
     onClose: () => void;
     onConfirm: (time: TimeOfDay) => void;
+    /** Overrides the sheet heading so the picker can be reused for other times. */
+    title?: string;
 }
 
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -15,7 +17,13 @@ const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 const PERIODS: TimeOfDay['period'][] = ['AM', 'PM'];
 const DEFAULT_TIME: TimeOfDay = { hour: 8, minute: 0, period: 'AM' };
 
-export function TravelTimePickerModal({ visible, selectedTime, onClose, onConfirm }: TravelTimePickerModalProps) {
+export function TravelTimePickerModal({
+    visible,
+    selectedTime,
+    onClose,
+    onConfirm,
+    title = 'Select Travel Time',
+}: TravelTimePickerModalProps) {
     const [draft, setDraft] = useState<TimeOfDay>(selectedTime ?? DEFAULT_TIME);
 
     // Reset the working selection to match the current field value each time the picker opens.
@@ -42,7 +50,7 @@ export function TravelTimePickerModal({ visible, selectedTime, onClose, onConfir
                 <View style={styles.sheet}>
                     <View style={styles.sheetHeader}>
                         <Text style={styles.sheetTitle} accessibilityRole="header">
-                            Select Travel Time
+                            {title}
                         </Text>
                         <TouchableOpacity
                             onPress={onClose}

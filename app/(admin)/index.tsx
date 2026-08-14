@@ -38,6 +38,11 @@ export default function AdminDashboard() {
         );
     };
 
+    // Trips (bus turns) — connected to the Add Trip screen.
+    const handleTrips = () => {
+        router.push('/(admin)/trips/add');
+    };
+
     const handleReports = () => {
         Alert.alert(
             'Accessibility Reports',
@@ -247,6 +252,37 @@ export default function AdminDashboard() {
                     />
                 </TouchableOpacity>
 
+                {/* Trips */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleTrips}
+                    activeOpacity={0.75}
+                >
+                    <View style={styles.iconContainer}>
+                        <Ionicons
+                            name="time-outline"
+                            size={30}
+                            color="#0288D1"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <Text style={styles.cardTitle}>
+                            Trips
+                        </Text>
+
+                        <Text style={styles.cardDescription}>
+                            Schedule bus turns for each route
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
                 {/* Accessibility Reports */}
                 <TouchableOpacity
                     style={styles.managementCard}
@@ -350,6 +386,25 @@ export default function AdminDashboard() {
 
                         <Text style={styles.quickActionText}>
                             Add Route
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Add Trip */}
+                    <TouchableOpacity
+                        style={styles.quickAction}
+                        onPress={handleTrips}
+                        activeOpacity={0.75}
+                    >
+                        <View style={styles.quickIconCyan}>
+                            <Ionicons
+                                name="add"
+                                size={28}
+                                color="#0288D1"
+                            />
+                        </View>
+
+                        <Text style={styles.quickActionText}>
+                            Add Trip
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -553,6 +608,7 @@ const styles = StyleSheet.create({
 
     quickActions: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'space-between',
     },
 
@@ -561,6 +617,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
         padding: 16,
+        marginBottom: 12,
         alignItems: 'center',
         elevation: 2,
         shadowColor: '#000',
@@ -586,6 +643,15 @@ const styles = StyleSheet.create({
         height: 48,
         borderRadius: 24,
         backgroundColor: '#EEF8EF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    quickIconCyan: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#E5F4FB',
         justifyContent: 'center',
         alignItems: 'center',
     },
