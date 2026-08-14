@@ -13,15 +13,18 @@ import {
 } from 'react-native';
 import { Bus } from '../../src/entities/bus/model/types';
 import { Route } from '../../src/entities/route/model/types';
+import { Stop } from '../../src/entities/stop/model/types';
+import { Trip } from '../../src/entities/trip/model/types';
 import { getBuses } from '../../src/features/admin/api/busAdminApi';
 import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
+import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
-import { Trip } from '../../src/entities/trip/model/types';
 
 export default function AdminDashboard() {
     const [buses, setBuses] = useState<Bus[] | null>(null);
     const [routes, setRoutes] = useState<Route[] | null>(null);
     const [trips, setTrips] = useState<Trip[] | null>(null);
+    const [stops, setStops] = useState<Stop[] | null>(null);
     const [isLoadingOverview, setIsLoadingOverview] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [overviewError, setOverviewError] = useState('');
@@ -32,14 +35,16 @@ export default function AdminDashboard() {
         setOverviewError('');
 
         try {
-            const [busList, routeList, tripList] = await Promise.all([
+            const [busList, routeList, tripList, stopList] = await Promise.all([
                 getBuses(),
                 getRoutes(),
                 getTrips(),
+                getStops(),
             ]);
             setBuses(busList);
             setRoutes(routeList);
             setTrips(tripList);
+            setStops(stopList);
         } catch (error: any) {
             setOverviewError(error?.message || 'Unable to load dashboard data.');
         } finally {
@@ -80,6 +85,14 @@ export default function AdminDashboard() {
             inactive: trips.filter((trip) => trip.status === 'INACTIVE').length,
         };
     }, [trips]);
+
+    const handleStops = () => {
+        router.push('/(admin)/stops');
+    };
+
+    const handleAddStop = () => {
+        router.push('/(admin)/stops/add');
+    };
 
     const handleLogout = () => {
         router.replace('/(auth)');
@@ -309,6 +322,37 @@ export default function AdminDashboard() {
                         )}
                     </TouchableOpacity>
 
+                    {/* Total Stops */}
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleStops}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            stops ? `Total stops ${stops.length}.` : 'Total stops, loading'
+                        }
+                    >
+                        <View style={styles.statIconTeal}>
+                            <Ionicons name="location-outline" size={28} color="#00897B" />
+                        </View>
+
+                        {isLoadingOverview ? (
+                            <ActivityIndicator size="small" color="#00897B" style={styles.statLoader} />
+                        ) : (
+                            <Text style={styles.statNumber}>
+                                {overviewError ? '—' : stops?.length ?? 0}
+                            </Text>
+                        )}
+
+                        <Text style={styles.statLabel}>Total Stops</Text>
+
+                        {!isLoadingOverview && !overviewError && stops && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                Across the network
+                            </Text>
+                        )}
+                    </TouchableOpacity>
+
                     {/* Reports — no backend yet */}
                     <View style={[styles.statCard, styles.statCardUnavailable]}>
                         <View style={styles.statIconOrange}>
@@ -321,17 +365,14 @@ export default function AdminDashboard() {
                     </View>
 
                     {/* Users — no backend yet */}
-                    <View style={[styles.statCard, styles.statCardWide, styles.statCardUnavailable]}>
+                    <View style={[styles.statCard, styles.statCardUnavailable]}>
                         <View style={styles.statIconPurple}>
                             <Ionicons name="people-outline" size={28} color="#7B1FA2" />
                         </View>
 
-                        <View style={styles.statWideTextGroup}>
-                            <Text style={styles.statLabel}>Users</Text>
-                            <Text style={styles.statBreakdown}>Not available yet</Text>
-                        </View>
-
                         <Text style={styles.statNumberUnavailable}>—</Text>
+                        <Text style={styles.statLabel}>Users</Text>
+                        <Text style={styles.statBreakdown}>Not available yet</Text>
                     </View>
                 </View>
 
@@ -392,6 +433,37 @@ export default function AdminDashboard() {
 
                         <Text style={styles.cardDescription}>
                             Manage bus routes and stops
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
+                {/* Stops */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleStops}
+                    activeOpacity={0.75}
+                >
+                    <View style={styles.iconContainer}>
+                        <Ionicons
+                            name="location-outline"
+                            size={30}
+                            color="#00897B"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <Text style={styles.cardTitle}>
+                            Stops
+                        </Text>
+
+                        <Text style={styles.cardDescription}>
+                            Manage bus stops and location information
                         </Text>
                     </View>
 
@@ -536,6 +608,25 @@ export default function AdminDashboard() {
 
                         <Text style={styles.quickActionText}>
                             Add Route
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Add Stop */}
+                    <TouchableOpacity
+                        style={styles.quickAction}
+                        onPress={handleAddStop}
+                        activeOpacity={0.75}
+                    >
+                        <View style={styles.quickIconTeal}>
+                            <Ionicons
+                                name="add"
+                                size={28}
+                                color="#00897B"
+                            />
+                        </View>
+
+                        <Text style={styles.quickActionText}>
+                            Add Stop
                         </Text>
                     </TouchableOpacity>
 
@@ -743,6 +834,15 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
 
+    statIconTeal: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#E3F2F1',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
     statBreakdown: {
         fontSize: 11,
         color: '#7A8793',
@@ -869,6 +969,15 @@ const styles = StyleSheet.create({
         height: 48,
         borderRadius: 24,
         backgroundColor: '#EEF8EF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    quickIconTeal: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#E3F2F1',
         justifyContent: 'center',
         alignItems: 'center',
     },

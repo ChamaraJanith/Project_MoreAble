@@ -369,6 +369,57 @@ export async function DELETE(request: Request) {
     }
 
     // --------------------------------------------------------
+    // Referential integrity
+    //
+    // Routes reference a stop in two ways: by document id
+    // (startStopId / endStopId) and by name inside the ordered stops array.
+    // Deleting a referenced stop would silently corrupt those routes, so the
+    // deletion is refused while any route still uses it.
+    // --------------------------------------------------------
+
+    const stopName = stopDoc.data()?.name;
+
+    const routesSnapshot = await adminDb.collection('routes').get();
+
+    const referencingRoutes = routesSnapshot.docs
+      .map((doc: any) => doc.data())
+      .filter((route: any) => {
+        if (route?.startStopId === stopId || route?.endStopId === stopId) {
+          return true;
+        }
+
+        if (typeof stopName === 'string' && Array.isArray(route?.stops)) {
+          return route.stops.some(
+            (stop: any) =>
+              typeof stop === 'string' &&
+              stop.trim().toLowerCase() === stopName.trim().toLowerCase()
+          );
+        }
+
+        return false;
+      });
+
+    if (referencingRoutes.length > 0) {
+      const routeNumbers = referencingRoutes
+        .map((route: any) => route?.routeNumber)
+        .filter((routeNumber: unknown): routeNumber is string => typeof routeNumber === 'string');
+
+      return Response.json(
+        {
+          success: false,
+          message:
+            'Unable to delete this stop because it is currently used by one or more routes.',
+          routeCount: referencingRoutes.length,
+          routeNumbers,
+        },
+        {
+          status: 409,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // --------------------------------------------------------
     // Delete stop
     // --------------------------------------------------------
 

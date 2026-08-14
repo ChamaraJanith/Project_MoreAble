@@ -79,6 +79,10 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
                             docs.push({ id, ...data });
                         }
                     }),
+                    delete: jest.fn(async () => {
+                        const index = docs.findIndex((d) => d.id === id);
+                        if (index !== -1) docs.splice(index, 1);
+                    }),
                 };
             }),
         };
