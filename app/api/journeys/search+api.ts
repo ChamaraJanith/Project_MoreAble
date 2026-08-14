@@ -64,26 +64,23 @@ export function findMatchingRoutes(
       journeyStops: route.stops.slice(originIndex, destinationIndex + 1),
       distanceKm: route.distanceKm ?? null,
       estimatedDuration: route.estimatedDuration ?? null,
-      // Populated afterwards by attachNextTrip — a route can match without any
-      // currently-available trip.
-      trip: null,
-      bus: null,
+      // Populated afterwards by attachUpcomingTrips — a route can match without
+      // any currently-available trip.
+      trips: [],
     });
   }
 
   return matches;
 }
 
-// Picks the earliest ACTIVE trip departing at/after the requested travel time.
-// Trips that have already departed are ignored. Keeps the previously-existing
-// route matching untouched — this only chooses among trips already known to
-// belong to one matched route.
-export function selectNextTrip(trips: Trip[], travelTime: string): Trip | null {
-  const upcoming = trips
+// Returns every ACTIVE trip departing at/after the requested travel time,
+// earliest first. Trips that have already departed are ignored. Keeps the
+// previously-existing route matching untouched — this only filters trips
+// already known to belong to one matched route.
+export function selectUpcomingTrips(trips: Trip[], travelTime: string): Trip[] {
+  return trips
     .filter((trip) => trip.status === 'ACTIVE' && trip.departureTime >= travelTime)
     .sort((a, b) => a.departureTime.localeCompare(b.departureTime));
-
-  return upcoming.length > 0 ? upcoming[0] : null;
 }
 
 async function fetchActiveTripsForRoute(adminDb: any, routeId: string): Promise<Trip[]> {
@@ -96,43 +93,62 @@ async function fetchActiveTripsForRoute(adminDb: any, routeId: string): Promise<
   return tripsSnapshot.docs.map((doc: any) => doc.data() as Trip);
 }
 
-// Enriches a matched route with its next upcoming trip and that trip's bus, if
-// any. A route with no qualifying trip is still a valid match — trip/bus are
-// simply left null so the UI can render the route without crashing.
-async function attachNextTrip(
+// Loads a bus once per request — the same bus commonly operates several trips,
+// so results are memoised to avoid repeating identical Firestore reads.
+async function loadBus(
   adminDb: any,
-  match: JourneySearchMatch,
-  travelTime: string
-): Promise<JourneySearchMatch> {
-  const trips = await fetchActiveTripsForRoute(adminDb, match.routeId);
-  const nextTrip = selectNextTrip(trips, travelTime);
-
-  if (!nextTrip) {
-    return match;
+  busId: string,
+  busCache: Map<string, Bus | null>
+): Promise<Bus | null> {
+  if (busCache.has(busId)) {
+    return busCache.get(busId) ?? null;
   }
 
-  const busDoc = await adminDb.collection('buses').doc(nextTrip.busId).get();
+  const busDoc = await adminDb.collection('buses').doc(busId).get();
   const bus = busDoc.exists ? (busDoc.data() as Bus) : null;
 
-  return {
-    ...match,
-    trip: {
-      tripId: nextTrip.tripId,
-      departureTime: nextTrip.departureTime,
-      estimatedArrivalTime: nextTrip.estimatedArrivalTime,
-      turnNumber: nextTrip.turnNumber,
-    },
-    bus: bus
-      ? {
-          busId: bus.busId,
-          numberPlate: bus.numberPlate,
-          busModel: bus.busModel,
-          manufacturer: bus.manufacturer,
-          seatCapacity: bus.seatCapacity,
-          accessibilityFacilities: bus.accessibilityFacilities,
-        }
-      : null,
-  };
+  busCache.set(busId, bus);
+  return bus;
+}
+
+// Enriches a matched route with every upcoming trip and each trip's bus. A route
+// with no qualifying trip is still a valid match — `trips` is simply empty so the
+// UI can report "no departures" without crashing.
+async function attachUpcomingTrips(
+  adminDb: any,
+  match: JourneySearchMatch,
+  travelTime: string,
+  busCache: Map<string, Bus | null>
+): Promise<JourneySearchMatch> {
+  const trips = await fetchActiveTripsForRoute(adminDb, match.routeId);
+  const upcomingTrips = selectUpcomingTrips(trips, travelTime);
+
+  const options = await Promise.all(
+    upcomingTrips.map(async (trip) => {
+      const bus = await loadBus(adminDb, trip.busId, busCache);
+
+      return {
+        trip: {
+          tripId: trip.tripId,
+          departureTime: trip.departureTime,
+          estimatedArrivalTime: trip.estimatedArrivalTime,
+          turnNumber: trip.turnNumber,
+        },
+        bus: bus
+          ? {
+              busId: bus.busId,
+              numberPlate: bus.numberPlate,
+              busModel: bus.busModel,
+              manufacturer: bus.manufacturer,
+              seatCapacity: bus.seatCapacity,
+              accessibilityFacilities: bus.accessibilityFacilities,
+            }
+          : null,
+      };
+    })
+  );
+
+  return { ...match, trips: options };
 }
 
 export async function OPTIONS() {
@@ -237,9 +253,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Attach each route's next upcoming trip (and that trip's bus), if any.
+    // Attach each route's upcoming trips (and each trip's bus), if any.
+    const busCache = new Map<string, Bus | null>();
     const enrichedRoutes = await Promise.all(
-      matchedRoutes.map((match) => attachNextTrip(adminDb, match, travelTime))
+      matchedRoutes.map((match) => attachUpcomingTrips(adminDb, match, travelTime, busCache))
     );
 
     return Response.json(

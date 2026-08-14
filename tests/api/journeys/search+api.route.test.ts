@@ -209,13 +209,14 @@ describe('POST /api/journeys/search', () => {
             expect(response.status).toBe(200);
             const match = json.routes[0];
 
-            expect(match.trip).toEqual({
+            expect(match.trips).toHaveLength(1);
+            expect(match.trips[0].trip).toEqual({
                 tripId: 'TRIP-00003',
                 departureTime: '09:00',
                 estimatedArrivalTime: '10:10',
                 turnNumber: 3,
             });
-            expect(match.bus).toEqual({
+            expect(match.trips[0].bus).toEqual({
                 busId: 'BUS-00001',
                 numberPlate: 'NB-1234',
                 busModel: 'Ashok Leyland Viking',
@@ -237,8 +238,7 @@ describe('POST /api/journeys/search', () => {
             const response = await POST(buildRequest({ ...validBody, travelTime: '08:30' }));
             const json = await response.json();
 
-            expect(json.routes[0].trip).toBeNull();
-            expect(json.routes[0].bus).toBeNull();
+            expect(json.routes[0].trips).toEqual([]);
         });
 
         it('excludes inactive trips even when their departure time would otherwise qualify', async () => {
@@ -256,7 +256,8 @@ describe('POST /api/journeys/search', () => {
             const response = await POST(buildRequest({ ...validBody, travelTime: '08:30' }));
             const json = await response.json();
 
-            expect(json.routes[0].trip.tripId).toBe('TRIP-00003');
+            expect(json.routes[0].trips).toHaveLength(1);
+            expect(json.routes[0].trips[0].trip.tripId).toBe('TRIP-00003');
         });
 
         it('returns the correct bus for the selected trip via busId', async () => {
@@ -278,8 +279,8 @@ describe('POST /api/journeys/search', () => {
             const response = await POST(buildRequest({ ...validBody, travelTime: '08:30' }));
             const json = await response.json();
 
-            expect(json.routes[0].bus.busId).toBe('BUS-00002');
-            expect(json.routes[0].bus.numberPlate).toBe('NB-5678');
+            expect(json.routes[0].trips[0].bus.busId).toBe('BUS-00002');
+            expect(json.routes[0].trips[0].bus.numberPlate).toBe('NB-5678');
         });
 
         it('resolves trips for the reverse-direction route independently', async () => {
@@ -304,10 +305,10 @@ describe('POST /api/journeys/search', () => {
 
             expect(json.routes).toHaveLength(1);
             expect(json.routes[0].routeId).toBe(reverseRoute.routeId);
-            expect(json.routes[0].trip.tripId).toBe('TRIP-00002');
+            expect(json.routes[0].trips[0].trip.tripId).toBe('TRIP-00002');
         });
 
-        it('still returns a matched route with null trip/bus when none is available', async () => {
+        it('still returns a matched route with an empty trips list when none is available', async () => {
             mockGetAdminDb.mockReturnValue(
                 createFakeFirestore({
                     routes: [forwardRoute],
@@ -321,8 +322,40 @@ describe('POST /api/journeys/search', () => {
 
             expect(response.status).toBe(200);
             expect(json.routes).toHaveLength(1);
-            expect(json.routes[0].trip).toBeNull();
-            expect(json.routes[0].bus).toBeNull();
+            expect(json.routes[0].trips).toEqual([]);
+        });
+
+        it('returns every upcoming trip of a route as a separate option, earliest first', async () => {
+            const bus2: Bus & { id: string } = {
+                ...bus1,
+                id: 'BUS-00002',
+                busId: 'BUS-00002',
+                numberPlate: 'NB-5678',
+            };
+
+            mockGetAdminDb.mockReturnValue(
+                createFakeFirestore({
+                    routes: [forwardRoute],
+                    trips: [
+                        trip({ tripId: 'TRIP-00005', routeId: forwardRoute.routeId, departureTime: '11:00', estimatedArrivalTime: '12:10', turnNumber: 5, busId: 'BUS-00002' }),
+                        trip({ tripId: 'TRIP-00001', routeId: forwardRoute.routeId, departureTime: '06:00', turnNumber: 1 }),
+                        trip({ tripId: 'TRIP-00003', routeId: forwardRoute.routeId, departureTime: '09:00', estimatedArrivalTime: '10:10', turnNumber: 3 }),
+                    ],
+                    buses: [bus1, bus2],
+                })
+            );
+
+            const response = await POST(buildRequest({ ...validBody, travelTime: '08:30' }));
+            const json = await response.json();
+
+            const options = json.routes[0].trips;
+
+            // The 06:00 trip already departed; the other two remain as distinct
+            // options and are distinguishable by their times and bus.
+            expect(options).toHaveLength(2);
+            expect(options.map((option: any) => option.trip.tripId)).toEqual(['TRIP-00003', 'TRIP-00005']);
+            expect(options[0].bus.numberPlate).toBe('NB-1234');
+            expect(options[1].bus.numberPlate).toBe('NB-5678');
         });
     });
 });
