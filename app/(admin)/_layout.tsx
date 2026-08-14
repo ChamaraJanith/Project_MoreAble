@@ -16,7 +16,10 @@ export default function AdminLayout() {
       <Stack.Screen name="routes/[routeId]" options={{ title: 'Route Details' }} />
       <Stack.Screen name="routes/edit/[routeId]" options={{ title: 'Edit Route' }} />
 
+      <Stack.Screen name="trips/index" options={{ title: 'Trips' }} />
       <Stack.Screen name="trips/add" options={{ title: 'Add Trip' }} />
+      <Stack.Screen name="trips/[tripId]" options={{ title: 'Trip Details' }} />
+      <Stack.Screen name="trips/edit/[tripId]" options={{ title: 'Edit Trip' }} />
     </Stack>
   );
 }

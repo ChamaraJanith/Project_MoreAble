@@ -30,3 +30,46 @@ export async function createTrip(payload: CreateTripPayload): Promise<Trip> {
 
     return data.trip as Trip;
 }
+
+/** GET /api/trips — every scheduled turn, with route/bus given as references. */
+export async function getTrips(): Promise<Trip[]> {
+    const data = await adminFetch('/api/trips');
+    return Array.isArray(data.trips) ? (data.trips as Trip[]) : [];
+}
+
+/** GET /api/trips/:tripId */
+export async function getTrip(tripId: string): Promise<Trip> {
+    const data = await adminFetch(`/api/trips/${encodeURIComponent(tripId)}`);
+    return data.trip as Trip;
+}
+
+/** PUT /api/trips/:tripId */
+export async function updateTrip(
+    tripId: string,
+    payload: Partial<CreateTripPayload>
+): Promise<Trip> {
+    const data = await adminFetch(`/api/trips/${encodeURIComponent(tripId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+
+    return data.trip as Trip;
+}
+
+/**
+ * DELETE /api/trips/:tripId
+ * The backend soft-deactivates rather than removing the document, so the trip
+ * stays on record and simply drops out of journey search.
+ */
+export async function deactivateTrip(tripId: string): Promise<Trip> {
+    const data = await adminFetch(`/api/trips/${encodeURIComponent(tripId)}`, {
+        method: 'DELETE',
+    });
+
+    return data.trip as Trip;
+}
+
+/** Flips a trip between ACTIVE and INACTIVE through the update endpoint. */
+export async function setTripStatus(tripId: string, status: TripStatus): Promise<Trip> {
+    return updateTrip(tripId, { status });
+}
