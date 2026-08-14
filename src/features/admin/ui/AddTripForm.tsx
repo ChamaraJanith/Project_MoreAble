@@ -13,9 +13,9 @@ import {
 import { Bus } from '../../../entities/bus/model/types';
 import { Route } from '../../../entities/route/model/types';
 import { TripStatus } from '../../../entities/trip/model/types';
-import { formatFriendlyTime, TimeOfDay, toApiTimeString } from '../../journey/utils/dateTime';
+import { formatFriendlyTime, parseApiTimeString, TimeOfDay, toApiTimeString } from '../../journey/utils/dateTime';
 import { TravelTimePickerModal } from '../../journey/ui/TravelTimePickerModal';
-import { createTrip, fetchBuses, fetchRoutes } from '../api/tripAdminApi';
+import { createTrip, fetchBuses, fetchRoutes, getTrip, updateTrip } from '../api/tripAdminApi';
 import { AdminSelectModal, AdminSelectOption } from './AdminSelectModal';
 
 type ActivePicker = 'route' | 'bus' | 'departure' | 'arrival' | null;
@@ -25,7 +25,14 @@ const DIRECTION_LABELS: Record<string, string> = {
     RETURN: 'Return',
 };
 
-export const AddTripForm = () => {
+interface AddTripFormProps {
+    /** When provided the form edits that trip instead of creating a new one. */
+    tripId?: string;
+}
+
+export const AddTripForm = ({ tripId }: AddTripFormProps = {}) => {
+    const isEditing = !!tripId;
+
     const [routes, setRoutes] = useState<Route[]>([]);
     const [buses, setBuses] = useState<Bus[]>([]);
 
@@ -52,17 +59,37 @@ export const AddTripForm = () => {
         setLoadError('');
 
         try {
-            const [routeList, busList] = await Promise.all([fetchRoutes(), fetchBuses()]);
+            const [routeList, busList, existingTrip] = await Promise.all([
+                fetchRoutes(),
+                fetchBuses(),
+                tripId ? getTrip(tripId) : Promise.resolve(null),
+            ]);
+
             // A trip can only reference an ACTIVE route and ACTIVE bus, so
             // anything else is filtered out rather than offered and rejected.
-            setRoutes(routeList.filter((route) => route.status === 'ACTIVE'));
-            setBuses(busList.filter((bus) => bus.status === 'ACTIVE'));
+            const activeRoutes = routeList.filter((route) => route.status === 'ACTIVE');
+            const activeBuses = busList.filter((bus) => bus.status === 'ACTIVE');
+
+            setRoutes(activeRoutes);
+            setBuses(activeBuses);
+
+            if (existingTrip) {
+                setSelectedRouteId(existingTrip.routeId);
+                // The trip stores busId; the form works in number plates, so map
+                // it back to the plate the admin recognises.
+                const busForTrip = busList.find((bus) => bus.busId === existingTrip.busId);
+                setSelectedNumberPlate(busForTrip?.numberPlate ?? null);
+                setDepartureTime(parseApiTimeString(existingTrip.departureTime));
+                setArrivalTime(parseApiTimeString(existingTrip.estimatedArrivalTime));
+                setTurnNumber(String(existingTrip.turnNumber ?? ''));
+                setStatus(existingTrip.status ?? 'ACTIVE');
+            }
         } catch (error: any) {
             setLoadError(error?.message || 'Unable to load routes and buses.');
         } finally {
             setIsLoadingData(false);
         }
-    }, []);
+    }, [tripId]);
 
     useEffect(() => {
         loadData();
@@ -129,7 +156,7 @@ export const AddTripForm = () => {
         setIsSubmitting(true);
 
         try {
-            const trip = await createTrip({
+            const payload = {
                 routeId: selectedRoute.routeId,
                 // Resolve the chosen number plate back to the bus reference the
                 // backend expects — busId never appears in the UI itself.
@@ -138,11 +165,18 @@ export const AddTripForm = () => {
                 estimatedArrivalTime: toApiTimeString(arrivalTime),
                 turnNumber: Number(turnNumber),
                 status,
-            });
+            };
 
-            setCreatedTripId(trip.tripId);
+            const trip = isEditing && tripId
+                ? await updateTrip(tripId, payload)
+                : await createTrip(payload);
+
+            setCreatedTripId(trip?.tripId ?? tripId ?? '');
         } catch (error: any) {
-            setSubmitError(error?.message || 'Unable to create the trip. Please try again.');
+            setSubmitError(
+                error?.message ||
+                    `Unable to ${isEditing ? 'update' : 'create'} the trip. Please try again.`
+            );
         } finally {
             setIsSubmitting(false);
         }
@@ -165,7 +199,10 @@ export const AddTripForm = () => {
     if (createdTripId) {
         return (
             <View style={styles.container}>
-                <AdminHeader title="Add Trip" subtitle="Schedule a bus turn" />
+                <AdminHeader
+                    title={isEditing ? 'Edit Trip' : 'Add Trip'}
+                    subtitle={isEditing ? 'Update this scheduled turn' : 'Schedule a bus turn'}
+                />
 
                 <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                     <View style={styles.successCard} accessibilityLiveRegion="polite">
@@ -173,9 +210,13 @@ export const AddTripForm = () => {
                             <Ionicons name="checkmark-circle" size={44} color="#388E3C" />
                         </View>
 
-                        <Text style={styles.successTitle}>Trip created</Text>
+                        <Text style={styles.successTitle}>
+                            {isEditing ? 'Trip updated' : 'Trip created'}
+                        </Text>
                         <Text style={styles.successDescription}>
-                            The trip has been added to the schedule and is now available for journey searches.
+                            {isEditing
+                                ? 'The trip schedule has been updated.'
+                                : 'The trip has been added to the schedule and is now available for journey searches.'}
                         </Text>
 
                         <View style={styles.successSummary}>
@@ -190,22 +231,30 @@ export const AddTripForm = () => {
                             />
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.primaryButton}
-                            onPress={resetForAnotherTrip}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add another trip"
-                        >
-                            <Text style={styles.primaryButtonText}>ADD ANOTHER TRIP</Text>
-                        </TouchableOpacity>
+                        {!isEditing && (
+                            <TouchableOpacity
+                                style={styles.primaryButton}
+                                onPress={resetForAnotherTrip}
+                                accessibilityRole="button"
+                                accessibilityLabel="Add another trip"
+                            >
+                                <Text style={styles.primaryButtonText}>ADD ANOTHER TRIP</Text>
+                            </TouchableOpacity>
+                        )}
 
                         <TouchableOpacity
-                            style={styles.secondaryButton}
+                            style={isEditing ? styles.primaryButton : styles.secondaryButton}
                             onPress={() => router.back()}
                             accessibilityRole="button"
-                            accessibilityLabel="Back to dashboard"
+                            accessibilityLabel="Back to trips"
                         >
-                            <Text style={styles.secondaryButtonText}>Back to Dashboard</Text>
+                            <Text
+                                style={
+                                    isEditing ? styles.primaryButtonText : styles.secondaryButtonText
+                                }
+                            >
+                                {isEditing ? 'BACK TO TRIPS' : 'Back to Trips'}
+                            </Text>
                         </TouchableOpacity>
                     </View>
                 </ScrollView>
@@ -219,7 +268,10 @@ export const AddTripForm = () => {
     if (isLoadingData) {
         return (
             <View style={styles.container}>
-                <AdminHeader title="Add Trip" subtitle="Schedule a bus turn" />
+                <AdminHeader
+                    title={isEditing ? 'Edit Trip' : 'Add Trip'}
+                    subtitle={isEditing ? 'Update this scheduled turn' : 'Schedule a bus turn'}
+                />
                 <View style={styles.centeredState} accessibilityLiveRegion="polite">
                     <ActivityIndicator size="large" color="#1976D2" />
                     <Text style={styles.centeredStateText}>Loading routes and buses…</Text>
@@ -234,7 +286,10 @@ export const AddTripForm = () => {
     if (loadError) {
         return (
             <View style={styles.container}>
-                <AdminHeader title="Add Trip" subtitle="Schedule a bus turn" />
+                <AdminHeader
+                    title={isEditing ? 'Edit Trip' : 'Add Trip'}
+                    subtitle={isEditing ? 'Update this scheduled turn' : 'Schedule a bus turn'}
+                />
                 <View style={styles.centeredState} accessibilityLiveRegion="assertive">
                     <Ionicons name="cloud-offline-outline" size={40} color="#D32F2F" />
                     <Text style={styles.centeredStateTitle}>Couldn&apos;t load data</Text>
@@ -257,7 +312,10 @@ export const AddTripForm = () => {
 
     return (
         <View style={styles.container}>
-            <AdminHeader title="Add Trip" subtitle="Schedule a bus turn" />
+            <AdminHeader
+                    title={isEditing ? 'Edit Trip' : 'Add Trip'}
+                    subtitle={isEditing ? 'Update this scheduled turn' : 'Schedule a bus turn'}
+                />
 
             <ScrollView
                 contentContainerStyle={styles.content}
@@ -443,13 +501,15 @@ export const AddTripForm = () => {
                     onPress={handleSubmit}
                     disabled={isSubmitting}
                     accessibilityRole="button"
-                    accessibilityLabel="Create trip"
+                    accessibilityLabel={isEditing ? 'Save changes' : 'Create trip'}
                     accessibilityState={{ disabled: isSubmitting }}
                 >
                     {isSubmitting ? (
                         <ActivityIndicator color="#FFFFFF" />
                     ) : (
-                        <Text style={styles.primaryButtonText}>CREATE TRIP</Text>
+                        <Text style={styles.primaryButtonText}>
+                            {isEditing ? 'SAVE CHANGES' : 'CREATE TRIP'}
+                        </Text>
                     )}
                 </TouchableOpacity>
 

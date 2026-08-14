@@ -15,10 +15,13 @@ import { Bus } from '../../src/entities/bus/model/types';
 import { Route } from '../../src/entities/route/model/types';
 import { getBuses } from '../../src/features/admin/api/busAdminApi';
 import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
+import { getTrips } from '../../src/features/admin/api/tripAdminApi';
+import { Trip } from '../../src/entities/trip/model/types';
 
 export default function AdminDashboard() {
     const [buses, setBuses] = useState<Bus[] | null>(null);
     const [routes, setRoutes] = useState<Route[] | null>(null);
+    const [trips, setTrips] = useState<Trip[] | null>(null);
     const [isLoadingOverview, setIsLoadingOverview] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [overviewError, setOverviewError] = useState('');
@@ -29,9 +32,14 @@ export default function AdminDashboard() {
         setOverviewError('');
 
         try {
-            const [busList, routeList] = await Promise.all([getBuses(), getRoutes()]);
+            const [busList, routeList, tripList] = await Promise.all([
+                getBuses(),
+                getRoutes(),
+                getTrips(),
+            ]);
             setBuses(busList);
             setRoutes(routeList);
+            setTrips(tripList);
         } catch (error: any) {
             setOverviewError(error?.message || 'Unable to load dashboard data.');
         } finally {
@@ -65,6 +73,14 @@ export default function AdminDashboard() {
         };
     }, [routes]);
 
+    const tripBreakdown = useMemo(() => {
+        if (!trips) return null;
+        return {
+            active: trips.filter((trip) => trip.status === 'ACTIVE').length,
+            inactive: trips.filter((trip) => trip.status === 'INACTIVE').length,
+        };
+    }, [trips]);
+
     const handleLogout = () => {
         router.replace('/(auth)');
     };
@@ -85,8 +101,12 @@ export default function AdminDashboard() {
         router.push('/(admin)/routes/add');
     };
 
-    // Trips (bus turns) — connected to the Add Trip screen.
+    // Trips (bus turns) — management list and creation entry points.
     const handleTrips = () => {
+        router.push('/(admin)/trips');
+    };
+
+    const handleAddTrip = () => {
         router.push('/(admin)/trips/add');
     };
 
@@ -255,6 +275,40 @@ export default function AdminDashboard() {
                         )}
                     </TouchableOpacity>
 
+                    {/* Total Trips */}
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleTrips}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            tripBreakdown
+                                ? `Total trips ${trips?.length ?? 0}. ${tripBreakdown.active} active.`
+                                : 'Total trips, loading'
+                        }
+                    >
+                        <View style={styles.statIconCyan}>
+                            <Ionicons name="time-outline" size={28} color="#0288D1" />
+                        </View>
+
+                        {isLoadingOverview ? (
+                            <ActivityIndicator size="small" color="#0288D1" style={styles.statLoader} />
+                        ) : (
+                            <Text style={styles.statNumber}>
+                                {overviewError ? '—' : trips?.length ?? 0}
+                            </Text>
+                        )}
+
+                        <Text style={styles.statLabel}>Total Trips</Text>
+
+                        {!isLoadingOverview && !overviewError && tripBreakdown && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                {tripBreakdown.active} active
+                                {tripBreakdown.inactive > 0 ? ` · ${tripBreakdown.inactive} inactive` : ''}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
+
                     {/* Reports — no backend yet */}
                     <View style={[styles.statCard, styles.statCardUnavailable]}>
                         <View style={styles.statIconOrange}>
@@ -267,14 +321,17 @@ export default function AdminDashboard() {
                     </View>
 
                     {/* Users — no backend yet */}
-                    <View style={[styles.statCard, styles.statCardUnavailable]}>
+                    <View style={[styles.statCard, styles.statCardWide, styles.statCardUnavailable]}>
                         <View style={styles.statIconPurple}>
                             <Ionicons name="people-outline" size={28} color="#7B1FA2" />
                         </View>
 
+                        <View style={styles.statWideTextGroup}>
+                            <Text style={styles.statLabel}>Users</Text>
+                            <Text style={styles.statBreakdown}>Not available yet</Text>
+                        </View>
+
                         <Text style={styles.statNumberUnavailable}>—</Text>
-                        <Text style={styles.statLabel}>Users</Text>
-                        <Text style={styles.statBreakdown}>Not available yet</Text>
                     </View>
                 </View>
 
@@ -485,7 +542,7 @@ export default function AdminDashboard() {
                     {/* Add Trip */}
                     <TouchableOpacity
                         style={styles.quickAction}
-                        onPress={handleTrips}
+                        onPress={handleAddTrip}
                         activeOpacity={0.75}
                     >
                         <View style={styles.quickIconCyan}>
@@ -655,6 +712,17 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
     },
 
+    statCardWide: {
+        width: '100%',
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+
+    statWideTextGroup: {
+        flex: 1,
+        marginLeft: 14,
+    },
+
     statCardUnavailable: {
         opacity: 0.85,
     },
@@ -664,6 +732,15 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#9AA7B2',
         marginTop: 8,
+    },
+
+    statIconCyan: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#E5F4FB',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 
     statBreakdown: {
