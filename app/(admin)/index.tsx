@@ -1,41 +1,88 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import React from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Bus } from '../../src/entities/bus/model/types';
+import { Route } from '../../src/entities/route/model/types';
+import { getBuses } from '../../src/features/admin/api/busAdminApi';
+import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 
 export default function AdminDashboard() {
+    const [buses, setBuses] = useState<Bus[] | null>(null);
+    const [routes, setRoutes] = useState<Route[] | null>(null);
+    const [isLoadingOverview, setIsLoadingOverview] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [overviewError, setOverviewError] = useState('');
+
+    const loadOverview = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+        if (mode === 'refresh') setIsRefreshing(true);
+        else setIsLoadingOverview(true);
+        setOverviewError('');
+
+        try {
+            const [busList, routeList] = await Promise.all([getBuses(), getRoutes()]);
+            setBuses(busList);
+            setRoutes(routeList);
+        } catch (error: any) {
+            setOverviewError(error?.message || 'Unable to load dashboard data.');
+        } finally {
+            setIsLoadingOverview(false);
+            setIsRefreshing(false);
+        }
+    }, []);
+
+    // Refresh whenever the dashboard regains focus so counts stay accurate
+    // after adding or editing a bus or route.
+    useFocusEffect(
+        useCallback(() => {
+            loadOverview();
+        }, [loadOverview])
+    );
+
+    const busBreakdown = useMemo(() => {
+        if (!buses) return null;
+        return {
+            active: buses.filter((bus) => bus.status === 'ACTIVE').length,
+            inactive: buses.filter((bus) => bus.status === 'INACTIVE').length,
+            maintenance: buses.filter((bus) => bus.status === 'MAINTENANCE').length,
+        };
+    }, [buses]);
+
+    const routeBreakdown = useMemo(() => {
+        if (!routes) return null;
+        return {
+            active: routes.filter((route) => route.status === 'ACTIVE').length,
+            inactive: routes.filter((route) => route.status === 'INACTIVE').length,
+        };
+    }, [routes]);
+
     const handleLogout = () => {
         router.replace('/(auth)');
     };
 
-    // Temporary handlers
-    // We will connect these to real screens after creating them.
     const handleBuses = () => {
-        Alert.alert(
-            'Bus Management',
-            'Bus Management screen will be connected next.'
-        );
+        router.push('/(admin)/buses');
     };
 
     const handleAddBus = () => {
-        Alert.alert(
-            'Add Bus',
-            'Add Bus screen will be created next.'
-        );
+        router.push('/(admin)/buses/add');
     };
 
     const handleRoutes = () => {
-        Alert.alert(
-            'Bus Routes',
-            'Bus Routes screen will be connected next.'
-        );
+        router.push('/(admin)/routes');
+    };
+
+    const handleAddRoute = () => {
+        router.push('/(admin)/routes/add');
     };
 
     // Trips (bus turns) — connected to the Add Trip screen.
@@ -89,6 +136,12 @@ export default function AdminDashboard() {
             <ScrollView
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={() => loadOverview('refresh')}
+                    />
+                }
             >
                 {/* Welcome Section */}
                 <View style={styles.welcomeSection}>
@@ -107,81 +160,121 @@ export default function AdminDashboard() {
                     Overview
                 </Text>
 
+                {!!overviewError && (
+                    <View style={styles.overviewErrorBanner} accessibilityLiveRegion="assertive">
+                        <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                        <Text style={styles.overviewErrorText}>{overviewError}</Text>
+                        <TouchableOpacity
+                            onPress={() => loadOverview()}
+                            style={styles.overviewRetryButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Retry loading dashboard data"
+                        >
+                            <Text style={styles.overviewRetryText}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 <View style={styles.statsContainer}>
                     {/* Total Buses */}
-                    <View style={styles.statCard}>
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleBuses}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            busBreakdown
+                                ? `Total buses ${buses?.length ?? 0}. ${busBreakdown.active} active.`
+                                : 'Total buses, loading'
+                        }
+                    >
                         <View style={styles.statIconBlue}>
-                            <Ionicons
-                                name="bus-outline"
-                                size={28}
-                                color="#1976D2"
-                            />
+                            <Ionicons name="bus-outline" size={28} color="#1976D2" />
                         </View>
 
-                        <Text style={styles.statNumber}>
-                            0
-                        </Text>
+                        {isLoadingOverview ? (
+                            <ActivityIndicator
+                                size="small"
+                                color="#1976D2"
+                                style={styles.statLoader}
+                            />
+                        ) : (
+                            <Text style={styles.statNumber}>
+                                {overviewError ? '—' : buses?.length ?? 0}
+                            </Text>
+                        )}
 
-                        <Text style={styles.statLabel}>
-                            Total Buses
-                        </Text>
-                    </View>
+                        <Text style={styles.statLabel}>Total Buses</Text>
+
+                        {!isLoadingOverview && !overviewError && busBreakdown && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                {busBreakdown.active} active
+                                {busBreakdown.inactive > 0 ? ` · ${busBreakdown.inactive} inactive` : ''}
+                                {busBreakdown.maintenance > 0
+                                    ? ` · ${busBreakdown.maintenance} in maintenance`
+                                    : ''}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
 
                     {/* Total Routes */}
-                    <View style={styles.statCard}>
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleRoutes}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            routeBreakdown
+                                ? `Total routes ${routes?.length ?? 0}. ${routeBreakdown.active} active.`
+                                : 'Total routes, loading'
+                        }
+                    >
                         <View style={styles.statIconGreen}>
-                            <Ionicons
-                                name="map-outline"
-                                size={28}
+                            <Ionicons name="map-outline" size={28} color="#388E3C" />
+                        </View>
+
+                        {isLoadingOverview ? (
+                            <ActivityIndicator
+                                size="small"
                                 color="#388E3C"
+                                style={styles.statLoader}
                             />
-                        </View>
+                        ) : (
+                            <Text style={styles.statNumber}>
+                                {overviewError ? '—' : routes?.length ?? 0}
+                            </Text>
+                        )}
 
-                        <Text style={styles.statNumber}>
-                            0
-                        </Text>
+                        <Text style={styles.statLabel}>Total Routes</Text>
 
-                        <Text style={styles.statLabel}>
-                            Total Routes
-                        </Text>
-                    </View>
+                        {!isLoadingOverview && !overviewError && routeBreakdown && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                {routeBreakdown.active} active
+                                {routeBreakdown.inactive > 0 ? ` · ${routeBreakdown.inactive} inactive` : ''}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
 
-                    {/* Reports */}
-                    <View style={styles.statCard}>
+                    {/* Reports — no backend yet */}
+                    <View style={[styles.statCard, styles.statCardUnavailable]}>
                         <View style={styles.statIconOrange}>
-                            <Ionicons
-                                name="alert-circle-outline"
-                                size={28}
-                                color="#F57C00"
-                            />
+                            <Ionicons name="alert-circle-outline" size={28} color="#F57C00" />
                         </View>
 
-                        <Text style={styles.statNumber}>
-                            0
-                        </Text>
-
-                        <Text style={styles.statLabel}>
-                            Reports
-                        </Text>
+                        <Text style={styles.statNumberUnavailable}>—</Text>
+                        <Text style={styles.statLabel}>Reports</Text>
+                        <Text style={styles.statBreakdown}>Not available yet</Text>
                     </View>
 
-                    {/* Users */}
-                    <View style={styles.statCard}>
+                    {/* Users — no backend yet */}
+                    <View style={[styles.statCard, styles.statCardUnavailable]}>
                         <View style={styles.statIconPurple}>
-                            <Ionicons
-                                name="people-outline"
-                                size={28}
-                                color="#7B1FA2"
-                            />
+                            <Ionicons name="people-outline" size={28} color="#7B1FA2" />
                         </View>
 
-                        <Text style={styles.statNumber}>
-                            0
-                        </Text>
-
-                        <Text style={styles.statLabel}>
-                            Users
-                        </Text>
+                        <Text style={styles.statNumberUnavailable}>—</Text>
+                        <Text style={styles.statLabel}>Users</Text>
+                        <Text style={styles.statBreakdown}>Not available yet</Text>
                     </View>
                 </View>
 
@@ -373,7 +466,7 @@ export default function AdminDashboard() {
                     {/* Add Route */}
                     <TouchableOpacity
                         style={styles.quickAction}
-                        onPress={handleRoutes}
+                        onPress={handleAddRoute}
                         activeOpacity={0.75}
                     >
                         <View style={styles.quickIconGreen}>
@@ -554,6 +647,62 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#1A2530',
         marginTop: 8,
+    },
+
+    statLoader: {
+        marginTop: 12,
+        marginBottom: 6,
+        alignSelf: 'flex-start',
+    },
+
+    statCardUnavailable: {
+        opacity: 0.85,
+    },
+
+    statNumberUnavailable: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#9AA7B2',
+        marginTop: 8,
+    },
+
+    statBreakdown: {
+        fontSize: 11,
+        color: '#7A8793',
+        marginTop: 4,
+        lineHeight: 15,
+    },
+
+    overviewErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF4F4',
+        borderWidth: 1,
+        borderColor: '#F7D4D4',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 12,
+    },
+
+    overviewErrorText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#D32F2F',
+        marginLeft: 8,
+        lineHeight: 18,
+    },
+
+    overviewRetryButton: {
+        minHeight: 36,
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+    },
+
+    overviewRetryText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#D32F2F',
     },
 
     statLabel: {

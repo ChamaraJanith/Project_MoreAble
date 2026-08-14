@@ -13,6 +13,8 @@ export interface Route {
     direction?: RouteDirection;
     startLocation: string;
     endLocation: string;
+    startStopId?: string;
+    endStopId?: string;
     stops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
