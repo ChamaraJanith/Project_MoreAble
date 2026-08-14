@@ -2,6 +2,8 @@ import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { Bus } from '../../../src/entities/bus/model/types';
 import { JourneySearchMatch, Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
+import { Coordinates, GeocodedLocation, geocodeLocation } from '../../../src/shared/api/locationService';
+import { getRouteBetweenCoordinates, RoadRoute } from '../../../src/shared/api/routingService';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -63,16 +65,123 @@ export function isSameLocation(origin: unknown, destination: unknown): boolean {
   return normalizedOrigin.length > 0 && normalizedOrigin === normalizeLocation(destination);
 }
 
+interface StopRecord {
+  name: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 // Stop master data is optional, so a failure here must not fail the search —
-// route stops remain the primary source of known locations.
-async function fetchKnownStopNames(adminDb: any): Promise<string[]> {
+// route stops remain the primary source of known locations. The same single read
+// also supplies stored coordinates, so MOV-85 adds no extra Firestore traffic.
+async function fetchStops(adminDb: any): Promise<StopRecord[]> {
   try {
     const snapshot = await adminDb.collection('stops').get();
     return snapshot.docs
-      .map((doc: any) => doc.data()?.name)
-      .filter((name: unknown): name is string => typeof name === 'string');
+      .map((doc: any) => doc.data())
+      .filter((stop: any) => typeof stop?.name === 'string')
+      .map((stop: any) => ({
+        name: stop.name,
+        latitude: typeof stop.latitude === 'number' ? stop.latitude : undefined,
+        longitude: typeof stop.longitude === 'number' ? stop.longitude : undefined,
+      }));
   } catch {
     return [];
+  }
+}
+
+// Coordinates already recorded against a stop are preferred over an external
+// geocoding call.
+function buildStopCoordinateMap(stops: StopRecord[]): Map<string, Coordinates> {
+  const coordinates = new Map<string, Coordinates>();
+
+  for (const stop of stops) {
+    if (typeof stop.latitude !== 'number' || typeof stop.longitude !== 'number') continue;
+
+    const normalized = normalizeLocation(stop.name);
+    if (normalized) {
+      coordinates.set(normalized, { latitude: stop.latitude, longitude: stop.longitude });
+    }
+  }
+
+  return coordinates;
+}
+
+/**
+ * Resolves one location to coordinates, cheapest source first:
+ * stored stop coordinates -> Nominatim. Results are memoised per request so the
+ * public geocoder is never asked for the same place twice.
+ */
+async function resolveCoordinates(
+  location: string,
+  stopCoordinates: Map<string, Coordinates>,
+  cache: Map<string, GeocodedLocation | null>
+): Promise<GeocodedLocation | null> {
+  const key = normalizeLocation(location);
+  if (!key) return null;
+
+  if (cache.has(key)) {
+    return cache.get(key) ?? null;
+  }
+
+  const stored = stopCoordinates.get(key);
+  const resolved = stored ? { ...stored } : await geocodeLocation(location);
+
+  cache.set(key, resolved);
+  return resolved;
+}
+
+export interface JourneyGeoInformation {
+  available: boolean;
+  origin?: GeocodedLocation;
+  destination?: GeocodedLocation;
+  road?: RoadRoute;
+  message?: string;
+}
+
+/**
+ * Best-effort geographic enrichment. Any failure downgrades to
+ * `{ available: false }` — it can never fail the journey search itself.
+ */
+async function buildGeoInformation(
+  origin: string,
+  destination: string,
+  stopCoordinates: Map<string, Coordinates>
+): Promise<JourneyGeoInformation> {
+  try {
+    const cache = new Map<string, GeocodedLocation | null>();
+
+    const [originPoint, destinationPoint] = await Promise.all([
+      resolveCoordinates(origin, stopCoordinates, cache),
+      resolveCoordinates(destination, stopCoordinates, cache),
+    ]);
+
+    if (!originPoint || !destinationPoint) {
+      return {
+        available: false,
+        origin: originPoint ?? undefined,
+        destination: destinationPoint ?? undefined,
+        message: 'Map information is currently unavailable for this journey.',
+      };
+    }
+
+    const road = await getRouteBetweenCoordinates(originPoint, destinationPoint);
+
+    if (!road) {
+      return {
+        available: false,
+        origin: originPoint,
+        destination: destinationPoint,
+        message: 'Road routing information is currently unavailable.',
+      };
+    }
+
+    return { available: true, origin: originPoint, destination: destinationPoint, road };
+  } catch {
+    return {
+      available: false,
+      message: 'Map information is currently unavailable for this journey.',
+    };
   }
 }
 
@@ -288,7 +397,11 @@ export async function POST(request: Request) {
 
     const routes: Route[] = routesSnapshot.docs.map((doc: any) => doc.data() as Route);
 
-    const knownLocations = collectKnownLocations(routes, await fetchKnownStopNames(adminDb));
+    const stops = await fetchStops(adminDb);
+    const knownLocations = collectKnownLocations(
+      routes,
+      stops.map((stop) => stop.name)
+    );
 
     if (!isKnownLocation(trimmedOrigin, knownLocations)) {
       return Response.json(
@@ -318,6 +431,14 @@ export async function POST(request: Request) {
 
     const matchedRoutes = findMatchingRoutes(routes, trimmedOrigin, trimmedDestination);
 
+    // MOV-85: geographic enrichment around the already-validated locations. This
+    // never influences which public transport route is matched.
+    const geo = await buildGeoInformation(
+      trimmedOrigin,
+      trimmedDestination,
+      buildStopCoordinateMap(stops)
+    );
+
     const searchCriteria = {
       origin: trimmedOrigin,
       destination: trimmedDestination,
@@ -333,6 +454,7 @@ export async function POST(request: Request) {
           searchCriteria,
           count: 0,
           routes: [],
+          geo,
         },
         {
           status: 200,
@@ -354,6 +476,7 @@ export async function POST(request: Request) {
         searchCriteria,
         count: enrichedRoutes.length,
         routes: enrichedRoutes,
+        geo,
       },
       {
         status: 200,

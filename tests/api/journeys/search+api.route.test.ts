@@ -3,6 +3,13 @@ import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import { POST } from '../../../app/api/journeys/search+api';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
+import { geocodeLocation } from '../../../src/shared/api/locationService';
+import { getRouteBetweenCoordinates } from '../../../src/shared/api/routingService';
+
+const mockGeocodeLocation = geocodeLocation as jest.MockedFunction<typeof geocodeLocation>;
+const mockGetRoute = getRouteBetweenCoordinates as jest.MockedFunction<
+    typeof getRouteBetweenCoordinates
+>;
 
 const mockGetAdminDb = jest.fn();
 
@@ -10,6 +17,16 @@ const mockGetAdminDb = jest.fn();
 // getAdminDb import resolves to this mock before the module under test runs.
 jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
     getAdminDb: () => mockGetAdminDb(),
+}));
+
+// MOV-85: the external map/routing providers are always mocked — Jest never
+// performs a real Nominatim or OSRM request.
+jest.mock('../../../src/shared/api/locationService', () => ({
+    geocodeLocation: jest.fn(),
+}));
+
+jest.mock('../../../src/shared/api/routingService', () => ({
+    getRouteBetweenCoordinates: jest.fn(),
 }));
 
 function buildRequest(body: unknown): Request {
@@ -90,6 +107,13 @@ function trip(overrides: Partial<Trip> & { routeId: string }): Trip & { id: stri
 
 beforeEach(() => {
     jest.clearAllMocks();
+
+    mockGeocodeLocation.mockResolvedValue({
+        latitude: 6.9333,
+        longitude: 79.9833,
+        displayName: 'Mocked Location, Sri Lanka',
+    });
+    mockGetRoute.mockResolvedValue({ distanceKm: 22.5, durationMinutes: 69 });
 });
 
 describe('POST /api/journeys/search', () => {
@@ -308,6 +332,122 @@ describe('POST /api/journeys/search', () => {
         expect(response.status).toBe(500);
         expect(json.success).toBe(false);
         expect(json.error).toBe('Firestore unavailable');
+    });
+
+    // ---------------------------------------------------------------
+    // MOV-85 — map / location service enrichment
+    // ---------------------------------------------------------------
+    describe('map and routing enrichment', () => {
+        const seededDb = () =>
+            createFakeFirestore({ routes: [forwardRoute], trips: [], buses: [bus1] });
+
+        it('attaches geocoded endpoints and road routing to a successful search', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+            mockGeocodeLocation
+                .mockResolvedValueOnce({ latitude: 6.9333, longitude: 79.9833, displayName: 'Kaduwela' })
+                .mockResolvedValueOnce({ latitude: 6.9021, longitude: 79.9186, displayName: 'Battaramulla' });
+            mockGetRoute.mockResolvedValue({
+                distanceKm: 22.5,
+                durationMinutes: 69,
+                geometry: { type: 'LineString', coordinates: [[79.98, 6.93], [79.91, 6.9]] },
+            });
+
+            const response = await POST(buildRequest(validBody));
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.geo).toMatchObject({
+                available: true,
+                origin: { latitude: 6.9333, longitude: 79.9833 },
+                destination: { latitude: 6.9021, longitude: 79.9186 },
+                road: { distanceKm: 22.5, durationMinutes: 69 },
+            });
+            // The existing route/trip/bus contract is untouched.
+            expect(json.routes[0].routeId).toBe('177_KADUWELA_KOLLUPITIYA');
+        });
+
+        it('still returns the journey result when geocoding fails', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+            mockGeocodeLocation.mockResolvedValue(null);
+
+            const response = await POST(buildRequest(validBody));
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.success).toBe(true);
+            expect(json.count).toBe(1);
+            expect(json.geo.available).toBe(false);
+            expect(json.geo.message).toBeTruthy();
+        });
+
+        it('still returns the journey result when road routing fails', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+            mockGetRoute.mockResolvedValue(null);
+
+            const response = await POST(buildRequest(validBody));
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.success).toBe(true);
+            expect(json.count).toBe(1);
+            expect(json.geo.available).toBe(false);
+            expect(json.geo.origin).toBeDefined();
+        });
+
+        it('never fails the search when a provider throws', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+            mockGeocodeLocation.mockRejectedValue(new Error('provider exploded'));
+
+            const response = await POST(buildRequest(validBody));
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.success).toBe(true);
+            expect(json.geo.available).toBe(false);
+        });
+
+        it('prefers stored stop coordinates over calling the geocoder', async () => {
+            mockGetAdminDb.mockReturnValue(
+                createFakeFirestore({
+                    routes: [forwardRoute],
+                    trips: [],
+                    buses: [bus1],
+                    stops: [
+                        { id: 'S1', name: 'Kaduwela', latitude: 6.93, longitude: 79.98 },
+                        { id: 'S2', name: 'Battaramulla', latitude: 6.9, longitude: 79.91 },
+                    ],
+                })
+            );
+
+            const response = await POST(buildRequest(validBody));
+            const json = await response.json();
+
+            expect(json.geo.origin).toMatchObject({ latitude: 6.93, longitude: 79.98 });
+            expect(json.geo.destination).toMatchObject({ latitude: 6.9, longitude: 79.91 });
+            // Firestore already had both, so Nominatim was never contacted.
+            expect(mockGeocodeLocation).not.toHaveBeenCalled();
+        });
+
+        it('geocodes each distinct location at most once per request', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            await POST(buildRequest(validBody));
+
+            expect(mockGeocodeLocation).toHaveBeenCalledTimes(2);
+        });
+
+        it('includes geo information even when no route matches', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(
+                buildRequest({ ...validBody, origin: 'Battaramulla', destination: 'Kaduwela' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.count).toBe(0);
+            expect(json.geo).toBeDefined();
+        });
     });
 
     describe('trip and bus enrichment', () => {
