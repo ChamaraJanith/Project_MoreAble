@@ -29,6 +29,53 @@ export function isValidTravelTime(value: unknown): boolean {
   return typeof value === 'string' && TRAVEL_TIME_PATTERN.test(value);
 }
 
+// Locations are validated against the data the search itself matches on: the
+// stop names of ACTIVE routes, plus the `stops` master collection when present.
+// Anything a route actually serves therefore stays searchable, while a name the
+// system has never heard of is rejected instead of silently returning no results.
+export function collectKnownLocations(routes: Route[], stopNames: string[] = []): Set<string> {
+  const knownLocations = new Set<string>();
+
+  for (const route of routes) {
+    if (!Array.isArray(route.stops)) continue;
+
+    for (const stop of route.stops) {
+      const normalized = normalizeLocation(stop);
+      if (normalized) knownLocations.add(normalized);
+    }
+  }
+
+  for (const stopName of stopNames) {
+    const normalized = normalizeLocation(stopName);
+    if (normalized) knownLocations.add(normalized);
+  }
+
+  return knownLocations;
+}
+
+export function isKnownLocation(value: unknown, knownLocations: Set<string>): boolean {
+  const normalized = normalizeLocation(value);
+  return normalized.length > 0 && knownLocations.has(normalized);
+}
+
+export function isSameLocation(origin: unknown, destination: unknown): boolean {
+  const normalizedOrigin = normalizeLocation(origin);
+  return normalizedOrigin.length > 0 && normalizedOrigin === normalizeLocation(destination);
+}
+
+// Stop master data is optional, so a failure here must not fail the search —
+// route stops remain the primary source of known locations.
+async function fetchKnownStopNames(adminDb: any): Promise<string[]> {
+  try {
+    const snapshot = await adminDb.collection('stops').get();
+    return snapshot.docs
+      .map((doc: any) => doc.data()?.name)
+      .filter((name: unknown): name is string => typeof name === 'string');
+  } catch {
+    return [];
+  }
+}
+
 // A route matches only when both origin and destination are stops on it and the
 // origin comes before the destination, so the reverse-direction route document
 // (e.g. 177_KOLLUPITIYA_KADUWELA) is required to match a reversed search.
@@ -193,6 +240,19 @@ export async function POST(request: Request) {
       );
     }
 
+    if (isSameLocation(trimmedOrigin, trimmedDestination)) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Origin and destination cannot be the same',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
     if (!isValidTravelDate(travelDate)) {
       return Response.json(
         {
@@ -227,6 +287,34 @@ export async function POST(request: Request) {
       .get();
 
     const routes: Route[] = routesSnapshot.docs.map((doc: any) => doc.data() as Route);
+
+    const knownLocations = collectKnownLocations(routes, await fetchKnownStopNames(adminDb));
+
+    if (!isKnownLocation(trimmedOrigin, knownLocations)) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid origin location',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    if (!isKnownLocation(trimmedDestination, knownLocations)) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid destination location',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
 
     const matchedRoutes = findMatchingRoutes(routes, trimmedOrigin, trimmedDestination);
 

@@ -1,6 +1,13 @@
 import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
-import { findMatchingRoutes, normalizeLocation, selectUpcomingTrips } from '../../../app/api/journeys/search+api';
+import {
+    collectKnownLocations,
+    findMatchingRoutes,
+    isKnownLocation,
+    isSameLocation,
+    normalizeLocation,
+    selectUpcomingTrips,
+} from '../../../app/api/journeys/search+api';
 
 const forwardRoute: Route = {
     routeId: '177_KADUWELA_KOLLUPITIYA',
@@ -180,5 +187,72 @@ describe('selectUpcomingTrips', () => {
         ];
 
         expect(selectUpcomingTrips(trips, '08:30')).toHaveLength(2);
+    });
+});
+
+// ------------------------------------------------------------------
+// MOV-84 — location validation helpers
+// ------------------------------------------------------------------
+describe('collectKnownLocations', () => {
+    it('collects every stop name across the given routes', () => {
+        const known = collectKnownLocations([forwardRoute, unrelatedRoute]);
+
+        expect(known.has('kaduwela')).toBe(true);
+        expect(known.has('kollupitiya')).toBe(true);
+        expect(known.has('galle')).toBe(true);
+        expect(known.has('invalidlocationxyz')).toBe(false);
+    });
+
+    it('also accepts names supplied by the stops master collection', () => {
+        const known = collectKnownLocations([forwardRoute], ['Nugegoda', 'Maharagama']);
+
+        expect(known.has('nugegoda')).toBe(true);
+        expect(known.has('maharagama')).toBe(true);
+    });
+
+    it('ignores routes without a usable stops array', () => {
+        const brokenRoute = { ...forwardRoute, stops: undefined as unknown as string[] };
+
+        expect(() => collectKnownLocations([brokenRoute])).not.toThrow();
+        expect(collectKnownLocations([brokenRoute]).size).toBe(0);
+    });
+
+    it('skips blank stop names', () => {
+        const known = collectKnownLocations([{ ...forwardRoute, stops: ['Kaduwela', '  ', ''] }]);
+
+        expect(known.size).toBe(1);
+        expect(known.has('kaduwela')).toBe(true);
+    });
+});
+
+describe('isKnownLocation', () => {
+    const known = collectKnownLocations([forwardRoute]);
+
+    it('accepts a known location regardless of case or padding', () => {
+        expect(isKnownLocation('  kADUwela ', known)).toBe(true);
+    });
+
+    it('rejects a location the system does not know', () => {
+        expect(isKnownLocation('InvalidLocationXYZ', known)).toBe(false);
+    });
+
+    it('rejects blank and non-string values', () => {
+        expect(isKnownLocation('   ', known)).toBe(false);
+        expect(isKnownLocation(undefined, known)).toBe(false);
+        expect(isKnownLocation(42, known)).toBe(false);
+    });
+});
+
+describe('isSameLocation', () => {
+    it('detects identical locations ignoring case and padding', () => {
+        expect(isSameLocation('Kaduwela', '  kaduwela ')).toBe(true);
+    });
+
+    it('treats genuinely different locations as different', () => {
+        expect(isSameLocation('Kaduwela', 'Kollupitiya')).toBe(false);
+    });
+
+    it('does not treat two blank values as the same location', () => {
+        expect(isSameLocation('   ', '')).toBe(false);
     });
 });

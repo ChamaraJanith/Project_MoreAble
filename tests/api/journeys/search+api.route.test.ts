@@ -156,18 +156,140 @@ describe('POST /api/journeys/search', () => {
         expect(json.routes[0].routeId).toBe('177_KADUWELA_KOLLUPITIYA');
     });
 
-    it('returns an empty success result when no route matches', async () => {
+    it('returns an empty success result when both locations are valid but no route connects them', async () => {
         mockGetAdminDb.mockReturnValue(
             createFakeFirestore({ routes: [forwardRoute], trips: [], buses: [bus1] })
         );
 
-        const response = await POST(buildRequest({ ...validBody, destination: 'Nowhere' }));
+        // Both are real stops on the route, but only in the opposite order, so
+        // this is a legitimate "no results" rather than a validation failure.
+        const response = await POST(
+            buildRequest({ ...validBody, origin: 'Battaramulla', destination: 'Kaduwela' })
+        );
         const json = await response.json();
 
         expect(response.status).toBe(200);
         expect(json.success).toBe(true);
         expect(json.count).toBe(0);
         expect(json.routes).toEqual([]);
+    });
+
+    // ---------------------------------------------------------------
+    // MOV-84 — location validation
+    // ---------------------------------------------------------------
+    describe('location validation', () => {
+        const seededDb = () =>
+            createFakeFirestore({ routes: [forwardRoute], trips: [], buses: [bus1] });
+
+        it('returns 400 for a whitespace-only origin', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(buildRequest({ ...validBody, origin: '   ' }));
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json.success).toBe(false);
+            expect(json.message).toMatch(/origin/i);
+        });
+
+        it('returns 400 for a whitespace-only destination', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(buildRequest({ ...validBody, destination: '   ' }));
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json.success).toBe(false);
+            expect(json.message).toMatch(/destination/i);
+        });
+
+        it('returns 400 for an origin the system does not know', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(
+                buildRequest({ ...validBody, origin: 'InvalidLocationXYZ' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json).toMatchObject({
+                success: false,
+                message: 'Invalid origin location',
+            });
+        });
+
+        it('returns 400 for a destination the system does not know', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(
+                buildRequest({ ...validBody, destination: 'InvalidLocationXYZ' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json).toMatchObject({
+                success: false,
+                message: 'Invalid destination location',
+            });
+        });
+
+        it('returns 400 when origin and destination are the same', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(
+                buildRequest({ ...validBody, origin: 'Kaduwela', destination: 'Kaduwela' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json).toMatchObject({
+                success: false,
+                message: 'Origin and destination cannot be the same',
+            });
+        });
+
+        it('treats the same location differing only by case and spacing as identical', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(
+                buildRequest({ ...validBody, origin: 'Kaduwela', destination: '  kaduwela ' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json.message).toBe('Origin and destination cannot be the same');
+        });
+
+        it('accepts a location that exists only in the stops master collection', async () => {
+            mockGetAdminDb.mockReturnValue(
+                createFakeFirestore({
+                    routes: [forwardRoute],
+                    trips: [],
+                    buses: [bus1],
+                    stops: [{ id: 'STOP-NUGEGODA', stopId: 'STOP-NUGEGODA', name: 'Nugegoda' }],
+                })
+            );
+
+            // Known location, but no route serves it — a 200 with no results,
+            // never a validation error.
+            const response = await POST(
+                buildRequest({ ...validBody, destination: 'Nugegoda' })
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(200);
+            expect(json.success).toBe(true);
+            expect(json.count).toBe(0);
+        });
+
+        it('does not reach the database when a required location is missing', async () => {
+            mockGetAdminDb.mockReturnValue(seededDb());
+
+            const response = await POST(buildRequest({ ...validBody, origin: '' }));
+
+            expect(response.status).toBe(400);
+            expect(mockGetAdminDb).not.toHaveBeenCalled();
+        });
     });
 
     it('returns 500 when Firestore throws an error', async () => {
