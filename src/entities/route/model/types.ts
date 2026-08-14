@@ -2,10 +2,15 @@ import { BusAccessibilityFacilities } from '../../bus/model/types';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
 
+// Direction is a property of the route itself (a route document exists per
+// direction), so a trip inherits it from the route it references.
+export type RouteDirection = 'OUTBOUND' | 'RETURN';
+
 export interface Route {
     routeId: string;
     routeNumber: string;
     routeName: string;
+    direction?: RouteDirection;
     startLocation: string;
     endLocation: string;
     stops: string[];
