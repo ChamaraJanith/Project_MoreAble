@@ -52,6 +52,121 @@ export async function POST(request: Request) {
       );
     }
 
+    // --------------------------------
+    // Validate field values
+    //
+    // These mirror the rules already enforced by
+    // PUT /api/buses/:busId so that create and update
+    // accept exactly the same data.
+    // --------------------------------
+
+    // Number plate
+    if (
+      typeof numberPlate !== 'string' ||
+      !numberPlate.trim()
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid number plate.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Chassis Number
+    if (
+      typeof chassisNumber !== 'string' ||
+      !chassisNumber.trim()
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid chassis number.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Bus Model
+    if (
+      typeof busModel !== 'string' ||
+      !busModel.trim()
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid bus model.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Manufacturer
+    if (
+      typeof manufacturer !== 'string' ||
+      !manufacturer.trim()
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid manufacturer.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Manufacture Year
+    const parsedManufactureYear = Number(manufactureYear);
+
+    if (
+      !Number.isInteger(parsedManufactureYear) ||
+      parsedManufactureYear < 1900 ||
+      parsedManufactureYear > new Date().getFullYear()
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid manufacture year.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // Seat Capacity
+    const parsedSeatCapacity = Number(seatCapacity);
+
+    if (
+      !Number.isInteger(parsedSeatCapacity) ||
+      parsedSeatCapacity <= 0
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Seat capacity must be a positive number.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
     const adminDb = getAdminDb();
 
     // --------------------------------
@@ -136,9 +251,9 @@ export async function POST(request: Request) {
 
       manufacturer: manufacturer.trim(),
 
-      manufactureYear: Number(manufactureYear),
+      manufactureYear: parsedManufactureYear,
 
-      seatCapacity: Number(seatCapacity),
+      seatCapacity: parsedSeatCapacity,
 
   accessibilityFacilities: {
   wheelchairRamp:
