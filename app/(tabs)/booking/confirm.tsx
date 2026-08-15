@@ -17,17 +17,27 @@ import {
 } from '../../../src/features/booking/store/selectedVehicleStore';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 
+const CATEGORY_LABELS: Record<string, string> = {
+    STANDARD: 'Standard Seat',
+    PRIORITY: 'Priority Seat',
+    ELDERLY: 'Elderly Seat (60+)',
+    GUARDIAN: 'Guardian Seat',
+    WHEELCHAIR: 'Wheelchair Space',
+};
+
 export default function BookingConfirmScreen() {
     const router = useRouter();
 
     const {
         tripId,
         seatNumber,
-        isPrioritySeat,
+        seatCategory,
+        pairedSeatNumber,
     } = useLocalSearchParams<{
         tripId: string;
         seatNumber: string;
-        isPrioritySeat: string;
+        seatCategory: string;
+        pairedSeatNumber: string;
     }>();
 
     const selectedVehicle = useSelectedVehicle();
@@ -46,7 +56,6 @@ export default function BookingConfirmScreen() {
             const booking = await confirmBooking({
                 tripId: tripId as string,
                 seatNumber: seatNumber as string,
-                isPrioritySeat: isPrioritySeat === '1',
                 passengerId: user?.passengerId,
             });
 
@@ -67,6 +76,9 @@ export default function BookingConfirmScreen() {
             setIsSubmitting(false);
         }
     }
+
+    const categoryLabel =
+        CATEGORY_LABELS[seatCategory as string] ?? 'Seat';
 
     return (
         <ScrollView contentContainerStyle={styles.content}>
@@ -103,17 +115,24 @@ export default function BookingConfirmScreen() {
 
                 <SummaryRow
                     label="Vehicle"
-                    value={selectedVehicle?.numberPlate ?? '—'}
+                    value={
+                        selectedVehicle?.numberPlate ?? '—'
+                    }
                 />
 
                 <SummaryRow
                     label="Departure"
-                    value={selectedVehicle?.departureTime ?? '—'}
+                    value={
+                        selectedVehicle?.departureTime ?? '—'
+                    }
                 />
 
                 <SummaryRow
                     label="Est. Arrival"
-                    value={selectedVehicle?.estimatedArrivalTime ?? '—'}
+                    value={
+                        selectedVehicle?.estimatedArrivalTime ??
+                        '—'
+                    }
                 />
 
                 <SummaryRow
@@ -122,11 +141,36 @@ export default function BookingConfirmScreen() {
                 />
 
                 <SummaryRow
-                    label="Priority Seat"
-                    value={isPrioritySeat === '1' ? 'Yes' : 'No'}
-                    isLast
+                    label="Seat Type"
+                    value={categoryLabel}
+                    isLast={!pairedSeatNumber}
                 />
+
+                {!!pairedSeatNumber && (
+                    <SummaryRow
+                        label="Companion Seat"
+                        value={`${pairedSeatNumber} (auto-reserved)`}
+                        isLast
+                    />
+                )}
             </View>
+
+            {/* Wheelchair Information */}
+            {seatCategory === 'WHEELCHAIR' && (
+                <View style={styles.noteBanner}>
+                    <Ionicons
+                        name="information-circle-outline"
+                        size={16}
+                        color="#0066CC"
+                    />
+
+                    <Text style={styles.noteText}>
+                        Booking this wheelchair space automatically
+                        reserves the guardian seat beside it — no
+                        separate booking needed.
+                    </Text>
+                </View>
+            )}
 
             {/* Error Message */}
             {!!submitError && (
@@ -147,7 +191,8 @@ export default function BookingConfirmScreen() {
             <TouchableOpacity
                 style={[
                     styles.confirmButton,
-                    isSubmitting && styles.confirmButtonDisabled,
+                    isSubmitting &&
+                        styles.confirmButtonDisabled,
                 ]}
                 onPress={handleConfirm}
                 disabled={isSubmitting}
@@ -248,6 +293,24 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '700',
         color: '#0F172A',
+    },
+
+    noteBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EBF3FA',
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 14,
+    },
+
+    noteText: {
+        flex: 1,
+        fontSize: 12,
+        color: '#0066CC',
+        marginLeft: 8,
+        fontWeight: '600',
+        lineHeight: 16,
     },
 
     errorBanner: {

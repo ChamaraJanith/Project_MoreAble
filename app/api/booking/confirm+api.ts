@@ -1,5 +1,6 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { generateBookingId } from '../../../src/shared/utils/bookingId';
+import { buildSeatLayout, ELDERLY_SEAT_MIN_AGE, findSeat } from '../../../src/shared/utils/seatLayout';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -15,7 +16,7 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { tripId, seatNumber, isPrioritySeat, passengerId } = body;
+        const { tripId, seatNumber, passengerId } = body;
 
         if (!tripId || !seatNumber) {
             return Response.json(
@@ -48,22 +49,66 @@ export async function POST(request: Request) {
         }
         const bus = busDoc.data();
 
+        // Rebuild the layout server-side and locate the requested seat in it —
+        // this is the single source of truth for its category, pairing and
+        // any age restriction, regardless of what the client sent.
+        const layout = buildSeatLayout(bus);
+        const seat = findSeat(layout, seatNumber);
+
+        if (!seat) {
+            return Response.json(
+                { success: false, message: 'Invalid seat number for this bus.' },
+                { status: 400, headers: corsHeaders }
+            );
+        }
+
+        // ---- Elderly seat age enforcement ----
+        if (seat.category === 'ELDERLY') {
+            if (!passengerId) {
+                return Response.json(
+                    {
+                        success: false,
+                        message: `This seat is reserved for passengers aged ${seat.minAge ?? ELDERLY_SEAT_MIN_AGE} and above. Please log in with your registered account to book it.`,
+                    },
+                    { status: 403, headers: corsHeaders }
+                );
+            }
+
+            const userDoc = await adminDb.collection('users').doc(passengerId).get();
+            const age = userDoc.exists ? Number(userDoc.data()?.calculatedAge || 0) : 0;
+
+            if (!userDoc.exists || age < (seat.minAge ?? ELDERLY_SEAT_MIN_AGE)) {
+                return Response.json(
+                    {
+                        success: false,
+                        message: `This seat is reserved for passengers aged ${seat.minAge ?? ELDERLY_SEAT_MIN_AGE} and above.`,
+                    },
+                    { status: 403, headers: corsHeaders }
+                );
+            }
+        }
+
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
 
+        // A wheelchair booking always reserves its paired guardian seat too —
+        // both seat numbers are held under the same booking document.
+        const seatsToReserve = seat.pairedSeatNumber ? [seat.seatNumber, seat.pairedSeatNumber] : [seat.seatNumber];
+
         const bookingsRef = adminDb.collection('bookings');
 
-        // Transaction re-checks the seat right before writing, so two
-        // passengers can never both be confirmed into the same seat.
         const booking = await adminDb.runTransaction(async (transaction: any) => {
-            const existingSnapshot = await transaction.get(
+            const bySeatNumber = await transaction.get(
+                bookingsRef.where('tripId', '==', tripId).where('status', '==', 'CONFIRMED').where('seatNumber', 'in', seatsToReserve)
+            );
+            const byPairedSeatNumber = await transaction.get(
                 bookingsRef
                     .where('tripId', '==', tripId)
-                    .where('seatNumber', '==', seatNumber)
                     .where('status', '==', 'CONFIRMED')
+                    .where('pairedSeatNumber', 'in', seatsToReserve)
             );
 
-            if (!existingSnapshot.empty) {
+            if (!bySeatNumber.empty || !byPairedSeatNumber.empty) {
                 throw new Error('SEAT_TAKEN');
             }
 
@@ -73,7 +118,8 @@ export async function POST(request: Request) {
             const qrPayload = JSON.stringify({
                 bookingId,
                 tripId,
-                seatNumber,
+                seatNumber: seat.seatNumber,
+                pairedSeatNumber: seat.pairedSeatNumber,
                 numberPlate: bus.numberPlate,
                 departureTime: trip.departureTime,
             });
@@ -84,8 +130,10 @@ export async function POST(request: Request) {
                 tripId,
                 routeId: trip.routeId,
                 busId: trip.busId,
-                seatNumber,
-                isPrioritySeat: !!isPrioritySeat,
+                seatNumber: seat.seatNumber,
+                seatCategory: seat.category,
+                isPrioritySeat: seat.category === 'PRIORITY',
+                pairedSeatNumber: seat.pairedSeatNumber,
                 status: 'CONFIRMED',
                 journey: {
                     routeNumber: route?.routeNumber ?? '—',
@@ -115,7 +163,10 @@ export async function POST(request: Request) {
     } catch (error: any) {
         if (error.message === 'SEAT_TAKEN') {
             return Response.json(
-                { success: false, message: 'This seat was just taken by another passenger. Please choose another seat.' },
+                {
+                    success: false,
+                    message: 'This seat (or its paired guardian seat) was just taken by another passenger. Please choose another seat.',
+                },
                 { status: 409, headers: corsHeaders }
             );
         }

@@ -1,28 +1,31 @@
 export type SeatStatus = 'AVAILABLE' | 'RESERVED' | 'OCCUPIED';
-export type SeatCategory = 'STANDARD' | 'PRIORITY' | 'GUARDIAN';
+export type SeatCategory = 'STANDARD' | 'PRIORITY' | 'GUARDIAN' | 'ELDERLY' | 'WHEELCHAIR';
 
 export interface Seat {
   seatNumber: string;
   category: SeatCategory;
-  // Kept alongside `category` because the booking-confirm API and the seat
-  // selection screen already read this flag directly.
   isPrioritySeat: boolean;
   status: SeatStatus;
   bookingId: string | null;
+  /** WHEELCHAIR seat -> its paired GUARDIAN seat, and vice versa. Null when not paired to anything. */
+  pairedSeatNumber: string | null;
+  /** Minimum passenger age required to book this seat. Only set on ELDERLY seats (60). */
+  minAge: number | null;
 }
 
-export type SeatSlotKind = 'SEAT' | 'WHEELCHAIR_SPACE' | 'EMPTY';
+export type SeatSlotKind = 'SEAT' | 'EMPTY';
 
-/** One physical position in a row — either a real seat, a wheelchair space, or empty space. */
 export interface SeatSlot {
   kind: SeatSlotKind;
   seat: Seat | null;
 }
 
+export type SeatRowKind = 'SEATS' | 'WHEELCHAIR_PAIR';
+
 export interface SeatMapRow {
   rowNumber: number;
-  /** True for the wheelchair-space + guardian-seat row(s) near the entrance. */
   isAccessibilityRow: boolean;
+  kind: SeatRowKind;
   left: SeatSlot[];
   right: SeatSlot[];
 }
@@ -41,9 +44,9 @@ export interface TransportOption {
   numberPlate: string;
   busModel: string;
   manufacturer: string;
-  departureTime: string; // 'HH:MM'
-  estimatedArrivalTime: string; // 'HH:MM'
-  accessibilityScore: number; // 0-100
+  departureTime: string;
+  estimatedArrivalTime: string;
+  accessibilityScore: number;
   totalSeats: number;
   availableSeats: number;
   availablePrioritySeats: number;
@@ -92,7 +95,9 @@ export interface Booking {
   routeId: string;
   busId: string;
   seatNumber: string;
+  seatCategory: SeatCategory;
   isPrioritySeat: boolean;
+  pairedSeatNumber: string | null;
   status: BookingStatus;
   journey: BookingJourneyDetails;
   vehicle: BookingVehicleDetails;

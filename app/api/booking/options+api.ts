@@ -1,5 +1,7 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import { buildBookedSeatMap } from '../../../src/shared/utils/bookedSeats';
+import { applyBookedSeats, buildSeatLayout, flattenSeats } from '../../../src/shared/utils/seatLayout';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -18,24 +20,17 @@ export async function GET(request: Request) {
         const routeId = url.searchParams.get('routeId');
 
         if (!routeId) {
-            return Response.json(
-                { success: false, message: 'routeId is required.' },
-                { status: 400, headers: corsHeaders }
-            );
+            return Response.json({ success: false, message: 'routeId is required.' }, { status: 400, headers: corsHeaders });
         }
 
         const adminDb = getAdminDb();
 
         const routeDoc = await adminDb.collection('routes').doc(routeId).get();
         if (!routeDoc.exists) {
-            return Response.json(
-                { success: false, message: 'Route not found.' },
-                { status: 404, headers: corsHeaders }
-            );
+            return Response.json({ success: false, message: 'Route not found.' }, { status: 404, headers: corsHeaders });
         }
         const route = routeDoc.data();
 
-        // Only ACTIVE trips are ever offered to a passenger.
         const tripsSnapshot = await adminDb
             .collection('trips')
             .where('routeId', '==', routeId)
@@ -58,7 +53,6 @@ export async function GET(request: Request) {
             if (!busDoc.exists) continue;
             const bus = busDoc.data();
 
-            // Only active and available vehicles should be displayed.
             if (bus.status !== 'ACTIVE') continue;
 
             const bookingsSnapshot = await adminDb
@@ -67,17 +61,13 @@ export async function GET(request: Request) {
                 .where('status', '==', 'CONFIRMED')
                 .get();
 
-            const bookedSeats = bookingsSnapshot.docs.map((doc: any) => doc.data());
-            const bookedCount = bookedSeats.length;
-            const bookedPriorityCount = bookedSeats.filter((b: any) => b.isPrioritySeat).length;
+            const bookedMap = buildBookedSeatMap(bookingsSnapshot.docs);
+            const layout = applyBookedSeats(buildSeatLayout(bus), bookedMap);
+            const seats = flattenSeats(layout);
 
-            const totalSeats = bus.seatCapacity || 0;
-            const availableSeats = Math.max(0, totalSeats - bookedCount);
-
-            const totalPrioritySeats = bus.accessibilityFacilities?.prioritySeats?.available
-                ? bus.accessibilityFacilities.prioritySeats.count
-                : 0;
-            const availablePrioritySeats = Math.max(0, totalPrioritySeats - bookedPriorityCount);
+            const totalSeats = seats.length;
+            const availableSeats = seats.filter((s) => s.status === 'AVAILABLE').length;
+            const availablePrioritySeats = seats.filter((s) => s.category === 'PRIORITY' && s.status === 'AVAILABLE').length;
 
             options.push({
                 tripId: trip.tripId,
