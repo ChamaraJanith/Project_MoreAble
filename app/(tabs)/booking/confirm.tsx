@@ -1,43 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { confirmBooking } from '../../../src/features/booking/api/bookingApi';
-import {
-    setSelectedVehicle,
-    useSelectedVehicle,
-} from '../../../src/features/booking/store/selectedVehicleStore';
+import { setSelectedVehicle, useSelectedVehicle } from '../../../src/features/booking/store/selectedVehicleStore';
 import { useAuthStore } from '../../../src/shared/store/authStore';
-
-const CATEGORY_LABELS: Record<string, string> = {
-    STANDARD: 'Standard Seat',
-    PRIORITY: 'Priority Seat',
-    ELDERLY: 'Elderly Seat (60+)',
-    GUARDIAN: 'Guardian Seat',
-    WHEELCHAIR: 'Wheelchair Space',
-};
 
 export default function BookingConfirmScreen() {
     const router = useRouter();
-
-    const {
-        tripId,
-        seatNumber,
-        seatCategory,
-        pairedSeatNumber,
-    } = useLocalSearchParams<{
-        tripId: string;
-        seatNumber: string;
-        seatCategory: string;
-        pairedSeatNumber: string;
+    const { tripId, seatNumber, isPrioritySeat, origin, destination } = useLocalSearchParams<{
+        tripId: string; seatNumber: string; isPrioritySeat: string; origin?: string; destination?: string;
     }>();
 
     const selectedVehicle = useSelectedVehicle();
@@ -45,6 +17,11 @@ export default function BookingConfirmScreen() {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState('');
+
+    // Real trip origin/destination the passenger actually searched for —
+    // falls back to the vehicle's route name if opened without a journey search.
+    const journeyOrigin = (origin as string) || selectedVehicle?.origin || '—';
+    const journeyDestination = (destination as string) || selectedVehicle?.destination || '—';
 
     async function handleConfirm() {
         if (!tripId || !seatNumber) return;
@@ -56,297 +33,96 @@ export default function BookingConfirmScreen() {
             const booking = await confirmBooking({
                 tripId: tripId as string,
                 seatNumber: seatNumber as string,
+                //isPrioritySeat: isPrioritySeat === '1',
                 passengerId: user?.passengerId,
+                origin: journeyOrigin !== '—' ? journeyOrigin : undefined,
+                destination: journeyDestination !== '—' ? journeyDestination : undefined,
             });
 
             setSelectedVehicle(null);
-
-            router.replace({
-                pathname: '/booking/ticket/[bookingId]',
-                params: {
-                    bookingId: booking.bookingId,
-                },
-            });
+            router.replace({ pathname: '/booking/ticket/[bookingId]', params: { bookingId: booking.bookingId } });
         } catch (err: any) {
-            setSubmitError(
-                err.message ||
-                'Unable to confirm this booking. Please try again.'
-            );
+            setSubmitError(err.message || 'Unable to confirm this booking. Please try again.');
         } finally {
             setIsSubmitting(false);
         }
     }
 
-    const categoryLabel =
-        CATEGORY_LABELS[seatCategory as string] ?? 'Seat';
-
     return (
         <ScrollView contentContainerStyle={styles.content}>
-            {/* Header */}
             <View style={styles.headerRow}>
-                <TouchableOpacity
-                    onPress={() => router.back()}
-                    style={styles.backButton}
-                    accessibilityRole="button"
-                    accessibilityLabel="Go back"
-                >
-                    <Ionicons
-                        name="arrow-back"
-                        size={22}
-                        color="#0F172A"
-                    />
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+                    <Ionicons name="arrow-back" size={22} color="#0F172A" />
                 </TouchableOpacity>
-
-                <Text style={styles.title}>
-                    Booking Summary
-                </Text>
+                <Text style={styles.title}>Booking Summary</Text>
             </View>
 
-            {/* Booking Summary Card */}
-            <View style={styles.card}>
-                <SummaryRow
-                    label="Route"
-                    value={
-                        selectedVehicle
-                            ? `${selectedVehicle.routeNumber} · ${selectedVehicle.routeName}`
-                            : '—'
-                    }
-                />
-
-                <SummaryRow
-                    label="Vehicle"
-                    value={
-                        selectedVehicle?.numberPlate ?? '—'
-                    }
-                />
-
-                <SummaryRow
-                    label="Departure"
-                    value={
-                        selectedVehicle?.departureTime ?? '—'
-                    }
-                />
-
-                <SummaryRow
-                    label="Est. Arrival"
-                    value={
-                        selectedVehicle?.estimatedArrivalTime ??
-                        '—'
-                    }
-                />
-
-                <SummaryRow
-                    label="Seat"
-                    value={(seatNumber as string) ?? '—'}
-                />
-
-                <SummaryRow
-                    label="Seat Type"
-                    value={categoryLabel}
-                    isLast={!pairedSeatNumber}
-                />
-
-                {!!pairedSeatNumber && (
-                    <SummaryRow
-                        label="Companion Seat"
-                        value={`${pairedSeatNumber} (auto-reserved)`}
-                        isLast
-                    />
-                )}
-            </View>
-
-            {/* Wheelchair Information */}
-            {seatCategory === 'WHEELCHAIR' && (
-                <View style={styles.noteBanner}>
-                    <Ionicons
-                        name="information-circle-outline"
-                        size={16}
-                        color="#0066CC"
-                    />
-
-                    <Text style={styles.noteText}>
-                        Booking this wheelchair space automatically
-                        reserves the guardian seat beside it — no
-                        separate booking needed.
-                    </Text>
+            <View style={styles.journeyBanner}>
+                <View style={styles.journeyStop}>
+                    <Ionicons name="ellipse" size={9} color="#0066CC" />
+                    <Text style={styles.journeyText} numberOfLines={1}>{journeyOrigin}</Text>
                 </View>
-            )}
+                <Ionicons name="arrow-forward" size={14} color="#94A3B8" style={{ marginHorizontal: 8 }} />
+                <View style={styles.journeyStop}>
+                    <Ionicons name="location" size={12} color="#0F172A" />
+                    <Text style={styles.journeyText} numberOfLines={1}>{journeyDestination}</Text>
+                </View>
+            </View>
 
-            {/* Error Message */}
+            <View style={styles.card}>
+                <SummaryRow label="Route" value={selectedVehicle ? `${selectedVehicle.routeNumber} · ${selectedVehicle.routeName}` : '—'} />
+                <SummaryRow label="Vehicle" value={selectedVehicle?.numberPlate ?? '—'} />
+                <SummaryRow label="Departure" value={selectedVehicle?.departureTime ?? '—'} />
+                <SummaryRow label="Est. Arrival" value={selectedVehicle?.estimatedArrivalTime ?? '—'} />
+                <SummaryRow label="Seat" value={(seatNumber as string) ?? '—'} />
+                <SummaryRow label="Priority Seat" value={isPrioritySeat === '1' ? 'Yes' : 'No'} isLast />
+            </View>
+
             {!!submitError && (
                 <View style={styles.errorBanner}>
-                    <Ionicons
-                        name="alert-circle-outline"
-                        size={18}
-                        color="#D32F2F"
-                    />
-
-                    <Text style={styles.errorText}>
-                        {submitError}
-                    </Text>
+                    <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                    <Text style={styles.errorText}>{submitError}</Text>
                 </View>
             )}
 
-            {/* Confirm Button */}
             <TouchableOpacity
-                style={[
-                    styles.confirmButton,
-                    isSubmitting &&
-                        styles.confirmButtonDisabled,
-                ]}
+                style={[styles.confirmButton, isSubmitting && styles.confirmButtonDisabled]}
                 onPress={handleConfirm}
                 disabled={isSubmitting}
                 accessibilityRole="button"
                 accessibilityLabel="Confirm booking"
             >
-                {isSubmitting ? (
-                    <ActivityIndicator color="#fff" />
-                ) : (
-                    <Text style={styles.confirmButtonText}>
-                        CONFIRM BOOKING
-                    </Text>
-                )}
+                {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmButtonText}>CONFIRM BOOKING</Text>}
             </TouchableOpacity>
         </ScrollView>
     );
 }
 
-function SummaryRow({
-    label,
-    value,
-    isLast,
-}: {
-    label: string;
-    value: string;
-    isLast?: boolean;
-}) {
+function SummaryRow({ label, value, isLast }: { label: string; value: string; isLast?: boolean }) {
     return (
-        <View
-            style={[
-                styles.row,
-                isLast && styles.rowLast,
-            ]}
-        >
-            <Text style={styles.rowLabel}>
-                {label}
-            </Text>
-
-            <Text style={styles.rowValue}>
-                {value}
-            </Text>
+        <View style={[styles.row, isLast && styles.rowLast]}>
+            <Text style={styles.rowLabel}>{label}</Text>
+            <Text style={styles.rowValue}>{value}</Text>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    content: {
-        padding: 16,
-        backgroundColor: '#F8FAFC',
-        flexGrow: 1,
-    },
-
-    headerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-
-    backButton: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-    },
-
-    title: {
-        fontSize: 19,
-        fontWeight: '800',
-        color: '#0F172A',
-        marginLeft: 6,
-    },
-
-    card: {
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-    },
-
-    row: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F1F5F9',
-    },
-
-    rowLast: {
-        borderBottomWidth: 0,
-    },
-
-    rowLabel: {
-        fontSize: 13,
-        color: '#64748B',
-    },
-
-    rowValue: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#0F172A',
-    },
-
-    noteBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#EBF3FA',
-        borderRadius: 10,
-        padding: 12,
-        marginTop: 14,
-    },
-
-    noteText: {
-        flex: 1,
-        fontSize: 12,
-        color: '#0066CC',
-        marginLeft: 8,
-        fontWeight: '600',
-        lineHeight: 16,
-    },
-
-    errorBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FEF4F4',
-        borderRadius: 10,
-        padding: 12,
-        marginTop: 16,
-    },
-
-    errorText: {
-        color: '#D32F2F',
-        marginLeft: 8,
-        flex: 1,
-        fontSize: 13,
-        fontWeight: '600',
-    },
-
-    confirmButton: {
-        backgroundColor: '#0066CC',
-        minHeight: 54,
-        borderRadius: 14,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: 20,
-    },
-
-    confirmButtonDisabled: {
-        backgroundColor: '#94A3B8',
-    },
-
-    confirmButtonText: {
-        color: '#fff',
-        fontWeight: '800',
-        fontSize: 16,
-        letterSpacing: 0.5,
-    },
+    content: { padding: 16, backgroundColor: '#F8FAFC', flexGrow: 1 },
+    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    backButton: { width: 40, height: 40, justifyContent: 'center' },
+    title: { fontSize: 19, fontWeight: '800', color: '#0F172A', marginLeft: 6 },
+    journeyBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12 },
+    journeyStop: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+    journeyText: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginLeft: 6, flexShrink: 1 },
+    card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E2E8F0' },
+    row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+    rowLast: { borderBottomWidth: 0 },
+    rowLabel: { fontSize: 13, color: '#64748B' },
+    rowValue: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+    errorBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF4F4', borderRadius: 10, padding: 12, marginTop: 16 },
+    errorText: { color: '#D32F2F', marginLeft: 8, flex: 1, fontSize: 13, fontWeight: '600' },
+    confirmButton: { backgroundColor: '#0066CC', minHeight: 54, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+    confirmButtonDisabled: { backgroundColor: '#94A3B8' },
+    confirmButtonText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
 });

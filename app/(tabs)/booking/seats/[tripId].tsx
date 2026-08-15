@@ -26,8 +26,8 @@ const ELDERLY_MIN_AGE = 60;
 export default function SeatSelectionScreen() {
     const router = useRouter();
 
-    const { tripId } = useLocalSearchParams<{
-        tripId: string;
+    const { tripId, origin, destination } = useLocalSearchParams<{
+        tripId: string; origin?: string; destination?: string;
     }>();
 
     const { user } = useAuthStore();
@@ -123,9 +123,9 @@ export default function SeatSelectionScreen() {
             params: {
                 tripId: data.tripId,
                 seatNumber: selectedSeat.seatNumber,
-                seatCategory: selectedSeat.category,
-                pairedSeatNumber:
-                    selectedSeat.pairedSeatNumber ?? '',
+                isPrioritySeat: selectedSeat.isPrioritySeat ? '1' : '0',
+                origin: origin ?? '',
+                destination: destination ?? '',
             },
         });
     }

@@ -148,7 +148,16 @@ export function JourneyOptionCard({ route, option }: JourneyOptionCardProps) {
 
                 <TouchableOpacity
                     style={styles.bookButton}
-                    onPress={() => router.push({ pathname: '/booking', params: { routeId: route.routeId } })}
+                    onPress={() =>
+                        router.push({
+                            pathname: '/booking/options',
+                            params: {
+                                routeId: route.routeId,
+                                origin: route.origin,
+                                destination: route.destination,
+                            },
+                        })
+                    }
                     accessibilityRole="button"
                     accessibilityLabel={`Book this trip on route ${route.routeNumber}`}
                 >

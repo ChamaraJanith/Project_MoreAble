@@ -68,6 +68,8 @@ export interface SelectedVehicle {
   departureTime: string;
   estimatedArrivalTime: string;
   accessibilityScore: number;
+  origin: string;        // ADD — passenger's actual boarding stop
+  destination: string; // ADD — passenger's actual alighting stop
   selectedAt: number;
 }
 
