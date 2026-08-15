@@ -9,16 +9,23 @@ import {
     Text, TextInput, TouchableOpacity,
     View
 } from 'react-native';
-import { API_BASE_URL } from '../../../shared/api/config';
+import { useAuthStore } from '../../../shared/store/authStore';
 
 export const LoginForm = () => {
-    const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
     const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
+    const [formData, setFormData] = useState({
+        identifier: '',
+        password: '',
+    });
+    const [errors, setErrors] = useState<Record<string, string>>({});
+
+    // Use Zustand auth store for login
+    const { login, isLoading } = useAuthStore();
 
     const validateForm = () => {
         let newErrors: { identifier?: string; password?: string } = {};
@@ -37,7 +44,7 @@ export const LoginForm = () => {
     const handleLogin = async () => {
         if (!validateForm()) return;
 
-        setIsLoading(true);
+        const result = await login(formData.identifier, formData.password);
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -45,31 +52,24 @@ export const LoginForm = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier, password }),
             });
+        if (result.success) {
+            const successMsg = result.isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
+            const targetRoute = result.isAdmin ? '/(admin)' : '/(tabs)';
 
-            let result: any = {};
-            try {
-                result = await response.json();
-            } catch (parseError) {
-                console.error('Failed to parse JSON response:', parseError);
-            }
-
-            if (response.ok) {
-                if (Platform.OS === 'web') {
-                    window.alert('Login Successful!');
-                    router.replace('/(tabs)');
-                } else {
-                    Alert.alert('Success', 'Login Successful!', [
-                        { text: 'OK', onPress: () => router.replace('/(tabs)') }
-                    ]);
-                }
+            if (Platform.OS === 'web') {
+                window.alert(successMsg);
+                router.replace(targetRoute);
             } else {
-                Alert.alert('Login Failed', result.message || 'Invalid credentials');
+                Alert.alert('Success', successMsg, [
+                    { text: 'OK', onPress: () => router.replace(targetRoute) }
+                ]);
             }
-        } catch (error) {
-            console.error('Login Error:', error);
-            Alert.alert('Error', 'Network error. Please try again later.');
-        } finally {
-            setIsLoading(false);
+        } else {
+            if (Platform.OS === 'web') {
+                window.alert(result.message);
+            } else {
+                Alert.alert('Login Failed', result.message);
+            }
         }
     };
 
@@ -94,18 +94,16 @@ export const LoginForm = () => {
 
     return (
         <FormContainer style={styles.container} {...containerProps}>
+        <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.container}
+        >
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
                 keyboardShouldPersistTaps="always"
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.cardContainer}>
-                    {/* Top Accessibility Badge */}
-                    <View style={styles.badgeContainer}>
-                        <Ionicons name="accessibility" size={18} color="#0066CC" style={{ marginRight: 6 }} />
-                        <Text style={styles.badgeText}>MoreAble Accessible Portal</Text>
-                    </View>
-
                     {/* App Logo Header */}
                     <View style={styles.logoContainer}>
                         <Image
@@ -136,14 +134,18 @@ export const LoginForm = () => {
                                 color="#0066CC"
                                 style={styles.inputIcon}
                             />
+                        <View style={[styles.inputWrapper, errors.identifier ? styles.inputErrorBorder : null]}>
+                            <Ionicons name="card-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
                                 placeholder="e.g. user@email.com or 199012345678"
-                                placeholderTextColor="#8898AA"
+                                placeholderTextColor="#777"
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 value={identifier}
                                 onChangeText={setIdentifier}
+                                value={formData.identifier}
+                                onChangeText={(text) => setFormData({ ...formData, identifier: text })}
                                 accessibilityLabel="Email address or NIC Number"
                                 accessibilityHint="Enter your registered email address or Sri Lankan NIC number"
                             />
@@ -156,7 +158,7 @@ export const LoginForm = () => {
                         ) : null}
                     </View>
 
-                    {/* Password Input with Show/Hide Toggle */}
+                    {/* Password Input */}
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Password</Text>
                         <View style={[
@@ -169,15 +171,19 @@ export const LoginForm = () => {
                                 color="#0066CC"
                                 style={styles.inputIcon}
                             />
+                        <View style={[styles.inputWrapper, errors.password ? styles.inputErrorBorder : null]}>
+                            <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
-                                style={styles.passwordInput}
+                                style={styles.input}
                                 placeholder="Enter your password"
-                                placeholderTextColor="#8898AA"
+                                placeholderTextColor="#777"
                                 secureTextEntry={!showPassword}
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 value={password}
                                 onChangeText={setPassword}
+                                value={formData.password}
+                                onChangeText={(text) => setFormData({ ...formData, password: text })}
                                 accessibilityLabel="Password"
                                 accessibilityHint="Enter your account password"
                             />
@@ -223,26 +229,22 @@ export const LoginForm = () => {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Accessible Primary Login Button */}
+                    {/* Sign In Button */}
                     <TouchableOpacity
                         style={[styles.button, isLoading && styles.buttonDisabled]}
                         onPress={handleLogin}
                         disabled={isLoading}
                         accessibilityRole="button"
                         accessibilityLabel="Sign In"
-                        accessibilityHint="Double tap to log into your account"
                     >
                         {isLoading ? (
                             <ActivityIndicator size="large" color="#ffffff" />
                         ) : (
-                            <View style={styles.buttonInner}>
-                                <Text style={styles.buttonText}>SIGN IN</Text>
-                                <Ionicons name="arrow-forward-outline" size={22} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                            </View>
+                            <Text style={styles.buttonText}>SIGN IN</Text>
                         )}
                     </TouchableOpacity>
 
-                    {/* Register Navigation Footer */}
+                    {/* Register Link */}
                     <View style={styles.footer}>
                         <Text style={styles.footerText}>Don't have an account? </Text>
                         <TouchableOpacity
@@ -273,63 +275,42 @@ export const LoginForm = () => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F0F4F8',
+        backgroundColor: '#F4F7FB',
     },
     scrollContent: {
         flexGrow: 1,
         justifyContent: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 24,
+        padding: 20,
     },
     cardContainer: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 24,
-        padding: 26,
-        shadowColor: '#0F172A',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.12,
-        shadowRadius: 16,
-        elevation: 6,
-        marginVertical: 10,
-    },
-    badgeContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        alignSelf: 'center',
-        backgroundColor: '#EBF3FA',
-        paddingHorizontal: 14,
-        paddingVertical: 6,
         borderRadius: 20,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#CCE3F8',
-    },
-    badgeText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#0066CC',
-        letterSpacing: 0.3,
+        padding: 26,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 5,
+        marginVertical: 10,
     },
     logoContainer: {
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 15,
     },
     logo: {
-        width: 140,
-        height: 140,
+        width: 130,
+        height: 130,
     },
     headerTitle: {
-        fontSize: 32,
-        fontWeight: '800',
-        color: '#0F172A',
+        fontSize: 30,
+        fontWeight: 'bold',
+        color: '#1A2530',
         textAlign: 'center',
         marginBottom: 6,
-        letterSpacing: -0.5,
     },
     subtitle: {
-        fontSize: 15,
-        fontWeight: '500',
-        color: '#475569',
+        fontSize: 16,
+        color: '#5A6E7F',
         textAlign: 'center',
         marginBottom: 28,
         lineHeight: 22,
@@ -338,9 +319,9 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     label: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#1E293B',
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#2C3E50',
         marginBottom: 8,
     },
     inputWrapper: {
@@ -352,27 +333,23 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         paddingHorizontal: 16,
         minHeight: 58,
+        borderColor: '#D0D9E2',
+        borderRadius: 14,
+        paddingHorizontal: 14,
+        minHeight: 56,
     },
     inputErrorBorder: {
         borderColor: '#D32F2F',
-        backgroundColor: '#FEF2F2',
+        backgroundColor: '#FFEBEE',
     },
     inputIcon: {
-        marginRight: 12,
+        marginRight: 10,
     },
     input: {
         flex: 1,
         fontSize: 17,
-        fontWeight: '500',
-        color: '#0F172A',
-        paddingVertical: 14,
-    },
-    passwordInput: {
-        flex: 1,
-        fontSize: 17,
-        fontWeight: '500',
-        color: '#0F172A',
-        paddingVertical: 14,
+        color: '#1A2530',
+        paddingVertical: 12,
     },
     eyeIconContainer: {
         padding: 8,
@@ -392,11 +369,49 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginLeft: 6,
     },
+    button: {
+        backgroundColor: '#0066CC',
+        minHeight: 56,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 10,
+        shadowColor: '#0066CC',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 4,
+    },
+    buttonDisabled: {
+        backgroundColor: '#82B1FF',
+    },
+    buttonText: {
+        color: '#FFFFFF',
+        fontSize: 19,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+    },
+    footer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 28,
+    },
+    footerText: {
+        fontSize: 16,
+        color: '#5A6E7F',
+    },
+    registerLink: {
+        fontSize: 16,
+        color: '#0066CC',
+        fontWeight: 'bold',
+        paddingVertical: 4,
+    },
     optionsRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 24,
+        marginBottom: 20,
     },
     rememberMeContainer: {
         flexDirection: 'row',
@@ -410,63 +425,20 @@ const styles = StyleSheet.create({
     },
     forgotPasswordText: {
         fontSize: 15,
-        fontWeight: '700',
+        fontWeight: 'bold',
         color: '#0066CC',
-    },
-    button: {
-        backgroundColor: '#0066CC',
-        minHeight: 58,
-        borderRadius: 16,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#0066CC',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
-    },
-    buttonDisabled: {
-        backgroundColor: '#94A3B8',
-    },
-    buttonInner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    buttonText: {
-        color: '#FFFFFF',
-        fontSize: 19,
-        fontWeight: '800',
-        letterSpacing: 1,
-    },
-    footer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: 26,
-        marginBottom: 16,
-    },
-    footerText: {
-        fontSize: 16,
-        color: '#475569',
-    },
-    registerLink: {
-        fontSize: 16,
-        color: '#0066CC',
-        fontWeight: '800',
-        paddingVertical: 4,
     },
     supportBanner: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#EBF3FA',
         paddingVertical: 12,
         paddingHorizontal: 16,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#E2E8F0',
-        marginTop: 6,
+        borderColor: '#D0D9E2',
+        marginTop: 16,
     },
     supportBannerText: {
         fontSize: 14,
