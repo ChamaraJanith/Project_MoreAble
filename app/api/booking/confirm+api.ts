@@ -16,7 +16,7 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { tripId, seatNumber, passengerId } = body;
+        const { tripId, seatNumber, passengerId, origin, destination } = body;
 
         if (!tripId || !seatNumber) {
             return Response.json(
@@ -138,8 +138,10 @@ export async function POST(request: Request) {
                 journey: {
                     routeNumber: route?.routeNumber ?? '—',
                     routeName: route?.routeName ?? '—',
-                    startLocation: route?.startLocation ?? '—',
-                    endLocation: route?.endLocation ?? '—',
+                    // Prefer what the passenger actually searched for (mid-route stops
+                    // like Malabe) over the route's own full termini.
+                    startLocation: origin || route?.startLocation || '—',
+                    endLocation: destination || route?.endLocation || '—',
                     departureTime: trip.departureTime,
                     estimatedArrivalTime: trip.estimatedArrivalTime,
                 },

@@ -45,6 +45,8 @@ export interface ConfirmBookingPayload {
     tripId: string;
     seatNumber: string;
     passengerId?: string;
+    origin?: string;       
+    destination?: string;
 }
 
 /** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
@@ -61,6 +63,10 @@ export async function getBooking(bookingId: string): Promise<Booking> {
 export async function getBookingHistory(passengerId: string): Promise<Booking[]> {
     const data = await bookingFetch(`/api/booking/history?passengerId=${encodeURIComponent(passengerId)}`);
     return Array.isArray(data.bookings) ? (data.bookings as Booking[]) : [];
+}
+
+export async function cancelBooking(bookingId: string): Promise<void> {
+    await bookingFetch('/api/booking/cancel', { method: 'POST', body: JSON.stringify({ bookingId }) });
 }
 
 export type { SelectedVehicle };

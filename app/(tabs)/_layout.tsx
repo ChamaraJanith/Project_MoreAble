@@ -49,13 +49,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="booking/index"
-        options={{
-          title: 'Booking',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="ticket-outline" size={size} color={color} />
-          ),
-        }}
+          name="booking/index"
+          options={{
+              title: 'Bookings',
+              tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="ticket-outline" size={size} color={color} />
+              ),
+          }}
+      />
+
+
+      <Tabs.Screen
+         name="booking/options" 
+         options={{ 
+          href: null }} 
       />
 
       <Tabs.Screen 
