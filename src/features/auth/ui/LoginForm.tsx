@@ -15,6 +15,9 @@ export const LoginForm = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
+    const [identifier, setIdentifier] = useState('');
+    const [password, setPassword] = useState('');
+    const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
     const [formData, setFormData] = useState({
         identifier: '',
         password: '',
@@ -25,12 +28,12 @@ export const LoginForm = () => {
     const { login, isLoading } = useAuthStore();
 
     const validateForm = () => {
-        let newErrors: Record<string, string> = {};
+        let newErrors: { identifier?: string; password?: string } = {};
 
-        if (!formData.identifier.trim()) {
+        if (!identifier.trim()) {
             newErrors.identifier = 'Email or NIC Number is required';
         }
-        if (!formData.password) {
+        if (!password) {
             newErrors.password = 'Password is required';
         }
 
@@ -43,6 +46,12 @@ export const LoginForm = () => {
 
         const result = await login(formData.identifier, formData.password);
 
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ identifier, password }),
+            });
         if (result.success) {
             const successMsg = result.isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
             const targetRoute = result.isAdmin ? '/(admin)' : '/(tabs)';
@@ -80,14 +89,18 @@ export const LoginForm = () => {
         }
     };
 
+    const FormContainer = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+    const containerProps = Platform.OS === 'ios' ? { behavior: 'padding' as const } : {};
+
     return (
+        <FormContainer style={styles.container} {...containerProps}>
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.container}
         >
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.cardContainer}>
@@ -111,6 +124,16 @@ export const LoginForm = () => {
                     {/* Email or NIC Input */}
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Email Address or NIC Number</Text>
+                        <View style={[
+                            styles.inputWrapper,
+                            errors.identifier ? styles.inputErrorBorder : null
+                        ]}>
+                            <Ionicons
+                                name="card-outline"
+                                size={24}
+                                color="#0066CC"
+                                style={styles.inputIcon}
+                            />
                         <View style={[styles.inputWrapper, errors.identifier ? styles.inputErrorBorder : null]}>
                             <Ionicons name="card-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
@@ -118,23 +141,36 @@ export const LoginForm = () => {
                                 placeholder="e.g. user@email.com or 199012345678"
                                 placeholderTextColor="#777"
                                 autoCapitalize="none"
+                                autoCorrect={false}
+                                value={identifier}
+                                onChangeText={setIdentifier}
                                 value={formData.identifier}
                                 onChangeText={(text) => setFormData({ ...formData, identifier: text })}
                                 accessibilityLabel="Email address or NIC Number"
                                 accessibilityHint="Enter your registered email address or Sri Lankan NIC number"
                             />
                         </View>
-                        {errors.identifier && (
+                        {errors.identifier ? (
                             <View style={styles.errorContainer}>
                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                 <Text style={styles.errorText}>{errors.identifier}</Text>
                             </View>
-                        )}
+                        ) : null}
                     </View>
 
                     {/* Password Input */}
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Password</Text>
+                        <View style={[
+                            styles.inputWrapper,
+                            errors.password ? styles.inputErrorBorder : null
+                        ]}>
+                            <Ionicons
+                                name="lock-closed-outline"
+                                size={24}
+                                color="#0066CC"
+                                style={styles.inputIcon}
+                            />
                         <View style={[styles.inputWrapper, errors.password ? styles.inputErrorBorder : null]}>
                             <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
@@ -142,6 +178,10 @@ export const LoginForm = () => {
                                 placeholder="Enter your password"
                                 placeholderTextColor="#777"
                                 secureTextEntry={!showPassword}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                value={password}
+                                onChangeText={setPassword}
                                 value={formData.password}
                                 onChangeText={(text) => setFormData({ ...formData, password: text })}
                                 accessibilityLabel="Password"
@@ -160,12 +200,12 @@ export const LoginForm = () => {
                                 />
                             </TouchableOpacity>
                         </View>
-                        {errors.password && (
+                        {errors.password ? (
                             <View style={styles.errorContainer}>
                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                 <Text style={styles.errorText}>{errors.password}</Text>
                             </View>
-                        )}
+                        ) : null}
                     </View>
 
                     {/* Options Row: Remember Me & Forgot Password */}
@@ -228,7 +268,7 @@ export const LoginForm = () => {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
-        </KeyboardAvoidingView>
+        </FormContainer>
     );
 };
 
@@ -289,6 +329,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: '#F8FAFC',
         borderWidth: 2,
+        borderColor: '#CBD5E1',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        minHeight: 58,
         borderColor: '#D0D9E2',
         borderRadius: 14,
         paddingHorizontal: 14,

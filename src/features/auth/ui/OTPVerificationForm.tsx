@@ -118,12 +118,13 @@ export const OTPVerificationForm = () => {
 
     return (
         <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            enabled={Platform.OS === 'ios'}
             style={styles.container}
         >
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.cardContainer}>
@@ -153,7 +154,7 @@ export const OTPVerificationForm = () => {
                         {otp.map((digit, index) => (
                             <TextInput
                                 key={index}
-                                ref={(ref) => inputRefs.current[index] = ref}
+                                ref={(ref) => { inputRefs.current[index] = ref; }}
                                 style={[
                                     styles.otpInput,
                                     digit ? styles.otpInputFilled : null,
