@@ -84,6 +84,14 @@ export const LoginForm = () => {
         }
     };
 
+    const handleDeviceLogin = () => {
+        router.push('/(auth)/device-login' as any);
+    };
+
+    const handleKioskDeviceLogin = () => {
+        router.push('/(auth)/device-login' as any);
+    };
+
     return (
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -217,6 +225,17 @@ export const LoginForm = () => {
                         )}
                     </TouchableOpacity>
 
+                    {/* Small Device Login Button */}
+                    <TouchableOpacity
+                        style={styles.deviceLoginBtn}
+                        onPress={handleDeviceLogin}
+                        accessibilityRole="button"
+                        accessibilityLabel="Device Login"
+                    >
+                        <Ionicons name="hardware-chip-outline" size={18} color="#0066CC" style={{ marginRight: 6 }} />
+                        <Text style={styles.deviceLoginText}>Device Login</Text>
+                    </TouchableOpacity>
+
                     {/* Register Link */}
                     <View style={styles.footer}>
                         <Text style={styles.footerText}>Don't have an account? </Text>
@@ -240,6 +259,17 @@ export const LoginForm = () => {
                         <Text style={styles.supportBannerText}>Need help? 24/7 Transit Helpline (1919)</Text>
                     </TouchableOpacity>
                 </View>
+
+                {/* Bottom Screen Kiosk / NFC Device Login Button (Visible when scrolled to very bottom) */}
+                <TouchableOpacity
+                    style={styles.bottomDeviceLoginBtn}
+                    onPress={handleKioskDeviceLogin}
+                    accessibilityRole="button"
+                    accessibilityLabel="Kiosk and NFC Device Login"
+                >
+                    <Ionicons name="qr-code-outline" size={16} color="#5A6E7F" style={{ marginRight: 6 }} />
+                    <Text style={styles.bottomDeviceLoginText}>Kiosk / NFC Device Login</Text>
+                </TouchableOpacity>
             </ScrollView>
         </KeyboardAvoidingView>
     );
@@ -413,5 +443,47 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#0066CC',
+    },
+    deviceLoginBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#F0F7FF',
+        borderWidth: 1,
+        borderColor: '#BAE6FD',
+        borderRadius: 10,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        marginTop: 14,
+        alignSelf: 'center',
+    },
+    deviceLoginText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0066CC',
+    },
+    bottomDeviceLoginBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 20,
+        paddingVertical: 8,
+        paddingHorizontal: 18,
+        marginTop: 20,
+        marginBottom: 10,
+        alignSelf: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 1,
+    },
+    bottomDeviceLoginText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#475569',
     },
 });
