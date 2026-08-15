@@ -15,21 +15,18 @@ export const LoginForm = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
-    const [focusedInput, setFocusedInput] = useState<'identifier' | 'password' | null>(null);
 
-    const [formData, setFormData] = useState({
-        identifier: '', // Email or NIC
-        password: '',
-    });
-    const [errors, setErrors] = useState<Record<string, string>>({});
+    const [identifier, setIdentifier] = useState('');
+    const [password, setPassword] = useState('');
+    const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
     const validateForm = () => {
-        let newErrors: Record<string, string> = {};
+        let newErrors: { identifier?: string; password?: string } = {};
 
-        if (!formData.identifier.trim()) {
+        if (!identifier.trim()) {
             newErrors.identifier = 'Email or NIC Number is required';
         }
-        if (!formData.password) {
+        if (!password) {
             newErrors.password = 'Password is required';
         }
 
@@ -46,7 +43,7 @@ export const LoginForm = () => {
             const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({ identifier, password }),
             });
 
             let result: any = {};
@@ -92,14 +89,14 @@ export const LoginForm = () => {
         }
     };
 
+    const FormContainer = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+    const containerProps = Platform.OS === 'ios' ? { behavior: 'padding' as const } : {};
+
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.container}
-        >
+        <FormContainer style={styles.container} {...containerProps}>
             <ScrollView
                 contentContainerStyle={styles.scrollContent}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.cardContainer}>
@@ -131,13 +128,12 @@ export const LoginForm = () => {
                         <Text style={styles.label}>Email Address or NIC Number</Text>
                         <View style={[
                             styles.inputWrapper,
-                            focusedInput === 'identifier' && styles.inputFocused,
                             errors.identifier ? styles.inputErrorBorder : null
                         ]}>
                             <Ionicons
                                 name="card-outline"
                                 size={24}
-                                color={focusedInput === 'identifier' ? '#0066CC' : '#5A6E7F'}
+                                color="#0066CC"
                                 style={styles.inputIcon}
                             />
                             <TextInput
@@ -145,20 +141,19 @@ export const LoginForm = () => {
                                 placeholder="e.g. user@email.com or 199012345678"
                                 placeholderTextColor="#8898AA"
                                 autoCapitalize="none"
-                                value={formData.identifier}
-                                onChangeText={(text) => setFormData({ ...formData, identifier: text })}
-                                onFocus={() => setFocusedInput('identifier')}
-                                onBlur={() => setFocusedInput(null)}
+                                autoCorrect={false}
+                                value={identifier}
+                                onChangeText={setIdentifier}
                                 accessibilityLabel="Email address or NIC Number"
                                 accessibilityHint="Enter your registered email address or Sri Lankan NIC number"
                             />
                         </View>
-                        {errors.identifier && (
+                        {errors.identifier ? (
                             <View style={styles.errorContainer}>
                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                 <Text style={styles.errorText}>{errors.identifier}</Text>
                             </View>
-                        )}
+                        ) : null}
                     </View>
 
                     {/* Password Input with Show/Hide Toggle */}
@@ -166,13 +161,12 @@ export const LoginForm = () => {
                         <Text style={styles.label}>Password</Text>
                         <View style={[
                             styles.inputWrapper,
-                            focusedInput === 'password' && styles.inputFocused,
                             errors.password ? styles.inputErrorBorder : null
                         ]}>
                             <Ionicons
                                 name="lock-closed-outline"
                                 size={24}
-                                color={focusedInput === 'password' ? '#0066CC' : '#5A6E7F'}
+                                color="#0066CC"
                                 style={styles.inputIcon}
                             />
                             <TextInput
@@ -180,10 +174,10 @@ export const LoginForm = () => {
                                 placeholder="Enter your password"
                                 placeholderTextColor="#8898AA"
                                 secureTextEntry={!showPassword}
-                                value={formData.password}
-                                onChangeText={(text) => setFormData({ ...formData, password: text })}
-                                onFocus={() => setFocusedInput('password')}
-                                onBlur={() => setFocusedInput(null)}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                value={password}
+                                onChangeText={setPassword}
                                 accessibilityLabel="Password"
                                 accessibilityHint="Enter your account password"
                             />
@@ -200,12 +194,12 @@ export const LoginForm = () => {
                                 />
                             </TouchableOpacity>
                         </View>
-                        {errors.password && (
+                        {errors.password ? (
                             <View style={styles.errorContainer}>
                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                 <Text style={styles.errorText}>{errors.password}</Text>
                             </View>
-                        )}
+                        ) : null}
                     </View>
 
                     {/* Options Row: Remember Me & Forgot Password */}
@@ -272,7 +266,7 @@ export const LoginForm = () => {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
-        </KeyboardAvoidingView>
+        </FormContainer>
     );
 };
 
@@ -357,16 +351,7 @@ const styles = StyleSheet.create({
         borderColor: '#CBD5E1',
         borderRadius: 16,
         paddingHorizontal: 16,
-        minHeight: 58, // Large accessible touch target
-    },
-    inputFocused: {
-        borderColor: '#0066CC',
-        backgroundColor: '#FFFFFF',
-        shadowColor: '#0066CC',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 6,
-        elevation: 2,
+        minHeight: 58,
     },
     inputErrorBorder: {
         borderColor: '#D32F2F',
