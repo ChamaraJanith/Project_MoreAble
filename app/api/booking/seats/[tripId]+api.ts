@@ -1,5 +1,6 @@
-// GET /api/booking/seats/TRIP-2026-00001
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { computeAccessibilityScore } from '../../../../src/shared/utils/accessibility';
+import { applyBookedSeats, buildSeatLayout, flattenSeats } from '../../../../src/shared/utils/seatLayout';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -14,42 +15,77 @@ export async function OPTIONS() {
 export async function GET(request: Request, { tripId }: Record<string, string>) {
     try {
         if (!tripId) {
-            return Response.json({ message: 'tripId is required.' }, { status: 400, headers: corsHeaders });
+            return Response.json({ success: false, message: 'tripId is required.' }, { status: 400, headers: corsHeaders });
         }
 
         const adminDb = getAdminDb();
 
-        // 1. Confirm the trip exists (so we don't return seats for a bad tripId)
         const tripDoc = await adminDb.collection('trips').doc(tripId).get();
         if (!tripDoc.exists) {
-            return Response.json({ message: 'Trip not found.' }, { status: 404, headers: corsHeaders });
+            return Response.json({ success: false, message: 'Trip not found.' }, { status: 404, headers: corsHeaders });
         }
         const trip = tripDoc.data();
 
-        // 2. Get bus details (for vehicle number / total seats context)
-        const busDoc = await adminDb.collection('buses').doc(trip.busId).get();
-        const bus = busDoc.exists ? busDoc.data() : null;
+        if (trip.status !== 'ACTIVE') {
+            return Response.json(
+                { success: false, message: 'This trip is no longer available.' },
+                { status: 409, headers: corsHeaders }
+            );
+        }
 
-        // 3. Get all seats under trips/{tripId}/seats
-        const seatsSnapshot = await adminDb
-            .collection('trips').doc(tripId).collection('seats')
+        const busDoc = await adminDb.collection('buses').doc(trip.busId).get();
+        if (!busDoc.exists) {
+            return Response.json({ success: false, message: 'Bus not found for this trip.' }, { status: 404, headers: corsHeaders });
+        }
+        const bus = busDoc.data();
+
+        if (bus.status !== 'ACTIVE') {
+            return Response.json(
+                { success: false, message: 'The bus for this trip is no longer available.' },
+                { status: 409, headers: corsHeaders }
+            );
+        }
+
+        const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
+        const route = routeDoc.exists ? routeDoc.data() : null;
+
+        const bookingsSnapshot = await adminDb
+            .collection('bookings')
+            .where('tripId', '==', tripId)
+            .where('status', '==', 'CONFIRMED')
             .get();
 
-        const seats = seatsSnapshot.docs
-            .map((doc: any) => doc.data())
-            .sort((a: any, b: any) => a.seatNumber.localeCompare(b.seatNumber));
+        const bookedMap = new Map<string, string>();
+        bookingsSnapshot.docs.forEach((doc: any) => {
+            const booking = doc.data();
+            bookedMap.set(booking.seatNumber, booking.bookingId);
+        });
 
-        return Response.json({
-            tripId,
-            vehicleNumber: bus?.vehicleNumber || 'N/A',
-            totalSeats: bus?.totalSeats || seats.length,
-            seats,
-        }, { status: 200, headers: corsHeaders });
+        const baseLayout = buildSeatLayout(bus);
+        const layout = applyBookedSeats(baseLayout, bookedMap);
+        const seats = flattenSeats(layout);
 
+        return Response.json(
+            {
+                success: true,
+                message: 'Seat availability retrieved successfully.',
+                tripId,
+                routeNumber: route?.routeNumber ?? null,
+                numberPlate: bus.numberPlate,
+                busModel: bus.busModel,
+                departureTime: trip.departureTime,
+                estimatedArrivalTime: trip.estimatedArrivalTime,
+                accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
+                totalSeats: bus.seatCapacity || seats.length,
+                layout,
+                seats,
+            },
+            { status: 200, headers: corsHeaders }
+        );
     } catch (error: any) {
         console.error('Get Seat Availability Error:', error);
         return Response.json(
-            { message: 'Internal server error while fetching seat availability.', error: error.message },
+            { success: false, message: 'Internal server error while fetching seat availability.', error: error.message },
             { status: 500, headers: corsHeaders }
         );
     }
