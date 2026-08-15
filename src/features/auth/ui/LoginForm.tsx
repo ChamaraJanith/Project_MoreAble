@@ -2,12 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
     ScrollView,
     StyleSheet,
     Switch,
-    Text, TextInput, TouchableOpacity,
-    View
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useAuthStore } from '../../../shared/store/authStore';
 
@@ -18,17 +24,12 @@ export const LoginForm = () => {
     const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
-    const [formData, setFormData] = useState({
-        identifier: '',
-        password: '',
-    });
-    const [errors, setErrors] = useState<Record<string, string>>({});
 
     // Use Zustand auth store for login
     const { login, isLoading } = useAuthStore();
 
     const validateForm = () => {
-        let newErrors: { identifier?: string; password?: string } = {};
+        const newErrors: { identifier?: string; password?: string } = {};
 
         if (!identifier.trim()) {
             newErrors.identifier = 'Email or NIC Number is required';
@@ -44,24 +45,18 @@ export const LoginForm = () => {
     const handleLogin = async () => {
         if (!validateForm()) return;
 
-        const result = await login(formData.identifier, formData.password);
+        const result = await login(identifier, password);
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ identifier, password }),
-            });
         if (result.success) {
             const successMsg = result.isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
             const targetRoute = result.isAdmin ? '/(admin)' : '/(tabs)';
 
             if (Platform.OS === 'web') {
                 window.alert(successMsg);
-                router.replace(targetRoute);
+                router.replace(targetRoute as any);
             } else {
                 Alert.alert('Success', successMsg, [
-                    { text: 'OK', onPress: () => router.replace(targetRoute) }
+                    { text: 'OK', onPress: () => router.replace(targetRoute as any) }
                 ]);
             }
         } else {
@@ -89,11 +84,7 @@ export const LoginForm = () => {
         }
     };
 
-    const FormContainer = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
-    const containerProps = Platform.OS === 'ios' ? { behavior: 'padding' as const } : {};
-
     return (
-        <FormContainer style={styles.container} {...containerProps}>
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.container}
@@ -128,13 +119,6 @@ export const LoginForm = () => {
                             styles.inputWrapper,
                             errors.identifier ? styles.inputErrorBorder : null
                         ]}>
-                            <Ionicons
-                                name="card-outline"
-                                size={24}
-                                color="#0066CC"
-                                style={styles.inputIcon}
-                            />
-                        <View style={[styles.inputWrapper, errors.identifier ? styles.inputErrorBorder : null]}>
                             <Ionicons name="card-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
@@ -144,8 +128,6 @@ export const LoginForm = () => {
                                 autoCorrect={false}
                                 value={identifier}
                                 onChangeText={setIdentifier}
-                                value={formData.identifier}
-                                onChangeText={(text) => setFormData({ ...formData, identifier: text })}
                                 accessibilityLabel="Email address or NIC Number"
                                 accessibilityHint="Enter your registered email address or Sri Lankan NIC number"
                             />
@@ -165,13 +147,6 @@ export const LoginForm = () => {
                             styles.inputWrapper,
                             errors.password ? styles.inputErrorBorder : null
                         ]}>
-                            <Ionicons
-                                name="lock-closed-outline"
-                                size={24}
-                                color="#0066CC"
-                                style={styles.inputIcon}
-                            />
-                        <View style={[styles.inputWrapper, errors.password ? styles.inputErrorBorder : null]}>
                             <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
                                 style={styles.input}
@@ -182,8 +157,6 @@ export const LoginForm = () => {
                                 autoCorrect={false}
                                 value={password}
                                 onChangeText={setPassword}
-                                value={formData.password}
-                                onChangeText={(text) => setFormData({ ...formData, password: text })}
                                 accessibilityLabel="Password"
                                 accessibilityHint="Enter your account password"
                             />
@@ -268,7 +241,7 @@ export const LoginForm = () => {
                     </TouchableOpacity>
                 </View>
             </ScrollView>
-        </FormContainer>
+        </KeyboardAvoidingView>
     );
 };
 
@@ -333,10 +306,6 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         paddingHorizontal: 16,
         minHeight: 58,
-        borderColor: '#D0D9E2',
-        borderRadius: 14,
-        paddingHorizontal: 14,
-        minHeight: 56,
     },
     inputErrorBorder: {
         borderColor: '#D32F2F',
