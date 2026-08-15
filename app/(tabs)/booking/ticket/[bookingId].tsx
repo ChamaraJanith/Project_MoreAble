@@ -91,8 +91,8 @@ export default function BookingTicketScreen() {
 
                 {/* Booking Details */}
                 <TicketRow
-                    label="Route"
-                    value={`${booking.journey.routeNumber} · ${booking.journey.routeName}`}
+                    label="Seat"
+                    value={`${booking.seatNumber}${booking.pairedSeatNumber ? ` + ${booking.pairedSeatNumber}` : ''}${booking.isPrioritySeat ? ' (Priority)' : ''}`}
                 />
 
                 <TicketRow
@@ -175,7 +175,7 @@ function TicketRow({
 }
 
 const styles = StyleSheet.create({
-    
+
     content: {
         padding: 20,
         backgroundColor: '#F8FAFC',

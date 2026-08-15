@@ -44,10 +44,10 @@ export async function fetchSeats(tripId: string): Promise<SeatMapResponse> {
 export interface ConfirmBookingPayload {
     tripId: string;
     seatNumber: string;
-    isPrioritySeat: boolean;
     passengerId?: string;
 }
 
+/** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
 export async function confirmBooking(payload: ConfirmBookingPayload): Promise<Booking> {
     const data = await bookingFetch('/api/booking/confirm', { method: 'POST', body: JSON.stringify(payload) });
     return data.booking as Booking;

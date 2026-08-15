@@ -1,5 +1,6 @@
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
 import { computeAccessibilityScore } from '../../../../src/shared/utils/accessibility';
+import { buildBookedSeatMap } from '../../../../src/shared/utils/bookedSeats';
 import { applyBookedSeats, buildSeatLayout, flattenSeats } from '../../../../src/shared/utils/seatLayout';
 
 const corsHeaders = {
@@ -55,14 +56,8 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
             .where('status', '==', 'CONFIRMED')
             .get();
 
-        const bookedMap = new Map<string, string>();
-        bookingsSnapshot.docs.forEach((doc: any) => {
-            const booking = doc.data();
-            bookedMap.set(booking.seatNumber, booking.bookingId);
-        });
-
-        const baseLayout = buildSeatLayout(bus);
-        const layout = applyBookedSeats(baseLayout, bookedMap);
+        const bookedMap = buildBookedSeatMap(bookingsSnapshot.docs);
+        const layout = applyBookedSeats(buildSeatLayout(bus), bookedMap);
         const seats = flattenSeats(layout);
 
         return Response.json(
@@ -76,7 +71,7 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
                 departureTime: trip.departureTime,
                 estimatedArrivalTime: trip.estimatedArrivalTime,
                 accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
-                totalSeats: bus.seatCapacity || seats.length,
+                totalSeats: seats.length,
                 layout,
                 seats,
             },
