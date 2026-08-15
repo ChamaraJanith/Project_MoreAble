@@ -1,29 +1,67 @@
-import { Seat, TransportOption } from '../../../entities/booking/model/types';
+import { Booking, Seat, SeatLayout, SelectedVehicle, TransportOption } from '../../../entities/booking/model/types';
+import { API_BASE_URL } from '../../../shared/api/config';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || '';
+async function bookingFetch(path: string, init?: RequestInit): Promise<any> {
+    const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) };
+    if (init?.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
 
-export async function fetchTransportOptions(routeId: string): Promise<TransportOption[]> {
-    const response = await fetch(`${BASE_URL}/api/booking/options?routeId=${routeId}`);
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(data.message || 'Failed to fetch transport options.');
+    let response: Response;
+    try {
+        response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    } catch {
+        throw new Error('Network error. Please check your connection and try again.');
     }
-    return data.options;
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.success) {
+        throw new Error(data?.message || 'Something went wrong. Please try again.');
+    }
+    return data;
 }
 
-// US03: fetch seat map for a specific trip
+export async function fetchTransportOptions(routeId: string): Promise<TransportOption[]> {
+    const data = await bookingFetch(`/api/booking/options?routeId=${encodeURIComponent(routeId)}`);
+    return Array.isArray(data.options) ? (data.options as TransportOption[]) : [];
+}
+
 export interface SeatMapResponse {
     tripId: string;
-    vehicleNumber: string;
+    routeNumber: string | null;
+    numberPlate: string;
+    busModel: string;
+    departureTime: string;
+    estimatedArrivalTime: string;
+    accessibilityScore: number;
     totalSeats: number;
+    layout: SeatLayout;
     seats: Seat[];
 }
 
 export async function fetchSeats(tripId: string): Promise<SeatMapResponse> {
-    const response = await fetch(`${BASE_URL}/api/booking/seats/${tripId}`);
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(data.message || 'Failed to fetch seat availability.');
-    }
-    return data;
+    return (await bookingFetch(`/api/booking/seats/${encodeURIComponent(tripId)}`)) as SeatMapResponse;
 }
+
+export interface ConfirmBookingPayload {
+    tripId: string;
+    seatNumber: string;
+    isPrioritySeat: boolean;
+    passengerId?: string;
+}
+
+export async function confirmBooking(payload: ConfirmBookingPayload): Promise<Booking> {
+    const data = await bookingFetch('/api/booking/confirm', { method: 'POST', body: JSON.stringify(payload) });
+    return data.booking as Booking;
+}
+
+export async function getBooking(bookingId: string): Promise<Booking> {
+    const data = await bookingFetch(`/api/booking/${encodeURIComponent(bookingId)}`);
+    return data.booking as Booking;
+}
+
+export async function getBookingHistory(passengerId: string): Promise<Booking[]> {
+    const data = await bookingFetch(`/api/booking/history?passengerId=${encodeURIComponent(passengerId)}`);
+    return Array.isArray(data.bookings) ? (data.bookings as Booking[]) : [];
+}
+
+export type { SelectedVehicle };
+

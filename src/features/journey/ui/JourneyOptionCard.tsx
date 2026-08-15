@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BusAccessibilityFacilities } from '../../../entities/bus/model/types';
@@ -142,6 +143,20 @@ export function JourneyOptionCard({ route, option }: JourneyOptionCardProps) {
                     {route.distanceKm != null ? `${route.distanceKm} km` : 'Distance N/A'}
                     {intermediateStops.length > 0 ? ` · ${intermediateStops.length} stops on the way` : ''}
                 </Text>
+
+
+
+                <TouchableOpacity
+                    style={styles.bookButton}
+                    onPress={() => router.push({ pathname: '/booking', params: { routeId: route.routeId } })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Book this trip on route ${route.routeNumber}`}
+                >
+                    <Ionicons name="ticket-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.bookButtonText}>Book</Text>
+                </TouchableOpacity>
+
+
 
                 <TouchableOpacity
                     style={styles.detailsButton}
@@ -496,4 +511,22 @@ const styles = StyleSheet.create({
         color: '#0F766E',
         marginLeft: 5,
     },
+
+
+    bookButton: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        backgroundColor: '#0066CC', 
+        minHeight: 40, borderRadius: 10, 
+        paddingHorizontal: 14, 
+        marginLeft: 10 },
+
+
+    bookButtonText: { 
+        color: '#fff', 
+        fontWeight: '700', 
+        fontSize: 13, 
+        marginLeft: 6 },
+
+
 });
