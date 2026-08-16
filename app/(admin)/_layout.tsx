@@ -21,6 +21,9 @@ export default function AdminLayout() {
       <Stack.Screen name="stops/[stopId]" options={{ title: 'Stop Details' }} />
       <Stack.Screen name="stops/edit/[stopId]" options={{ title: 'Edit Bus Stop' }} />
 
+      <Stack.Screen name="users/index" options={{ title: 'User Management' }} />
+      <Stack.Screen name="users/[userId]" options={{ title: 'User Profile' }} />
+
       <Stack.Screen name="trips/index" options={{ title: 'Trips' }} />
       <Stack.Screen name="trips/add" options={{ title: 'Add Trip' }} />
       <Stack.Screen name="trips/[tripId]" options={{ title: 'Trip Details' }} />

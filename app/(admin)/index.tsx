@@ -15,16 +15,19 @@ import { Bus } from '../../src/entities/bus/model/types';
 import { Route } from '../../src/entities/route/model/types';
 import { Stop } from '../../src/entities/stop/model/types';
 import { Trip } from '../../src/entities/trip/model/types';
+import { AdminUserSummary } from '../../src/entities/user/model/types';
 import { getBuses } from '../../src/features/admin/api/busAdminApi';
 import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
+import { getUsers } from '../../src/features/admin/api/userAdminApi';
 
 export default function AdminDashboard() {
     const [buses, setBuses] = useState<Bus[] | null>(null);
     const [routes, setRoutes] = useState<Route[] | null>(null);
     const [trips, setTrips] = useState<Trip[] | null>(null);
     const [stops, setStops] = useState<Stop[] | null>(null);
+    const [users, setUsers] = useState<AdminUserSummary[] | null>(null);
     const [isLoadingOverview, setIsLoadingOverview] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [overviewError, setOverviewError] = useState('');
@@ -35,16 +38,18 @@ export default function AdminDashboard() {
         setOverviewError('');
 
         try {
-            const [busList, routeList, tripList, stopList] = await Promise.all([
+            const [busList, routeList, tripList, stopList, userList] = await Promise.all([
                 getBuses(),
                 getRoutes(),
                 getTrips(),
                 getStops(),
+                getUsers(),
             ]);
             setBuses(busList);
             setRoutes(routeList);
             setTrips(tripList);
             setStops(stopList);
+            setUsers(userList);
         } catch (error: any) {
             setOverviewError(error?.message || 'Unable to load dashboard data.');
         } finally {
@@ -85,6 +90,14 @@ export default function AdminDashboard() {
             inactive: trips.filter((trip) => trip.status === 'INACTIVE').length,
         };
     }, [trips]);
+
+    const userBreakdown = useMemo(() => {
+        if (!users) return null;
+        return {
+            verified: users.filter((user) => user.isVerified).length,
+            unverified: users.filter((user) => !user.isVerified).length,
+        };
+    }, [users]);
 
     const handleStops = () => {
         router.push('/(admin)/stops');
@@ -131,10 +144,7 @@ export default function AdminDashboard() {
     };
 
     const handleUsers = () => {
-        Alert.alert(
-            'User Management',
-            'User Management screen will be connected next.'
-        );
+        router.push('/(admin)/users');
     };
 
     return (
@@ -364,16 +374,41 @@ export default function AdminDashboard() {
                         <Text style={styles.statBreakdown}>Not available yet</Text>
                     </View>
 
-                    {/* Users — no backend yet */}
-                    <View style={[styles.statCard, styles.statCardUnavailable]}>
+                    {/* Users */}
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleUsers}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                            userBreakdown
+                                ? `Users ${users?.length ?? 0}. ${userBreakdown.verified} verified.`
+                                : 'Users, loading'
+                        }
+                    >
                         <View style={styles.statIconPurple}>
                             <Ionicons name="people-outline" size={28} color="#7B1FA2" />
                         </View>
 
-                        <Text style={styles.statNumberUnavailable}>—</Text>
+                        {isLoadingOverview ? (
+                            <ActivityIndicator size="small" color="#7B1FA2" style={styles.statLoader} />
+                        ) : (
+                            <Text style={styles.statNumber}>
+                                {overviewError ? '—' : users?.length ?? 0}
+                            </Text>
+                        )}
+
                         <Text style={styles.statLabel}>Users</Text>
-                        <Text style={styles.statBreakdown}>Not available yet</Text>
-                    </View>
+
+                        {!isLoadingOverview && !overviewError && userBreakdown && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                {userBreakdown.verified} verified
+                                {userBreakdown.unverified > 0
+                                    ? ` · ${userBreakdown.unverified} unverified`
+                                    : ''}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
                 </View>
 
                 {/* Management */}
