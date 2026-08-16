@@ -1,38 +1,105 @@
-
-// This is for profile page
+// Profile screen for MoreAble app
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { API_BASE_URL } from '../src/shared/api/config';
 import { useAuthStore } from '../src/shared/store/authStore';
+import { parseSriLankanNic } from '../src/shared/utils/nicUtils';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateGuardianDetails } = useAuthStore();
 
-  // Fallback demo user details if store user is null (for standalone preview)
+  // Test state toggle for demo preview (default age set to 64 to showcase 60+ feature)
+  const [testAge60, setTestAge60] = useState(true);
+
+  // Modal State for Guardian Details
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Form States for Guardian
+  const [gName, setGName] = useState('');
+  const [gNic, setGNic] = useState('');
+  const [gMobile, setGMobile] = useState('');
+  const [gRelationship, setGRelationship] = useState('Son / Daughter');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Fallback demo user details if store user is null
   const displayUser = user || {
     uid: 'demo-user-123',
     passengerId: 'PA-2026-1024',
     userName: 'Kavindu Perera',
     email: 'kavindu.p@example.com',
-    nicNo: '199824501234',
-    calculatedAge: 27,
-    isElderPerson: false,
+    nicNo: '196224501234',
+    calculatedAge: testAge60 ? 64 : 27,
+    isElderPerson: testAge60,
     role: 'PASSENGER',
-    phoneNumber: '+94 77 123 4567',
+    phoneNumber: '0771234567',
+    secondaryPhoneNumber: '0719876543',
     isVerified: true,
+    guardianId: null,
+    guardianDetails: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  // Determine age & elderly status
+  const age = displayUser.calculatedAge ?? (testAge60 ? 64 : 27);
+  const isElderly = age >= 60 || displayUser.isElderPerson || testAge60;
+
+  // Guardian completion status
+  const currentGuardian = displayUser.guardianDetails;
+  const isGuardianCompleted = Boolean(currentGuardian && currentGuardian.fullName);
+
+  // Automatically fetch guardian details from backend if guardianId or passengerId exists but guardianDetails is missing locally
+  useEffect(() => {
+    const fetchGuardianData = async () => {
+      const gId = displayUser.guardianId;
+      const pId = displayUser.passengerId;
+      if ((gId || pId) && (!currentGuardian || !currentGuardian.fullName)) {
+        try {
+          const queryParam = gId ? `guardianId=${gId}` : `passengerId=${pId}`;
+          const res = await fetch(`${API_BASE_URL}/api/guardians?${queryParam}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.guardian && data.guardian.fullName) {
+              updateGuardianDetails({
+                fullName: data.guardian.fullName,
+                nicNo: data.guardian.nicNo,
+                mobileNo: data.guardian.mobileNo,
+                relationship: data.guardian.relationship,
+                email: data.guardian.email,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Error fetching guardian details on profile mount:', err);
+        }
+      }
+    };
+
+    fetchGuardianData();
+  }, [displayUser.guardianId, displayUser.passengerId, currentGuardian]);
+
+  // Steps Progress Calculation
+  const totalSteps = 1;
+  const completedSteps = isGuardianCompleted ? 1 : 0;
+  const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -57,6 +124,83 @@ export default function ProfileScreen() {
     return name.slice(0, 2).toUpperCase();
   };
 
+  const openGuardianModal = () => {
+    if (currentGuardian) {
+      setGName(currentGuardian.fullName || '');
+      setGNic(currentGuardian.nicNo || '');
+      setGMobile(currentGuardian.mobileNo || '');
+      setGRelationship(currentGuardian.relationship || 'Son / Daughter');
+    } else {
+      setGName('');
+      setGNic('');
+      setGMobile('');
+      setGRelationship('Son / Daughter');
+    }
+    setFormErrors({});
+    setIsModalOpen(true);
+  };
+
+  const handleSaveGuardian = async () => {
+    const errors: Record<string, string> = {};
+
+    if (!gName.trim()) {
+      errors.gName = 'Guardian Full Name is required';
+    }
+
+    if (!gMobile.trim() || gMobile.length < 9) {
+      errors.gMobile = 'Valid Mobile Number is required';
+    }
+
+    if (gNic.trim()) {
+      const nicCheck = parseSriLankanNic(gNic);
+      if (!nicCheck.isValid) {
+        errors.gNic = 'Invalid Sri Lankan NIC number';
+      }
+    } else {
+      errors.gNic = 'Guardian NIC Number is required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    setIsSaving(true);
+
+    const guardianPayload = {
+      fullName: gName.trim(),
+      nicNo: gNic.trim(),
+      mobileNo: gMobile.trim(),
+      relationship: gRelationship.trim(),
+    };
+
+    try {
+      if (displayUser.passengerId) {
+        await fetch(`${API_BASE_URL}/api/guardians`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            passengerId: displayUser.passengerId,
+            guardianId: displayUser.guardianId,
+            ...guardianPayload,
+          }),
+        });
+      }
+    } catch (err) {
+      console.error('Error persisting guardian details to API:', err);
+    }
+
+    updateGuardianDetails(guardianPayload);
+    setIsSaving(false);
+    setIsModalOpen(false);
+
+    if (Platform.OS === 'web') {
+      window.alert('Guardian Details saved successfully!');
+    } else {
+      Alert.alert('Success', 'Guardian details saved successfully! Your profile step is completed.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -72,7 +216,14 @@ export default function ProfileScreen() {
             <Ionicons name="arrow-back" size={24} color="#1E293B" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>User Profile</Text>
-          <View style={{ width: 40 }} />
+          <TouchableOpacity
+            style={styles.demoAgeBadge}
+            onPress={() => setTestAge60(!testAge60)}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle test age"
+          >
+            <Text style={styles.demoAgeText}>{isElderly ? 'Age 64 (Elder)' : 'Age 27'}</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Profile Card Header */}
@@ -100,14 +251,132 @@ export default function ProfileScreen() {
               <Text style={styles.roleTagText}>{displayUser.role}</Text>
             </View>
 
-            {displayUser.isElderPerson && (
+            {isElderly && (
               <View style={styles.elderTag}>
                 <Ionicons name="heart" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.roleTagText}>Elderly Assistance</Text>
+                <Text style={styles.roleTagText}>Senior Citizen (60+)</Text>
               </View>
             )}
           </View>
         </View>
+
+        {/* ====================================================================== */}
+        {/* ACTION REQUIRED & STEP PROGRESS SECTION (Required for Passengers 60+) */}
+        {/* ====================================================================== */}
+        {isElderly && (
+          <View style={styles.stepsCardContainer}>
+            <View style={styles.stepsHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.stepsTitle}>Complete These Steps</Text>
+                <Text style={styles.stepsSubtitle}>Required profile actions for passengers aged 60+</Text>
+              </View>
+
+              {/* Circular Progress Badge */}
+              <View style={styles.progressCircleContainer}>
+                <View style={[styles.progressRingOuter, isGuardianCompleted && styles.progressRingOuterDone]}>
+                  <View style={[styles.progressRingInner, isGuardianCompleted && styles.progressRingInnerDone]}>
+                    <Text style={[styles.progressText, isGuardianCompleted && styles.progressTextDone]}>
+                      {progressPercentage}%
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Mandatory Booking Warning Box (Only shown if Guardian is NOT registered yet) */}
+            {!isGuardianCompleted ? (
+              <View style={styles.warningBanner}>
+                <Ionicons name="warning" size={24} color="#D97706" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.warningTitle}>Booking Requirement Warning</Text>
+                  <Text style={styles.warningText}>
+                    Providing Guardian Details is compulsory for passengers over 60 years old (or disabled passengers) when making bus bookings!
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.successBanner}>
+                <Ionicons name="checkmark-circle" size={24} color="#059669" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.successBannerTitle}>Guardian Registered</Text>
+                  <Text style={styles.successBannerText}>
+                    Emergency contact and guardian details are verified for bus bookings.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Step Item 1: Guardian Details */}
+            <View style={styles.stepItemCard}>
+              <View style={styles.stepIconColumn}>
+                <View style={[styles.stepCircleIcon, isGuardianCompleted ? styles.stepDoneCircle : styles.stepPendingCircle]}>
+                  <Ionicons
+                    name={isGuardianCompleted ? 'checkmark-sharp' : 'alert'}
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.stepInfoColumn}>
+                <View style={styles.stepHeaderRow}>
+                  <Text style={styles.stepItemTitle}>Step 1: Guardian Details</Text>
+                  <View style={[styles.statusBadge, isGuardianCompleted ? styles.statusBadgeDone : styles.statusBadgePending]}>
+                    <Text style={[styles.statusBadgeText, isGuardianCompleted ? styles.statusTextDone : styles.statusTextPending]}>
+                      {isGuardianCompleted ? 'Completed' : 'Action Required'}
+                    </Text>
+                  </View>
+                </View>
+
+                {isGuardianCompleted && currentGuardian ? (
+                  <View style={styles.guardianSummaryBox}>
+                    <Text style={styles.guardianSummaryName}>{currentGuardian.fullName}</Text>
+                    <Text style={styles.guardianSummaryDetail}>NIC: {currentGuardian.nicNo} • Mobile: {currentGuardian.mobileNo}</Text>
+                    {currentGuardian.relationship && (
+                      <Text style={styles.guardianSummaryDetail}>Relationship: {currentGuardian.relationship}</Text>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={styles.stepItemDescription}>
+                    Please register an emergency contact guardian to enable smooth seat reservations.
+                  </Text>
+                )}
+
+                <View style={styles.stepButtonRow}>
+                  {isGuardianCompleted && (
+                    <TouchableOpacity
+                      style={styles.stepViewButton}
+                      onPress={() => setIsViewModalOpen(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="eye-outline" size={18} color="#0066CC" style={{ marginRight: 4 }} />
+                      <Text style={styles.stepViewButtonText}>View Details</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.stepActionButton,
+                      isGuardianCompleted ? styles.stepActionButtonSecondary : { flex: 1 },
+                    ]}
+                    onPress={openGuardianModal}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isGuardianCompleted ? 'create-outline' : 'person-add-outline'}
+                      size={18}
+                      color="#FFFFFF"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.stepActionButtonText}>
+                      {isGuardianCompleted ? 'Edit Details' : 'Add Guardian Details'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Details Section */}
         <View style={styles.sectionCard}>
@@ -142,8 +411,20 @@ export default function ProfileScreen() {
               <Ionicons name="call-outline" size={20} color="#0066CC" />
             </View>
             <View style={styles.infoTextContainer}>
-              <Text style={styles.infoLabel}>Phone Number</Text>
-              <Text style={styles.infoValue}>{displayUser.phoneNumber || '+94 (77) 123-4567'}</Text>
+              <Text style={styles.infoLabel}>Primary Phone Number</Text>
+              <Text style={styles.infoValue}>{displayUser.phoneNumber || 'Not provided'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <View style={styles.iconCircle}>
+              <Ionicons name="phone-portrait-outline" size={20} color="#0066CC" />
+            </View>
+            <View style={styles.infoTextContainer}>
+              <Text style={styles.infoLabel}>Secondary Phone Number</Text>
+              <Text style={styles.infoValue}>{displayUser.secondaryPhoneNumber || 'Not provided'}</Text>
             </View>
           </View>
 
@@ -154,8 +435,8 @@ export default function ProfileScreen() {
               <Ionicons name="calendar-outline" size={20} color="#0066CC" />
             </View>
             <View style={styles.infoTextContainer}>
-              <Text style={styles.infoLabel}>Age</Text>
-              <Text style={styles.infoValue}>{displayUser.calculatedAge ? `${displayUser.calculatedAge} years` : 'N/A'}</Text>
+              <Text style={styles.infoLabel}>Calculated Age</Text>
+              <Text style={styles.infoValue}>{age} years {isElderly ? '(Senior Citizen)' : ''}</Text>
             </View>
           </View>
         </View>
@@ -164,9 +445,9 @@ export default function ProfileScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Account Options</Text>
 
-          <TouchableOpacity style={styles.actionRow} onPress={() => Alert.alert('Edit Profile', 'Edit profile features coming soon.')}>
-            <Ionicons name="create-outline" size={22} color="#475569" />
-            <Text style={styles.actionRowText}>Edit Profile</Text>
+          <TouchableOpacity style={styles.actionRow} onPress={() => setIsViewModalOpen(true)}>
+            <Ionicons name="eye-outline" size={22} color="#0066CC" />
+            <Text style={styles.actionRowText}>View Guardian Details</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -185,6 +466,241 @@ export default function ProfileScreen() {
           <Text style={styles.logoutButtonText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* ====================================================================== */}
+      {/* MODAL: ADD / EDIT GUARDIAN DETAILS */}
+      {/* ====================================================================== */}
+      <Modal visible={isModalOpen} animationType="slide" transparent onRequestClose={() => setIsModalOpen(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="shield-checkmark" size={24} color="#0066CC" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Guardian Details</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsModalOpen(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              Please provide valid guardian details for emergency contact & booking requirements.
+            </Text>
+
+            {/* Guardian Name Input */}
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.modalInputLabel}>Guardian Full Name *</Text>
+              <View style={[styles.modalInputWrapper, formErrors.gName ? styles.modalInputError : null]}>
+                <Ionicons name="person-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="e.g. Sunethra Perera"
+                  placeholderTextColor="#94A3B8"
+                  value={gName}
+                  onChangeText={setGName}
+                />
+              </View>
+              {formErrors.gName && <Text style={styles.modalErrorText}>{formErrors.gName}</Text>}
+            </View>
+
+            {/* Guardian NIC Input */}
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.modalInputLabel}>Guardian NIC Number *</Text>
+              <View style={[styles.modalInputWrapper, formErrors.gNic ? styles.modalInputError : null]}>
+                <Ionicons name="card-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="197012345678 or 701234567V"
+                  placeholderTextColor="#94A3B8"
+                  value={gNic}
+                  onChangeText={setGNic}
+                />
+              </View>
+              {formErrors.gNic && <Text style={styles.modalErrorText}>{formErrors.gNic}</Text>}
+            </View>
+
+            {/* Guardian Mobile Input */}
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.modalInputLabel}>Guardian Mobile Phone *</Text>
+              <View style={[styles.modalInputWrapper, formErrors.gMobile ? styles.modalInputError : null]}>
+                <Ionicons name="call-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="e.g. 0771234567"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="phone-pad"
+                  value={gMobile}
+                  onChangeText={setGMobile}
+                />
+              </View>
+              {formErrors.gMobile && <Text style={styles.modalErrorText}>{formErrors.gMobile}</Text>}
+            </View>
+
+            {/* Relationship Input */}
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.modalInputLabel}>Relationship to Passenger</Text>
+              <View style={styles.modalInputWrapper}>
+                <Ionicons name="people-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="e.g. Son, Daughter, Spouse, Relative"
+                  placeholderTextColor="#94A3B8"
+                  value={gRelationship}
+                  onChangeText={setGRelationship}
+                />
+              </View>
+            </View>
+
+            {/* Modal Actions */}
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setIsModalOpen(false)}
+                disabled={isSaving}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSaveBtn}
+                onPress={handleSaveGuardian}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.modalSaveBtnText}>Save Guardian Details</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ====================================================================== */}
+      {/* MODAL: VIEW GUARDIAN DETAILS */}
+      {/* ====================================================================== */}
+      <Modal visible={isViewModalOpen} animationType="fade" transparent onRequestClose={() => setIsViewModalOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.viewModalContent}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="shield-checkmark" size={24} color="#0066CC" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Guardian Information</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsViewModalOpen(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {isGuardianCompleted && currentGuardian ? (
+              <View style={{ marginTop: 12 }}>
+                <View style={styles.viewBadgeCard}>
+                  <Ionicons name="checkmark-circle" size={20} color="#10B981" style={{ marginRight: 8 }} />
+                  <Text style={styles.viewBadgeText}>Verified Emergency Guardian</Text>
+                </View>
+
+                <View style={styles.viewDetailRow}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="person-outline" size={20} color="#0066CC" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>Guardian Full Name</Text>
+                    <Text style={styles.infoValue}>{currentGuardian.fullName}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.viewDetailRow}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="card-outline" size={20} color="#0066CC" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>NIC Number</Text>
+                    <Text style={styles.infoValue}>{currentGuardian.nicNo}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.viewDetailRow}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="call-outline" size={20} color="#0066CC" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>Mobile Phone</Text>
+                    <Text style={styles.infoValue}>{currentGuardian.mobileNo}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.viewDetailRow}>
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="people-outline" size={20} color="#0066CC" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>Relationship to Passenger</Text>
+                    <Text style={styles.infoValue}>{currentGuardian.relationship || 'Son / Daughter'}</Text>
+                  </View>
+                </View>
+
+                <View style={[styles.modalActionsRow, { marginTop: 20 }]}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={() => setIsViewModalOpen(false)}
+                  >
+                    <Text style={styles.modalCancelBtnText}>Close</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.modalSaveBtn}
+                    onPress={() => {
+                      setIsViewModalOpen(false);
+                      openGuardianModal();
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.modalSaveBtnText}>Edit Details</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginTop: 12, alignItems: 'center', paddingVertical: 10 }}>
+                <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ marginBottom: 10 }} />
+                <Text style={styles.noGuardianTitle}>No Guardian Registered</Text>
+                <Text style={styles.noGuardianText}>
+                  Passengers aged 60+ are required to register emergency guardian details before making bus seat reservations.
+                </Text>
+
+                <View style={[styles.modalActionsRow, { width: '100%', marginTop: 20 }]}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={() => setIsViewModalOpen(false)}
+                  >
+                    <Text style={styles.modalCancelBtnText}>Close</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.modalSaveBtn}
+                    onPress={() => {
+                      setIsViewModalOpen(false);
+                      openGuardianModal();
+                    }}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.modalSaveBtnText}>Add Guardian Now</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -221,6 +737,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  demoAgeBadge: {
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  demoAgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0284C7',
   },
   profileHeaderCard: {
     backgroundColor: '#FFFFFF',
@@ -310,6 +839,228 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+
+  /* Steps Section Styling */
+  stepsCardContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+    elevation: 4,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+  },
+  stepsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  stepsTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1E3A8A',
+  },
+  stepsSubtitle: {
+    fontSize: 13,
+    color: '#475569',
+    marginTop: 2,
+  },
+  progressCircleContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressRingOuter: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    borderWidth: 5,
+    borderColor: '#F59E0B',
+    backgroundColor: '#FEF3C7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressRingOuterDone: {
+    borderColor: '#10B981',
+    backgroundColor: '#D1FAE5',
+  },
+  progressRingInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressRingInnerDone: {
+    backgroundColor: '#ECFDF5',
+  },
+  progressText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#D97706',
+  },
+  progressTextDone: {
+    color: '#059669',
+  },
+
+  /* Warning Banner */
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FCD34D',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#B45309',
+    marginBottom: 2,
+  },
+  warningText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#92400E',
+    lineHeight: 18,
+  },
+
+  /* Success Banner */
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#6EE7B7',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  successBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#047857',
+    marginBottom: 2,
+  },
+  successBannerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#065F46',
+    lineHeight: 18,
+  },
+
+  /* Step Item Card */
+  stepItemCard: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  stepIconColumn: {
+    marginRight: 12,
+  },
+  stepCircleIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  stepPendingCircle: {
+    backgroundColor: '#F59E0B',
+  },
+  stepDoneCircle: {
+    backgroundColor: '#10B981',
+  },
+  stepInfoColumn: {
+    flex: 1,
+  },
+  stepHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  stepItemTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  statusBadgePending: {
+    backgroundColor: '#FEF3C7',
+  },
+  statusBadgeDone: {
+    backgroundColor: '#D1FAE5',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  statusTextPending: {
+    color: '#B45309',
+  },
+  statusTextDone: {
+    color: '#047857',
+  },
+  stepItemDescription: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  guardianSummaryBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
+    padding: 10,
+    marginVertical: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2563EB',
+  },
+  guardianSummaryName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E3A8A',
+  },
+  guardianSummaryDetail: {
+    fontSize: 12,
+    color: '#3B82F6',
+    marginTop: 2,
+  },
+  stepActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0066CC',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  stepActionButtonSecondary: {
+    backgroundColor: '#0284C7',
+  },
+  stepActionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  /* Standard Section Styling */
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -387,5 +1138,176 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  /* Modal Styling */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 20,
+  },
+  modalInputGroup: {
+    marginBottom: 16,
+  },
+  modalInputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 6,
+  },
+  modalInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  modalInputError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  modalTextInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0F172A',
+  },
+  modalErrorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCancelBtnText: {
+    color: '#475569',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  modalSaveBtn: {
+    flex: 2,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#0066CC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalSaveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  /* View Modal & Step Buttons Styling */
+  stepButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  stepViewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  stepViewButtonText: {
+    color: '#0066CC',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  viewModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    marginHorizontal: 16,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  viewBadgeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  viewBadgeText: {
+    color: '#047857',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  viewDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  noGuardianTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginBottom: 6,
+  },
+  noGuardianText: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 12,
   },
 });

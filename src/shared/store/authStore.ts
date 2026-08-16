@@ -11,6 +11,14 @@ import {
     saveTokens,
 } from '../utils/tokenStorage';
 
+export interface GuardianDetails {
+    fullName: string;
+    email?: string;
+    mobileNo: string;
+    nicNo: string;
+    relationship?: string;
+}
+
 export interface AuthUser {
     uid: string;
     passengerId: string;
@@ -21,8 +29,10 @@ export interface AuthUser {
     isElderPerson: boolean;
     role: string;
     phoneNumber?: string;
+    secondaryPhoneNumber?: string | null;
     isVerified: boolean;
     guardianId?: string | null;
+    guardianDetails?: GuardianDetails | null;
     accessibilityProfileId?: string | null;
     createdAt: string;
     updatedAt: string;
@@ -40,6 +50,7 @@ interface AuthState {
     login: (identifier: string, password: string) => Promise<{ success: boolean; message: string; isAdmin: boolean }>;
     logout: () => Promise<void>;
     hydrate: () => Promise<void>;
+    updateGuardianDetails: (details: GuardianDetails) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -156,6 +167,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                 isAuthenticated: false,
                 isHydrated: true,
             });
+        }
+    },
+
+    /**
+     * Update Guardian Details for current user
+     */
+    updateGuardianDetails: (details: GuardianDetails) => {
+        const currentUser = get().user;
+        if (currentUser) {
+            const updatedUser: AuthUser = {
+                ...currentUser,
+                guardianId: currentUser.guardianId || 'G-' + Date.now(),
+                guardianDetails: details,
+            };
+            set({ user: updatedUser });
+            saveTokens(get().token || '', updatedUser).catch(err => console.error('Failed saving guardian update', err));
         }
     },
 }));

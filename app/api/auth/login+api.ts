@@ -107,8 +107,32 @@ export async function POST(request: Request) {
       email: userQueryDoc.email,
     });
 
+    let guardianDetails = userQueryDoc.guardianDetails || null;
+    if (!guardianDetails && userQueryDoc.guardianId) {
+      try {
+        const guardianDoc = await adminDb.collection('guardians').doc(userQueryDoc.guardianId).get();
+        if (guardianDoc.exists) {
+          const gData = guardianDoc.data();
+          if (gData) {
+            guardianDetails = {
+              fullName: gData.fullName || '',
+              nicNo: gData.nicNo || '',
+              mobileNo: gData.mobileNo || '',
+              relationship: gData.relationship || '',
+              email: gData.email || '',
+            };
+          }
+        }
+      } catch (gError) {
+        console.error('Error fetching guardian details during login:', gError);
+      }
+    }
+
     // Build sanitized user object (exclude passwordHash from response)
     const { passwordHash: _hash, ...sanitizedUser } = userQueryDoc;
+    if (guardianDetails) {
+      sanitizedUser.guardianDetails = guardianDetails;
+    }
 
     // Return successful login response with JWT token and user profile
     return Response.json(

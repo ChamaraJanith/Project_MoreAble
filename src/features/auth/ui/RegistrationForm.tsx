@@ -27,6 +27,7 @@ export const RegistrationForm = () => {
         confirmPassword: '',
         nicNo: '',
         phoneNumber: '',
+        secondaryPhoneNumber: '',
     });
 
     // Guardian States
@@ -48,7 +49,12 @@ export const RegistrationForm = () => {
         if (!formData.email.includes('@')) newErrors.email = 'Valid email address is required';
         if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
         if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
-        if (!formData.phoneNumber.trim()) newErrors.phoneNumber = 'Phone number is required';
+        if (!formData.phoneNumber.trim() || formData.phoneNumber.trim().length < 9) newErrors.phoneNumber = 'Valid primary mobile number is required';
+        if (!formData.secondaryPhoneNumber.trim() || formData.secondaryPhoneNumber.trim().length < 9) {
+            newErrors.secondaryPhoneNumber = 'Valid secondary mobile number is required';
+        } else if (formData.phoneNumber.trim() === formData.secondaryPhoneNumber.trim()) {
+            newErrors.secondaryPhoneNumber = 'Secondary mobile number must be different from primary number';
+        }
 
         const nicCheck = parseSriLankanNic(formData.nicNo);
         if (!nicCheck.isValid) newErrors.nicNo = 'Invalid Sri Lankan NIC Number';
@@ -77,6 +83,7 @@ export const RegistrationForm = () => {
                 password: formData.password,
                 nicNo: formData.nicNo,
                 phoneNumber: formData.phoneNumber,
+                secondaryPhoneNumber: formData.secondaryPhoneNumber,
                 guardianDetails: hasGuardian ? guardianData : undefined,
             };
 
@@ -220,9 +227,9 @@ export const RegistrationForm = () => {
                         )}
                     </View>
 
-                    {/* Phone Number Input */}
+                    {/* Primary Phone Number Input */}
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Phone Number</Text>
+                        <Text style={styles.label}>Primary Mobile Number *</Text>
                         <View style={[styles.inputWrapper, errors.phoneNumber ? styles.inputErrorBorder : null]}>
                             <Ionicons name="call-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                             <TextInput
@@ -232,13 +239,36 @@ export const RegistrationForm = () => {
                                 keyboardType="phone-pad"
                                 value={formData.phoneNumber}
                                 onChangeText={(text) => setFormData({ ...formData, phoneNumber: text })}
-                                accessibilityLabel="Phone Number"
+                                accessibilityLabel="Primary Mobile Number"
                             />
                         </View>
                         {errors.phoneNumber && (
                             <View style={styles.errorContainer}>
                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                 <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Secondary Phone Number Input */}
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Secondary Mobile Number *</Text>
+                        <View style={[styles.inputWrapper, errors.secondaryPhoneNumber ? styles.inputErrorBorder : null]}>
+                            <Ionicons name="phone-portrait-outline" size={24} color="#0066CC" style={styles.inputIcon} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder="e.g. 0719876543"
+                                placeholderTextColor="#777"
+                                keyboardType="phone-pad"
+                                value={formData.secondaryPhoneNumber}
+                                onChangeText={(text) => setFormData({ ...formData, secondaryPhoneNumber: text })}
+                                accessibilityLabel="Secondary Mobile Number"
+                            />
+                        </View>
+                        {errors.secondaryPhoneNumber && (
+                            <View style={styles.errorContainer}>
+                                <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                                <Text style={styles.errorText}>{errors.secondaryPhoneNumber}</Text>
                             </View>
                         )}
                     </View>
