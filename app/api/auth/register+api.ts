@@ -109,6 +109,7 @@ export async function POST(request: Request) {
             isElderPerson: data.isElderPerson !== undefined ? data.isElderPerson : (nicInfo.isElderly || false),
             role: 'PASSENGER',
             phoneNumber: data.phoneNumber,
+            secondaryPhoneNumber: data.secondaryPhoneNumber || null,
             isVerified: false,
             guardianId: guardianId,
             accessibilityProfileId: null,
@@ -135,9 +136,14 @@ export async function POST(request: Request) {
         }
 
         // 4. Success Response
+        const userWithGuardian = {
+            ...newUser,
+            guardianDetails: data.guardianDetails || null,
+        };
+
         return Response.json({
             message: 'User registered successfully!',
-            user: newUser,
+            user: userWithGuardian,
             guardian: guardianRecord,
         }, { status: 201, headers: corsHeaders });
 

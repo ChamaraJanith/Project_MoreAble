@@ -23,6 +23,7 @@ export interface User {
   isElderPerson: boolean;
   role: UserRole;
   phoneNumber?: string;
+  secondaryPhoneNumber?: string | null;
   isVerified: boolean;
   guardianId?: string | null;
   accessibilityProfileId?: string | null;
@@ -36,6 +37,7 @@ export interface UserRegistrationDTO {
   password?: string;
   nicNo: string;
   phoneNumber?: string;
+  secondaryPhoneNumber?: string | null;
   isElderPerson?: boolean;
   guardianDetails?: {
     fullName: string;
