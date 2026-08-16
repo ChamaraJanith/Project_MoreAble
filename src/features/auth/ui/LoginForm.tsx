@@ -141,28 +141,42 @@ export const LoginForm = () => {
                     <Text style={styles.headerTitle} accessibilityRole="header">
                         Welcome Back
                     </Text>
-                    {/* Saved Credentials Quick Auto-Fill Card */}
+                    {/* Saved Credentials Quick Auto-Fill Card with Dismiss X Button */}
                     {savedCreds && (
-                        <TouchableOpacity
-                            style={styles.savedCredsCard}
-                            onPress={() => {
-                                setIdentifier(savedCreds.identifier);
-                                setPassword(savedCreds.password);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Auto-fill Saved Account Credentials"
-                        >
-                            <View style={styles.savedCredsIconCircle}>
-                                <Ionicons name="key" size={18} color="#0066CC" />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                                <Text style={styles.savedCredsLabel}>Auto-fill Saved Account</Text>
-                                <Text style={styles.savedCredsValue} numberOfLines={1}>
-                                    {savedCreds.userName ? `${savedCreds.userName} (${savedCreds.identifier})` : savedCreds.identifier}
-                                </Text>
-                            </View>
-                            <Ionicons name="checkmark-circle" size={22} color="#10B981" />
-                        </TouchableOpacity>
+                        <View style={styles.savedCredsCard}>
+                            <TouchableOpacity
+                                style={styles.savedCredsContent}
+                                onPress={() => {
+                                    setIdentifier(savedCreds.identifier);
+                                    setPassword(savedCreds.password);
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Auto-fill Saved Account Credentials"
+                            >
+                                <View style={styles.savedCredsIconCircle}>
+                                    <Ionicons name="key" size={18} color="#0066CC" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.savedCredsLabel}>Auto-fill Saved Account</Text>
+                                    <Text style={styles.savedCredsValue} numberOfLines={1}>
+                                        {savedCreds.userName ? `${savedCreds.userName} (${savedCreds.identifier})` : savedCreds.identifier}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.savedCredsCloseBtn}
+                                onPress={() => {
+                                    setSavedCreds(null);
+                                    setIdentifier('');
+                                    setPassword('');
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Dismiss auto-fill banner and clear fields"
+                            >
+                                <Ionicons name="close-circle" size={24} color="#059669" />
+                            </TouchableOpacity>
+                        </View>
                     )}
 
                     {/* Email or NIC Input */}
@@ -538,9 +552,20 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: '#A7F3D0',
         borderRadius: 14,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
         marginBottom: 18,
+    },
+    savedCredsContent: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    savedCredsCloseBtn: {
+        padding: 4,
+        marginLeft: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     savedCredsIconCircle: {
         width: 34,
