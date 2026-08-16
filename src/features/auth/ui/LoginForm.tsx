@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -16,6 +16,11 @@ import {
     View,
 } from 'react-native';
 import { useAuthStore } from '../../../shared/store/authStore';
+import {
+    clearSavedCredentials,
+    getSavedCredentials,
+    saveSavedCredentials,
+} from '../../../shared/utils/tokenStorage';
 
 export const LoginForm = () => {
     const [showPassword, setShowPassword] = useState(false);
@@ -23,10 +28,22 @@ export const LoginForm = () => {
 
     const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
+    const [savedCreds, setSavedCreds] = useState<{ identifier: string; password: string; userName?: string } | null>(null);
     const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
     // Use Zustand auth store for login
-    const { login, isLoading } = useAuthStore();
+    const { user, login, isLoading } = useAuthStore();
+
+    // Check for saved valid credentials on component mount
+    useEffect(() => {
+        getSavedCredentials().then((creds) => {
+            if (creds && creds.identifier && creds.password) {
+                setSavedCreds(creds);
+                setIdentifier(creds.identifier);
+                setPassword(creds.password);
+            }
+        });
+    }, []);
 
     const validateForm = () => {
         const newErrors: { identifier?: string; password?: string } = {};
@@ -48,6 +65,18 @@ export const LoginForm = () => {
         const result = await login(identifier, password);
 
         if (result.success) {
+            // ONLY save credentials on SUCCESSFUL login if rememberMe is enabled
+            if (rememberMe) {
+                const loggedInUser = useAuthStore.getState().user;
+                await saveSavedCredentials({
+                    identifier: identifier.trim(),
+                    password: password,
+                    userName: loggedInUser?.userName || identifier.split('@')[0],
+                });
+            } else {
+                await clearSavedCredentials();
+            }
+
             const successMsg = result.isAdmin ? 'Admin Login Successful!' : 'Login Successful!';
             const targetRoute = result.isAdmin ? '/(admin)' : '/(tabs)';
 
@@ -112,9 +141,29 @@ export const LoginForm = () => {
                     <Text style={styles.headerTitle} accessibilityRole="header">
                         Welcome Back
                     </Text>
-                    <Text style={styles.subtitle}>
-                        Accessible Transit & Mobility Platform
-                    </Text>
+                    {/* Saved Credentials Quick Auto-Fill Card */}
+                    {savedCreds && (
+                        <TouchableOpacity
+                            style={styles.savedCredsCard}
+                            onPress={() => {
+                                setIdentifier(savedCreds.identifier);
+                                setPassword(savedCreds.password);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Auto-fill Saved Account Credentials"
+                        >
+                            <View style={styles.savedCredsIconCircle}>
+                                <Ionicons name="key" size={18} color="#0066CC" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.savedCredsLabel}>Auto-fill Saved Account</Text>
+                                <Text style={styles.savedCredsValue} numberOfLines={1}>
+                                    {savedCreds.userName ? `${savedCreds.userName} (${savedCreds.identifier})` : savedCreds.identifier}
+                                </Text>
+                            </View>
+                            <Ionicons name="checkmark-circle" size={22} color="#10B981" />
+                        </TouchableOpacity>
+                    )}
 
                     {/* Email or NIC Input */}
                     <View style={styles.inputGroup}>
@@ -481,5 +530,38 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: '#475569',
+    },
+    savedCredsCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ECFDF5',
+        borderWidth: 1.5,
+        borderColor: '#A7F3D0',
+        borderRadius: 14,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        marginBottom: 18,
+    },
+    savedCredsIconCircle: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: '#D1FAE5',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 10,
+    },
+    savedCredsLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#047857',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    savedCredsValue: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#065F46',
+        marginTop: 1,
     },
 });
