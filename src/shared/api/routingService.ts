@@ -35,31 +35,42 @@ export function secondsToMinutes(seconds: number): number {
     return Math.round(seconds / 60);
 }
 
+function isUsablePoint(point: Coordinates): boolean {
+    return Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude);
+}
+
 /**
- * Requests the road route between two coordinates.
- * Returns null when OSRM cannot route the pair or is unreachable.
+ * Requests the road route visiting every waypoint in the order given.
+ *
+ * OSRM routes through the waypoints as supplied; it never reorders them. That
+ * is what lets a bus route's own stop sequence constrain the path, instead of
+ * OSRM picking its own fastest road between the two endpoints.
+ *
+ * Waypoints without usable coordinates are dropped rather than failing the
+ * request, so a route with one unmapped stop still produces a road path through
+ * the stops that are known. Returns null when fewer than two usable waypoints
+ * remain, or when OSRM cannot route them.
  */
-export async function getRouteBetweenCoordinates(
-    origin: Coordinates,
-    destination: Coordinates
+export async function getRouteThroughCoordinates(
+    waypoints: Coordinates[]
 ): Promise<RoadRoute | null> {
-    if (
-        !Number.isFinite(origin?.latitude) ||
-        !Number.isFinite(origin?.longitude) ||
-        !Number.isFinite(destination?.latitude) ||
-        !Number.isFinite(destination?.longitude)
-    ) {
+    const usable = Array.isArray(waypoints) ? waypoints.filter(isUsablePoint) : [];
+
+    if (usable.length < 2) {
         return null;
     }
 
-    // OSRM expects longitude,latitude order.
-    const coordinatePair =
-        `${origin.longitude},${origin.latitude};` +
-        `${destination.longitude},${destination.latitude}`;
+    // OSRM expects longitude,latitude — the reverse of how coordinates are held
+    // everywhere else in this project.
+    const coordinatePath = usable
+        .map((point) => `${point.longitude},${point.latitude}`)
+        .join(';');
 
+    // `full` rather than `simplified`: a multi-stop path loses the detail that
+    // shows it following the stops once the geometry is simplified.
     const url =
-        `${OSRM_BASE_URL}/route/v1/${OSRM_PROFILE}/${coordinatePair}` +
-        `?overview=simplified&geometries=geojson`;
+        `${OSRM_BASE_URL}/route/v1/${OSRM_PROFILE}/${coordinatePath}` +
+        `?overview=full&geometries=geojson`;
 
     const payload = await fetchGeoJson(url);
 
@@ -87,4 +98,15 @@ export async function getRouteBetweenCoordinates(
         durationMinutes: secondsToMinutes(duration),
         geometry,
     };
+}
+
+/**
+ * Requests the road route directly between two coordinates.
+ * Returns null when OSRM cannot route the pair or is unreachable.
+ */
+export async function getRouteBetweenCoordinates(
+    origin: Coordinates,
+    destination: Coordinates
+): Promise<RoadRoute | null> {
+    return getRouteThroughCoordinates([origin, destination]);
 }

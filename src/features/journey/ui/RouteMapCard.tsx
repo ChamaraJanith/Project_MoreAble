@@ -1,14 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { GeoPoint, JourneyGeoInformation } from '../../../entities/route/model/types';
-import { RouteMap, RouteMapStop } from './RouteMap';
+import {
+    GeoPoint,
+    JourneyGeoInformation,
+    JourneyRoadRoute,
+    JourneyStopPoint,
+} from '../../../entities/route/model/types';
+import { DESTINATION_COLOR, ORIGIN_COLOR, RouteMap, STOP_COLOR } from './RouteMap';
 
 interface RouteMapCardProps {
     /** Geographic data from the Journey Search response; may be absent. */
     geo?: JourneyGeoInformation | null;
-    /** Intermediate stops with coordinates, when the data provides them. */
-    stops?: RouteMapStop[];
+    /** Intermediate stops with coordinates, in travel order. */
+    stops?: JourneyStopPoint[];
+    /** Intermediate stops on this journey that have no saved coordinates. */
+    unmappedStopCount?: number;
+    /**
+     * The selected route's own road path. Preferred over `geo.road`, which
+     * describes only the direct road between the searched endpoints.
+     */
+    road?: JourneyRoadRoute | null;
     originLabel: string;
     destinationLabel: string;
 }
@@ -31,12 +43,14 @@ function hasCoordinates(point?: GeoPoint): point is GeoPoint {
 export function RouteMapCard({
     geo,
     stops = [],
+    unmappedStopCount = 0,
+    road: routeRoad,
     originLabel,
     destinationLabel,
 }: RouteMapCardProps) {
     const origin = geo?.origin;
     const destination = geo?.destination;
-    const road = geo?.road;
+    const road = routeRoad ?? geo?.road;
 
     const canRenderMap = hasCoordinates(origin) && hasCoordinates(destination);
     const hasRoadPath = !!road?.geometry?.coordinates?.length;
@@ -74,25 +88,25 @@ export function RouteMapCard({
             {canRenderMap && (
                 <View style={styles.legendRow}>
                     <View style={styles.legendItem}>
-                        <View style={styles.legendStartDot} />
+                        <Ionicons name="location" size={15} color={ORIGIN_COLOR} />
                         <Text style={styles.legendText} numberOfLines={1}>
                             {originLabel}
-                        </Text>
-                    </View>
-                    <View style={styles.legendItem}>
-                        <View style={styles.legendEndSquare} />
-                        <Text style={styles.legendText} numberOfLines={1}>
-                            {destinationLabel}
                         </Text>
                     </View>
                     {stops.length > 0 && (
                         <View style={styles.legendItem}>
                             <View style={styles.legendStopDot} />
                             <Text style={styles.legendText} numberOfLines={1}>
-                                Stops on the way
+                                {stops.length} stop{stops.length === 1 ? '' : 's'} on the way
                             </Text>
                         </View>
                     )}
+                    <View style={styles.legendItem}>
+                        <Ionicons name="location" size={15} color={DESTINATION_COLOR} />
+                        <Text style={styles.legendText} numberOfLines={1}>
+                            {destinationLabel}
+                        </Text>
+                    </View>
                 </View>
             )}
 
@@ -107,6 +121,16 @@ export function RouteMapCard({
                 <Text style={styles.footnote}>
                     The detailed road path is unavailable, so only the start and end points are
                     marked.
+                </Text>
+            )}
+
+            {/* Said plainly rather than left as a silently empty map: these stops
+                have no saved location, so nothing can be drawn for them. They are
+                still listed in full on the timeline below. */}
+            {canRenderMap && unmappedStopCount > 0 && (
+                <Text style={styles.footnote}>
+                    {unmappedStopCount} stop{unmappedStopCount === 1 ? ' has' : 's have'} no saved
+                    location yet and {unmappedStopCount === 1 ? 'is' : 'are'} not marked on the map.
                 </Text>
             )}
 
@@ -176,36 +200,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         flexShrink: 1,
     },
-    legendStartDot: {
+    legendStopDot: {
         width: 12,
         height: 12,
         borderRadius: 6,
-        borderWidth: 3,
-        borderColor: '#0066CC',
-        backgroundColor: '#FFFFFF',
-        marginRight: 6,
-    },
-    legendEndSquare: {
-        width: 12,
-        height: 12,
-        borderRadius: 3,
-        backgroundColor: '#0F172A',
-        marginRight: 6,
-    },
-    legendStopDot: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
+        backgroundColor: STOP_COLOR,
         borderWidth: 2,
-        borderColor: '#64748B',
-        backgroundColor: '#FFFFFF',
-        marginRight: 6,
+        borderColor: '#FFFFFF',
     },
     legendText: {
         flexShrink: 1,
         fontSize: 12,
         fontWeight: '600',
         color: '#475569',
+        marginLeft: 5,
     },
     footnote: {
         fontSize: 12,

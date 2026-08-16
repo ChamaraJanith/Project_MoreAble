@@ -1,5 +1,6 @@
 import {
     getRouteBetweenCoordinates,
+    getRouteThroughCoordinates,
     metresToKilometres,
     secondsToMinutes,
 } from '../../../src/shared/api/routingService';
@@ -100,6 +101,114 @@ describe('getRouteBetweenCoordinates', () => {
     it('does not call the service for invalid coordinates', async () => {
         expect(
             await getRouteBetweenCoordinates({ latitude: NaN, longitude: 1 }, KOLLUPITIYA)
+        ).toBeNull();
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+});
+
+// ==================================================================
+// WAYPOINT ROUTING
+//
+// A bus route is not the fastest road between its endpoints, so the route's own
+// stops are passed to OSRM as ordered waypoints to constrain the path.
+// ==================================================================
+describe('getRouteThroughCoordinates', () => {
+    const MALABE = { latitude: 6.9061, longitude: 79.9558 };
+    const BATTARAMULLA = { latitude: 6.8994, longitude: 79.9186 };
+    const RAJAGIRIYA = { latitude: 6.9094, longitude: 79.8944 };
+    const BORELLA = { latitude: 6.9147, longitude: 79.8778 };
+
+    const okResponse = () =>
+        jsonResponse({
+            code: 'Ok',
+            routes: [
+                {
+                    distance: 22450,
+                    duration: 4140,
+                    geometry: { type: 'LineString', coordinates: [[79.98, 6.93], [79.84, 6.91]] },
+                },
+            ],
+        });
+
+    const requestedPath = () => {
+        const [url] = mockFetch.mock.calls[0];
+        // Everything between the profile and the query string.
+        return String(url).split('/driving/')[1].split('?')[0];
+    };
+
+    it('sends every waypoint in the order supplied', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        await getRouteThroughCoordinates([
+            KADUWELA,
+            MALABE,
+            BATTARAMULLA,
+            RAJAGIRIYA,
+            BORELLA,
+            KOLLUPITIYA,
+        ]);
+
+        expect(requestedPath()).toBe(
+            '79.9833,6.9333;79.9558,6.9061;79.9186,6.8994;79.8944,6.9094;79.8778,6.9147;79.8489,6.9111'
+        );
+    });
+
+    it('encodes each waypoint as longitude,latitude', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        await getRouteThroughCoordinates([KADUWELA, MALABE]);
+
+        // Longitude first: a swapped pair would put this route in the ocean.
+        expect(requestedPath().split(';')).toEqual(['79.9833,6.9333', '79.9558,6.9061']);
+    });
+
+    it('preserves the reverse order for a return journey', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        await getRouteThroughCoordinates([KOLLUPITIYA, BORELLA, RAJAGIRIYA, MALABE, KADUWELA]);
+
+        expect(requestedPath()).toBe(
+            '79.8489,6.9111;79.8778,6.9147;79.8944,6.9094;79.9558,6.9061;79.9833,6.9333'
+        );
+    });
+
+    it('requests the full geometry rather than a simplified one', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        await getRouteThroughCoordinates([KADUWELA, MALABE, KOLLUPITIYA]);
+
+        const [url] = mockFetch.mock.calls[0];
+        expect(String(url)).toContain('overview=full');
+        expect(String(url)).toContain('geometries=geojson');
+    });
+
+    it('skips waypoints with unusable coordinates', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        await getRouteThroughCoordinates([
+            KADUWELA,
+            { latitude: Number.NaN, longitude: 79.9558 },
+            KOLLUPITIYA,
+        ]);
+
+        expect(requestedPath()).toBe('79.9833,6.9333;79.8489,6.9111');
+    });
+
+    it('returns the converted road figures for the constrained path', async () => {
+        mockFetch.mockResolvedValue(okResponse());
+
+        expect(await getRouteThroughCoordinates([KADUWELA, MALABE, KOLLUPITIYA])).toEqual({
+            distanceKm: 22.5,
+            durationMinutes: 69,
+            geometry: { type: 'LineString', coordinates: [[79.98, 6.93], [79.84, 6.91]] },
+        });
+    });
+
+    it('does not call the service with fewer than two usable waypoints', async () => {
+        expect(await getRouteThroughCoordinates([KADUWELA])).toBeNull();
+        expect(await getRouteThroughCoordinates([])).toBeNull();
+        expect(
+            await getRouteThroughCoordinates([KADUWELA, { latitude: NaN, longitude: NaN }])
         ).toBeNull();
         expect(mockFetch).not.toHaveBeenCalled();
     });

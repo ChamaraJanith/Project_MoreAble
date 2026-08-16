@@ -1,6 +1,8 @@
 import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import {
+    buildRouteWaypoints,
+    collectJourneyStopPoints,
     collectKnownLocations,
     findMatchingRoutes,
     isKnownLocation,
@@ -254,5 +256,262 @@ describe('isSameLocation', () => {
 
     it('does not treat two blank values as the same location', () => {
         expect(isSameLocation('   ', '')).toBe(false);
+    });
+});
+
+// ==================================================================
+// STOP COORDINATES FOR THE ROUTE MAP
+// ==================================================================
+describe('collectJourneyStopPoints', () => {
+    const coordinates = new Map<string, { latitude: number; longitude: number }>([
+        ['kaduwela', { latitude: 6.9333, longitude: 79.9833 }],
+        ['malabe', { latitude: 6.9061, longitude: 79.9558 }],
+        ['battaramulla', { latitude: 6.8994, longitude: 79.9186 }],
+        ['rajagiriya', { latitude: 6.9094, longitude: 79.8944 }],
+        ['borella', { latitude: 6.9147, longitude: 79.8778 }],
+        ['kollupitiya', { latitude: 6.9167, longitude: 79.8500 }],
+    ]);
+
+    const matchFor = (route: Route, origin: string, destination: string) =>
+        findMatchingRoutes([route], origin, destination);
+
+    it('keeps the outbound travel order of the route', () => {
+        const matches = matchFor(forwardRoute, 'Kaduwela', 'Kollupitiya');
+
+        expect(collectJourneyStopPoints(matches, coordinates).map((stop) => stop.name)).toEqual([
+            'Kaduwela',
+            'Malabe',
+            'Battaramulla',
+            'Rajagiriya',
+            'Borella',
+            'Kollupitiya',
+        ]);
+    });
+
+    it('reverses with the return direction rather than sorting', () => {
+        const matches = matchFor(reverseRoute, 'Kollupitiya', 'Kaduwela');
+
+        expect(collectJourneyStopPoints(matches, coordinates).map((stop) => stop.name)).toEqual([
+            'Kollupitiya',
+            'Borella',
+            'Rajagiriya',
+            'Battaramulla',
+            'Malabe',
+            'Kaduwela',
+        ]);
+    });
+
+    it('covers only the travelled segment', () => {
+        const matches = matchFor(forwardRoute, 'Malabe', 'Rajagiriya');
+
+        expect(collectJourneyStopPoints(matches, coordinates).map((stop) => stop.name)).toEqual([
+            'Malabe',
+            'Battaramulla',
+            'Rajagiriya',
+        ]);
+    });
+
+    it('attaches the matching coordinates to each stop', () => {
+        const matches = matchFor(forwardRoute, 'Kaduwela', 'Malabe');
+
+        expect(collectJourneyStopPoints(matches, coordinates)).toEqual([
+            { name: 'Kaduwela', latitude: 6.9333, longitude: 79.9833 },
+            { name: 'Malabe', latitude: 6.9061, longitude: 79.9558 },
+        ]);
+    });
+
+    it('skips stops that have no stored coordinates', () => {
+        const partial = new Map(coordinates);
+        partial.delete('battaramulla');
+
+        const matches = matchFor(forwardRoute, 'Kaduwela', 'Kollupitiya');
+        const names = collectJourneyStopPoints(matches, partial).map((stop) => stop.name);
+
+        expect(names).not.toContain('Battaramulla');
+        // The surrounding stops keep their order, so the map still tracks the route.
+        expect(names).toEqual(['Kaduwela', 'Malabe', 'Rajagiriya', 'Borella', 'Kollupitiya']);
+    });
+
+    it('skips stops whose coordinates are not finite numbers', () => {
+        const broken = new Map(coordinates);
+        broken.set('malabe', { latitude: Number.NaN, longitude: 79.9558 });
+        broken.set('borella', { latitude: 6.9147, longitude: Number.POSITIVE_INFINITY });
+
+        const matches = matchFor(forwardRoute, 'Kaduwela', 'Kollupitiya');
+        const names = collectJourneyStopPoints(matches, broken).map((stop) => stop.name);
+
+        expect(names).toEqual(['Kaduwela', 'Battaramulla', 'Rajagiriya', 'Kollupitiya']);
+    });
+
+    it('emits a stop shared by two matched routes only once', () => {
+        const matches = [
+            ...matchFor(forwardRoute, 'Kaduwela', 'Kollupitiya'),
+            ...matchFor(forwardRoute, 'Malabe', 'Borella'),
+        ];
+
+        const names = collectJourneyStopPoints(matches, coordinates).map((stop) => stop.name);
+
+        expect(names).toEqual([...new Set(names)]);
+        expect(names).toHaveLength(6);
+    });
+
+    it('returns nothing when no route matched', () => {
+        expect(collectJourneyStopPoints([], coordinates)).toEqual([]);
+    });
+
+    it('returns nothing when no coordinates are known', () => {
+        const matches = matchFor(forwardRoute, 'Kaduwela', 'Kollupitiya');
+
+        expect(collectJourneyStopPoints(matches, new Map())).toEqual([]);
+    });
+});
+
+// ==================================================================
+// OSRM WAYPOINTS
+//
+// A bus route is not the fastest road between its endpoints, so the route's own
+// stops constrain the road path. These cover the ordering that produces.
+// ==================================================================
+describe('buildRouteWaypoints', () => {
+    const coordinates = new Map<string, { latitude: number; longitude: number }>([
+        ['kaduwela', { latitude: 6.9333, longitude: 79.9833 }],
+        ['malabe', { latitude: 6.9061, longitude: 79.9558 }],
+        ['battaramulla', { latitude: 6.8994, longitude: 79.9186 }],
+        ['rajagiriya', { latitude: 6.9094, longitude: 79.8944 }],
+        ['borella', { latitude: 6.9147, longitude: 79.8778 }],
+        ['kollupitiya', { latitude: 6.9167, longitude: 79.85 }],
+    ]);
+
+    const journeyOf = (route: Route, origin: string, destination: string) =>
+        findMatchingRoutes([route], origin, destination)[0].journeyStops;
+
+    /** Identifies a waypoint by looking its coordinates back up by name. */
+    const asNames = (points: { latitude: number; longitude: number }[]) =>
+        points.map((point) => {
+            for (const [name, candidate] of coordinates) {
+                if (
+                    candidate.latitude === point.latitude &&
+                    candidate.longitude === point.longitude
+                ) {
+                    return name;
+                }
+            }
+            return 'unknown';
+        });
+
+    it('routes through every stop of the outbound journey in order', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Kollupitiya'),
+            coordinates
+        );
+
+        // The whole point of the fix: not just the two endpoints.
+        expect(waypoints).toHaveLength(6);
+        expect(asNames(waypoints)).toEqual([
+            'kaduwela',
+            'malabe',
+            'battaramulla',
+            'rajagiriya',
+            'borella',
+            'kollupitiya',
+        ]);
+    });
+
+    it('reverses for the return journey', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(reverseRoute, 'Kollupitiya', 'Kaduwela'),
+            coordinates
+        );
+
+        expect(asNames(waypoints)).toEqual([
+            'kollupitiya',
+            'borella',
+            'rajagiriya',
+            'battaramulla',
+            'malabe',
+            'kaduwela',
+        ]);
+    });
+
+    it('includes the stops inside a partial journey and none outside it', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Battaramulla'),
+            coordinates
+        );
+
+        expect(asNames(waypoints)).toEqual(['kaduwela', 'malabe', 'battaramulla']);
+    });
+
+    it('routes a mid-route segment through its own stops only', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Malabe', 'Kollupitiya'),
+            coordinates
+        );
+
+        expect(asNames(waypoints)).toEqual([
+            'malabe',
+            'battaramulla',
+            'rajagiriya',
+            'borella',
+            'kollupitiya',
+        ]);
+    });
+
+    it('produces just the two endpoints for a single hop', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Malabe'),
+            coordinates
+        );
+
+        expect(asNames(waypoints)).toEqual(['kaduwela', 'malabe']);
+    });
+
+    it('falls back to the resolved endpoints when a stop is not in the collection', () => {
+        const partial = new Map(coordinates);
+        partial.delete('kaduwela');
+        partial.delete('kollupitiya');
+
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Kollupitiya'),
+            partial,
+            { latitude: 6.9333, longitude: 79.9833 },
+            { latitude: 6.9167, longitude: 79.85 }
+        );
+
+        expect(asNames(waypoints)).toEqual([
+            'kaduwela',
+            'malabe',
+            'battaramulla',
+            'rajagiriya',
+            'borella',
+            'kollupitiya',
+        ]);
+    });
+
+    it('skips an intermediate stop that has no coordinates', () => {
+        const partial = new Map(coordinates);
+        partial.delete('rajagiriya');
+
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Kollupitiya'),
+            partial
+        );
+
+        expect(asNames(waypoints)).toEqual([
+            'kaduwela',
+            'malabe',
+            'battaramulla',
+            'borella',
+            'kollupitiya',
+        ]);
+    });
+
+    it('returns nothing routable when no coordinates are known at all', () => {
+        const waypoints = buildRouteWaypoints(
+            journeyOf(forwardRoute, 'Kaduwela', 'Kollupitiya'),
+            new Map()
+        );
+
+        expect(waypoints).toEqual([]);
     });
 });

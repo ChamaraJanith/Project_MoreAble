@@ -5,6 +5,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { useSelectedJourney } from '../store/selectedRouteStore';
 import { listAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { formatDurationBetween, formatFriendlyTime, parseApiTimeString } from '../utils/dateTime';
+import { resolveIntermediateStops } from '../utils/routeMapStops';
 import { RouteMapCard } from './RouteMapCard';
 import { RouteStopTimeline } from './RouteStopTimeline';
 
@@ -69,6 +70,8 @@ export const RouteDetailsScreen = () => {
     const stopCount = route.journeyStops.length;
     const distanceLabel = route.distanceKm != null ? `${route.distanceKm} km` : null;
     const facilities = listAccessibilityFacilities(bus?.accessibilityFacilities);
+    const mapStops = resolveIntermediateStops(route.journeyStops, geo);
+
 
     const handleBook = () =>
         router.push({
@@ -151,6 +154,9 @@ export const RouteDetailsScreen = () => {
                 {/* ---------------- Map ---------------- */}
                 <RouteMapCard
                     geo={geo}
+                    stops={mapStops.stops}
+                    unmappedStopCount={mapStops.unmappedCount}
+                    road={route.road}
                     originLabel={route.origin}
                     destinationLabel={route.destination}
                 />
