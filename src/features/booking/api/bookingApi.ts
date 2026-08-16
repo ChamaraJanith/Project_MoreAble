@@ -1,5 +1,6 @@
-import { Booking, Seat, SeatLayout, SelectedVehicle, TransportOption } from '../../../entities/booking/model/types';
+import { AssistanceRequested, Booking, FareBreakdown, Seat, SeatLayout, SelectedVehicle, TransportOption } from '../../../entities/booking/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
+
 
 async function bookingFetch(path: string, init?: RequestInit): Promise<any> {
     const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) };
@@ -47,6 +48,8 @@ export interface ConfirmBookingPayload {
     passengerId?: string;
     origin?: string;       
     destination?: string;
+    assistanceRequested?: AssistanceRequested;
+    specialRequests?: string;
 }
 
 /** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
@@ -70,4 +73,13 @@ export async function cancelBooking(bookingId: string): Promise<void> {
 }
 
 export type { SelectedVehicle };
+
+export async function fetchFare(routeId: string, origin: string, destination: string): Promise<FareBreakdown> {
+    const data = await bookingFetch(
+        `/api/booking/fare?routeId=${encodeURIComponent(routeId)}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`
+    );
+    return data.fare as FareBreakdown;
+}
+
+export type { FareBreakdown };
 

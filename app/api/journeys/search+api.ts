@@ -1,9 +1,11 @@
-import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { Bus } from '../../../src/entities/bus/model/types';
 import { JourneySearchMatch, Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import { Coordinates, GeocodedLocation, geocodeLocation } from '../../../src/shared/api/locationService';
 import { getRouteBetweenCoordinates, RoadRoute } from '../../../src/shared/api/routingService';
+import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { normalizeLocation } from '../../../src/shared/utils/location';
+export { normalizeLocation };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,9 +18,6 @@ const TRAVEL_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // Trims and lowercases a location value so origin/destination comparisons are
 // case-insensitive and tolerant of incidental whitespace from user input.
-export function normalizeLocation(value: unknown): string {
-  return typeof value === 'string' ? value.trim().toLowerCase() : '';
-}
 
 export function isValidTravelDate(value: unknown): boolean {
   if (typeof value !== 'string' || !TRAVEL_DATE_PATTERN.test(value)) {
