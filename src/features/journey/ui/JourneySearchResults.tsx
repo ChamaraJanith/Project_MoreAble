@@ -2,7 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { JourneySearchMatch, JourneySearchOption } from '../../../entities/route/model/types';
+import {
+    JourneyGeoInformation,
+    JourneySearchMatch,
+    JourneySearchOption,
+} from '../../../entities/route/model/types';
 import { searchJourneys } from '../api/journeySearchApi';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
 import { JourneyOptionCard } from './JourneyOptionCard';
@@ -42,6 +46,8 @@ export const JourneySearchResults = () => {
 
     const [status, setStatus] = useState<ResultsStatus>('loading');
     const [routes, setRoutes] = useState<JourneySearchMatch[]>([]);
+    // Kept so "View details" can hand the route map data to the details screen.
+    const [geo, setGeo] = useState<JourneyGeoInformation | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
 
     const runSearch = useCallback(async () => {
@@ -56,6 +62,7 @@ export const JourneySearchResults = () => {
         try {
             const response = await searchJourneys({ origin, destination, travelDate, travelTime });
             setRoutes(Array.isArray(response.routes) ? response.routes : []);
+            setGeo(response.geo ?? null);
             setStatus('loaded');
         } catch (error: any) {
             setErrorMessage(error?.message || 'Something went wrong while searching for routes.');
@@ -205,7 +212,14 @@ export const JourneySearchResults = () => {
                             {journeyOptions.length} journey option{journeyOptions.length > 1 ? 's' : ''} · soonest first
                         </Text>
                         {journeyOptions.map(({ key, route, option }) => (
-                            <JourneyOptionCard key={key} route={route} option={option} />
+                            <JourneyOptionCard
+                                key={key}
+                                route={route}
+                                option={option}
+                                geo={geo}
+                                travelDate={travelDate}
+                                travelTime={travelTime}
+                            />
                         ))}
                     </>
                 )}

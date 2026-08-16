@@ -50,6 +50,41 @@ export interface JourneySearchOption {
     bus: JourneySearchBus | null;
 }
 
+// ------------------------------------------------------------------
+// Geographic enrichment (MOV-85)
+//
+// The Journey Search API already returns this alongside the matched routes; the
+// shapes are mirrored here so passenger screens can consume it without importing
+// server-only modules. It is best-effort: `available` is false whenever
+// OpenStreetMap could not resolve the journey, and the UI degrades gracefully.
+// ------------------------------------------------------------------
+
+export interface GeoPoint {
+    latitude: number;
+    longitude: number;
+    displayName?: string;
+}
+
+/** GeoJSON LineString: an array of [longitude, latitude] pairs. */
+export interface RouteGeometry {
+    type: string;
+    coordinates: [number, number][];
+}
+
+export interface JourneyRoadRoute {
+    distanceKm: number;
+    durationMinutes: number;
+    geometry?: RouteGeometry;
+}
+
+export interface JourneyGeoInformation {
+    available: boolean;
+    origin?: GeoPoint;
+    destination?: GeoPoint;
+    road?: JourneyRoadRoute;
+    message?: string;
+}
+
 export interface JourneySearchMatch {
     routeId: string;
     routeNumber: string;
