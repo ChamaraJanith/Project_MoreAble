@@ -451,7 +451,9 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.infoTextContainer}>
               <Text style={styles.infoLabel}>Calculated Age</Text>
-              <Text style={styles.infoValue}>{age} years {isElderly ? '(Senior Citizen)' : ''}</Text>
+              <Text style={styles.infoValue}>
+                {age} years {isElderly ? '(Senior Citizen)' : age >= 18 ? '(Citizen)' : '(Minor)'}
+              </Text>
             </View>
           </View>
         </View>
