@@ -31,6 +31,31 @@ export interface User {
   updatedAt: string;
 }
 
+/**
+ * The safe projection of a user document returned by the admin retrieval API.
+ *
+ * Built with an allow-list, so security-sensitive fields stored alongside the
+ * user (passwordHash today, anything added later) can never leak into an API
+ * response. The stored document itself is never modified.
+ */
+export interface AdminUserSummary {
+  documentId: string;
+  passengerId: string;
+  userName: string;
+  email: string;
+  phoneNumber: string | null;
+  secondaryPhoneNumber: string | null;
+  nicNo: string;
+  calculatedAge: number | null;
+  isElderPerson: boolean;
+  isVerified: boolean;
+  role: UserRole;
+  guardianId: string | null;
+  accessibilityProfileId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface UserRegistrationDTO {
   userName: string;
   email: string;
