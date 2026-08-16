@@ -24,8 +24,8 @@ import { parseSriLankanNic } from '../src/shared/utils/nicUtils';
 export default function ProfileScreen() {
   const { user, logout, updateGuardianDetails } = useAuthStore();
 
-  // Test state toggle for demo preview (default age set to 64 to showcase 60+ feature)
-  const [testAge60, setTestAge60] = useState(true);
+  // Test state toggle for demo preview (disabled by default)
+  const [testAge60, setTestAge60] = useState(false);
 
   // Modal State for Guardian Details
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,8 +59,9 @@ export default function ProfileScreen() {
   };
 
   // Determine age & elderly status
-  const age = displayUser.calculatedAge ?? (testAge60 ? 64 : 27);
-  const isElderly = age >= 60 || displayUser.isElderPerson || testAge60;
+  const parsedNicInfo = displayUser.nicNo ? parseSriLankanNic(displayUser.nicNo) : null;
+  const age = testAge60 ? 64 : (displayUser.calculatedAge ?? parsedNicInfo?.age ?? 27);
+  const isElderly = testAge60 ? true : (age >= 60 || Boolean(displayUser.isElderPerson));
 
   // Guardian completion status
   const currentGuardian = displayUser.guardianDetails;
@@ -231,7 +232,7 @@ export default function ProfileScreen() {
             accessibilityRole="button"
             accessibilityLabel="Toggle test age"
           >
-            <Text style={styles.demoAgeText}>{isElderly ? 'Age 64 (Elder)' : 'Age 27'}</Text>
+            <Text style={styles.demoAgeText}>{isElderly ? `Age ${age} (Elder)` : `Age ${age}`}</Text>
           </TouchableOpacity>
         </View>
 
