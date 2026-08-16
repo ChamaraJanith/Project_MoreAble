@@ -2,6 +2,15 @@
 
 export type UserRole = 'PASSENGER' | 'GUARDIAN' | 'ADMIN';
 
+/**
+ * Administrative account state, controlled by an admin.
+ *
+ * Entirely independent of `isVerified`, which records OTP/contact verification
+ * and is never altered by a suspend/activate operation. Documents created
+ * before this field existed have no value stored; readers treat that as ACTIVE.
+ */
+export type AccountStatus = 'ACTIVE' | 'SUSPENDED';
+
 export interface Guardian {
   guardianId: string;
   userId: string;
@@ -25,6 +34,7 @@ export interface User {
   phoneNumber?: string;
   secondaryPhoneNumber?: string | null;
   isVerified: boolean;
+  accountStatus?: AccountStatus;
   guardianId?: string | null;
   accessibilityProfileId?: string | null;
   createdAt: string;
@@ -49,6 +59,7 @@ export interface AdminUserSummary {
   calculatedAge: number | null;
   isElderPerson: boolean;
   isVerified: boolean;
+  accountStatus: AccountStatus;
   role: UserRole;
   guardianId: string | null;
   accessibilityProfileId: string | null;

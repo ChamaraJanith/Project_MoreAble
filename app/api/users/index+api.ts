@@ -1,5 +1,6 @@
 import { AdminUserSummary, UserRole } from '../../../src/entities/user/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { resolveAccountStatus } from './[userId]/status+api';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,6 +45,9 @@ export function toAdminUserSummary(documentId: string, data: any): AdminUserSumm
     calculatedAge: typeof data?.calculatedAge === 'number' ? data.calculatedAge : null,
     isElderPerson: data?.isElderPerson === true,
     isVerified: data?.isVerified === true,
+    // Documents created before MOV-158 have no stored value; they read as ACTIVE
+    // without being written to.
+    accountStatus: resolveAccountStatus(data?.accountStatus),
     role: USER_ROLES.includes(data?.role) ? data.role : DEFAULT_ROLE,
     guardianId: toNullableString(data?.guardianId),
     accessibilityProfileId: toNullableString(data?.accessibilityProfileId),
