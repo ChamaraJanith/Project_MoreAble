@@ -1,6 +1,8 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { computeRouteSegmentDistance } from '../../../src/shared/server/routeDistance';
 import { generateBookingId } from '../../../src/shared/utils/bookingId';
-import { buildSeatLayout, ELDERLY_SEAT_MIN_AGE, findSeat } from '../../../src/shared/utils/seatLayout';
+import { calculateFare } from '../../../src/shared/utils/fare';
+import { normalizeLocation } from '../../../src/shared/utils/location';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -16,7 +18,7 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { tripId, seatNumber, passengerId, origin, destination } = body;
+        const { tripId, seatNumber, isPrioritySeat, passengerId, origin, destination, assistanceRequested, specialRequests } = body;
 
         if (!tripId || !seatNumber) {
             return Response.json(
@@ -49,66 +51,51 @@ export async function POST(request: Request) {
         }
         const bus = busDoc.data();
 
-        // Rebuild the layout server-side and locate the requested seat in it —
-        // this is the single source of truth for its category, pairing and
-        // any age restriction, regardless of what the client sent.
-        const layout = buildSeatLayout(bus);
-        const seat = findSeat(layout, seatNumber);
-
-        if (!seat) {
-            return Response.json(
-                { success: false, message: 'Invalid seat number for this bus.' },
-                { status: 400, headers: corsHeaders }
-            );
-        }
-
-        // ---- Elderly seat age enforcement ----
-        if (seat.category === 'ELDERLY') {
-            if (!passengerId) {
-                return Response.json(
-                    {
-                        success: false,
-                        message: `This seat is reserved for passengers aged ${seat.minAge ?? ELDERLY_SEAT_MIN_AGE} and above. Please log in with your registered account to book it.`,
-                    },
-                    { status: 403, headers: corsHeaders }
-                );
-            }
-
-            const userDoc = await adminDb.collection('users').doc(passengerId).get();
-            const age = userDoc.exists ? Number(userDoc.data()?.calculatedAge || 0) : 0;
-
-            if (!userDoc.exists || age < (seat.minAge ?? ELDERLY_SEAT_MIN_AGE)) {
-                return Response.json(
-                    {
-                        success: false,
-                        message: `This seat is reserved for passengers aged ${seat.minAge ?? ELDERLY_SEAT_MIN_AGE} and above.`,
-                    },
-                    { status: 403, headers: corsHeaders }
-                );
-            }
-        }
-
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
+        const stops: string[] = route && Array.isArray(route.stops) ? route.stops : [];
 
-        // A wheelchair booking always reserves its paired guardian seat too —
-        // both seat numbers are held under the same booking document.
-        const seatsToReserve = seat.pairedSeatNumber ? [seat.seatNumber, seat.pairedSeatNumber] : [seat.seatNumber];
+        // ---- Authoritative fare calculation ----
+        // The actual searched origin/destination (mid-route stops like
+        // Malabe) take priority over the route's own full endpoints, so a
+        // shorter sub-journey is never charged the whole route's fare.
+        const journeyOrigin = origin || route?.startLocation || null;
+        const journeyDestination = destination || route?.endLocation || null;
+
+        let fare = calculateFare(0, true);
+
+        if (journeyOrigin && journeyDestination && stops.length > 0) {
+            const normalizedStops = stops.map((s) => normalizeLocation(s));
+            const originIndex = normalizedStops.indexOf(normalizeLocation(journeyOrigin));
+            const destinationIndex = normalizedStops.indexOf(normalizeLocation(journeyDestination));
+
+            if (originIndex !== -1 && destinationIndex !== -1 && originIndex < destinationIndex) {
+                const { distanceKm, isPrecise } = await computeRouteSegmentDistance(
+                    adminDb,
+                    stops,
+                    originIndex,
+                    destinationIndex,
+                    route?.distanceKm ?? null
+                );
+                fare = calculateFare(distanceKm, isPrecise);
+            } else if (route?.distanceKm != null) {
+                // Origin/destination weren't recognised on this route (e.g. an
+                // older booking link) — fall back to the full route distance
+                // rather than charging LKR 0.
+                fare = calculateFare(route.distanceKm, true);
+            }
+        } else if (route?.distanceKm != null) {
+            fare = calculateFare(route.distanceKm, true);
+        }
 
         const bookingsRef = adminDb.collection('bookings');
 
         const booking = await adminDb.runTransaction(async (transaction: any) => {
-            const bySeatNumber = await transaction.get(
-                bookingsRef.where('tripId', '==', tripId).where('status', '==', 'CONFIRMED').where('seatNumber', 'in', seatsToReserve)
-            );
-            const byPairedSeatNumber = await transaction.get(
-                bookingsRef
-                    .where('tripId', '==', tripId)
-                    .where('status', '==', 'CONFIRMED')
-                    .where('pairedSeatNumber', 'in', seatsToReserve)
+            const existingSnapshot = await transaction.get(
+                bookingsRef.where('tripId', '==', tripId).where('seatNumber', '==', seatNumber).where('status', '==', 'CONFIRMED')
             );
 
-            if (!bySeatNumber.empty || !byPairedSeatNumber.empty) {
+            if (!existingSnapshot.empty) {
                 throw new Error('SEAT_TAKEN');
             }
 
@@ -118,8 +105,7 @@ export async function POST(request: Request) {
             const qrPayload = JSON.stringify({
                 bookingId,
                 tripId,
-                seatNumber: seat.seatNumber,
-                pairedSeatNumber: seat.pairedSeatNumber,
+                seatNumber,
                 numberPlate: bus.numberPlate,
                 departureTime: trip.departureTime,
             });
@@ -130,18 +116,14 @@ export async function POST(request: Request) {
                 tripId,
                 routeId: trip.routeId,
                 busId: trip.busId,
-                seatNumber: seat.seatNumber,
-                seatCategory: seat.category,
-                isPrioritySeat: seat.category === 'PRIORITY',
-                pairedSeatNumber: seat.pairedSeatNumber,
+                seatNumber,
+                isPrioritySeat: !!isPrioritySeat,
                 status: 'CONFIRMED',
                 journey: {
                     routeNumber: route?.routeNumber ?? '—',
                     routeName: route?.routeName ?? '—',
-                    // Prefer what the passenger actually searched for (mid-route stops
-                    // like Malabe) over the route's own full termini.
-                    startLocation: origin || route?.startLocation || '—',
-                    endLocation: destination || route?.endLocation || '—',
+                    startLocation: journeyOrigin ?? '—',
+                    endLocation: journeyDestination ?? '—',
                     departureTime: trip.departureTime,
                     estimatedArrivalTime: trip.estimatedArrivalTime,
                 },
@@ -150,6 +132,13 @@ export async function POST(request: Request) {
                     busModel: bus.busModel,
                     manufacturer: bus.manufacturer,
                 },
+                fare,
+                assistanceRequested: {
+                    boardingAssistance: !!assistanceRequested?.boardingAssistance,
+                    walkingAssistance: !!assistanceRequested?.walkingAssistance,
+                    prioritySeatAssistance: !!assistanceRequested?.prioritySeatAssistance,
+                },
+                specialRequests: typeof specialRequests === 'string' ? specialRequests.trim() : '',
                 qrPayload,
                 createdAt: now,
             };
@@ -165,10 +154,7 @@ export async function POST(request: Request) {
     } catch (error: any) {
         if (error.message === 'SEAT_TAKEN') {
             return Response.json(
-                {
-                    success: false,
-                    message: 'This seat (or its paired guardian seat) was just taken by another passenger. Please choose another seat.',
-                },
+                { success: false, message: 'This seat was just taken by another passenger. Please choose another seat.' },
                 { status: 409, headers: corsHeaders }
             );
         }

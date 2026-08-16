@@ -127,6 +127,12 @@ export default function BookingTicketScreen() {
                     }`}
                     isLast
                 />
+
+                <TicketRow 
+                    label="Fare Paid" 
+                    value={`LKR ${booking.fare?.totalFare ?? '—'}`} 
+                    isLast 
+                />
             </View>
 
             {/* Done Button */}

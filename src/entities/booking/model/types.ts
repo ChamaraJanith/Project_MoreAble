@@ -104,5 +104,24 @@ export interface Booking {
   journey: BookingJourneyDetails;
   vehicle: BookingVehicleDetails;
   qrPayload: string;
+  fare: FareBreakdown;
+  assistanceRequested: AssistanceRequested;
+  specialRequests: string;
   createdAt: string;
+}
+
+
+export interface FareBreakdown {
+  distanceKm: number;
+  baseFare: number;
+  distanceFare: number;
+  totalFare: number;
+  currency: 'LKR';
+  isEstimate: boolean;
+}
+
+export interface AssistanceRequested {
+  boardingAssistance: boolean;
+  walkingAssistance: boolean;
+  prioritySeatAssistance: boolean;
 }

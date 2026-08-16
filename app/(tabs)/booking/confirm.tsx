@@ -1,30 +1,122 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { confirmBooking } from '../../../src/features/booking/api/bookingApi';
-import { setSelectedVehicle, useSelectedVehicle } from '../../../src/features/booking/store/selectedVehicleStore';
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+
+import { FareBreakdown } from '../../../src/entities/booking/model/types';
+import {
+    confirmBooking,
+    fetchFare,
+} from '../../../src/features/booking/api/bookingApi';
+import {
+    setSelectedVehicle,
+    useSelectedVehicle,
+} from '../../../src/features/booking/store/selectedVehicleStore';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 
 export default function BookingConfirmScreen() {
     const router = useRouter();
-    const { tripId, seatNumber, isPrioritySeat, origin, destination } = useLocalSearchParams<{
-        tripId: string; seatNumber: string; isPrioritySeat: string; origin?: string; destination?: string;
+
+    const {
+        tripId,
+        seatNumber,
+        isPrioritySeat,
+        origin,
+        destination,
+    } = useLocalSearchParams<{
+        tripId: string;
+        seatNumber: string;
+        isPrioritySeat: string;
+        origin?: string;
+        destination?: string;
     }>();
 
     const selectedVehicle = useSelectedVehicle();
     const { user } = useAuthStore();
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitError, setSubmitError] = useState('');
+    const journeyOrigin =
+        (origin as string) ||
+        selectedVehicle?.origin ||
+        '—';
 
-    // Real trip origin/destination the passenger actually searched for —
-    // falls back to the vehicle's route name if opened without a journey search.
-    const journeyOrigin = (origin as string) || selectedVehicle?.origin || '—';
-    const journeyDestination = (destination as string) || selectedVehicle?.destination || '—';
+    const journeyDestination =
+        (destination as string) ||
+        selectedVehicle?.destination ||
+        '—';
+
+    const [fare, setFare] =
+        useState<FareBreakdown | null>(null);
+
+    const [fareLoading, setFareLoading] =
+        useState(true);
+
+    const [fareError, setFareError] =
+        useState('');
+
+    const [boardingAssistance, setBoardingAssistance] =
+        useState(false);
+
+    const [walkingAssistance, setWalkingAssistance] =
+        useState(false);
+
+    const [prioritySeatAssistance, setPrioritySeatAssistance] =
+        useState(isPrioritySeat === '1');
+
+    const [specialRequests, setSpecialRequests] =
+        useState('');
+
+    const [hasConfirmedDetails, setHasConfirmedDetails] =
+        useState(false);
+
+    const [isSubmitting, setIsSubmitting] =
+        useState(false);
+
+    const [submitError, setSubmitError] =
+        useState('');
+
+    useEffect(() => {
+        if (
+            !selectedVehicle?.routeId ||
+            journeyOrigin === '—' ||
+            journeyDestination === '—'
+        ) {
+            setFareLoading(false);
+            return;
+        }
+
+        setFareLoading(true);
+        setFareError('');
+
+        fetchFare(
+            selectedVehicle.routeId,
+            journeyOrigin,
+            journeyDestination
+        )
+            .then(setFare)
+            .catch((err) => setFareError(err.message))
+            .finally(() => setFareLoading(false));
+    }, [
+        selectedVehicle?.routeId,
+        journeyOrigin,
+        journeyDestination,
+    ]);
 
     async function handleConfirm() {
-        if (!tripId || !seatNumber) return;
+        if (
+            !tripId ||
+            !seatNumber ||
+            !hasConfirmedDetails
+        ) {
+            return;
+        }
 
         setIsSubmitting(true);
         setSubmitError('');
@@ -35,14 +127,37 @@ export default function BookingConfirmScreen() {
                 seatNumber: seatNumber as string,
                 //isPrioritySeat: isPrioritySeat === '1',
                 passengerId: user?.passengerId,
-                origin: journeyOrigin !== '—' ? journeyOrigin : undefined,
-                destination: journeyDestination !== '—' ? journeyDestination : undefined,
+                origin:
+                    journeyOrigin !== '—'
+                        ? journeyOrigin
+                        : undefined,
+                destination:
+                    journeyDestination !== '—'
+                        ? journeyDestination
+                        : undefined,
+                assistanceRequested: {
+                    boardingAssistance,
+                    walkingAssistance,
+                    prioritySeatAssistance,
+                },
+                specialRequests:
+                    specialRequests.trim() || undefined,
             });
 
             setSelectedVehicle(null);
-            router.replace({ pathname: '/booking/ticket/[bookingId]', params: { bookingId: booking.bookingId } });
+
+            router.replace({
+                pathname:
+                    '/booking/ticket/[bookingId]',
+                params: {
+                    bookingId: booking.bookingId,
+                },
+            });
         } catch (err: any) {
-            setSubmitError(err.message || 'Unable to confirm this booking. Please try again.');
+            setSubmitError(
+                err.message ||
+                'Unable to confirm this booking. Please try again.'
+            );
         } finally {
             setIsSubmitting(false);
         }
@@ -51,78 +166,711 @@ export default function BookingConfirmScreen() {
     return (
         <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.headerRow}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-                    <Ionicons name="arrow-back" size={22} color="#0F172A" />
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={styles.backButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                >
+                    <Ionicons
+                        name="arrow-back"
+                        size={22}
+                        color="#0F172A"
+                    />
                 </TouchableOpacity>
-                <Text style={styles.title}>Booking Summary</Text>
+
+                <Text style={styles.title}>
+                    Review Booking
+                </Text>
             </View>
 
-            <View style={styles.journeyBanner}>
-                <View style={styles.journeyStop}>
-                    <Ionicons name="ellipse" size={9} color="#0066CC" />
-                    <Text style={styles.journeyText} numberOfLines={1}>{journeyOrigin}</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={14} color="#94A3B8" style={{ marginHorizontal: 8 }} />
-                <View style={styles.journeyStop}>
-                    <Ionicons name="location" size={12} color="#0F172A" />
-                    <Text style={styles.journeyText} numberOfLines={1}>{journeyDestination}</Text>
-                </View>
-            </View>
+            {/* Passenger Details */}
+            <Text style={styles.sectionLabel}>
+                Passenger Details
+            </Text>
 
             <View style={styles.card}>
-                <SummaryRow label="Route" value={selectedVehicle ? `${selectedVehicle.routeNumber} · ${selectedVehicle.routeName}` : '—'} />
-                <SummaryRow label="Vehicle" value={selectedVehicle?.numberPlate ?? '—'} />
-                <SummaryRow label="Departure" value={selectedVehicle?.departureTime ?? '—'} />
-                <SummaryRow label="Est. Arrival" value={selectedVehicle?.estimatedArrivalTime ?? '—'} />
-                <SummaryRow label="Seat" value={(seatNumber as string) ?? '—'} />
-                <SummaryRow label="Priority Seat" value={isPrioritySeat === '1' ? 'Yes' : 'No'} isLast />
+                <View style={styles.passengerRow}>
+                    <View style={styles.passengerAvatar}>
+                        <Ionicons
+                            name="person"
+                            size={20}
+                            color="#64748B"
+                        />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                        <Text
+                            style={styles.passengerName}
+                        >
+                            {user?.userName ||
+                                'Guest Passenger'}
+                        </Text>
+
+                        <Text
+                            style={styles.passengerType}
+                        >
+                            {user?.isElderPerson
+                                ? 'Elderly Passenger'
+                                : 'Community Commuter'}
+                        </Text>
+                    </View>
+                </View>
+
+                <TextInput
+                    style={styles.assistanceInput}
+                    placeholder="Mobility assistance or special requests (optional)"
+                    placeholderTextColor="#94A3B8"
+                    value={specialRequests}
+                    onChangeText={setSpecialRequests}
+                    multiline
+                    accessibilityLabel="Mobility assistance or special requests"
+                />
             </View>
+
+            {/* Trip Details */}
+            <Text style={styles.sectionLabel}>
+                Trip Details
+            </Text>
+
+            <View style={styles.card}>
+                <View style={styles.busRow}>
+                    <View>
+                        <Text style={styles.busPlate}>
+                            {selectedVehicle?.numberPlate ??
+                                '—'}
+                        </Text>
+
+                        <Text style={styles.busModel}>
+                            {selectedVehicle?.busModel ?? ''}
+                        </Text>
+                    </View>
+
+                    <View style={styles.busBadge}>
+                        <Text
+                            style={styles.busBadgeText}
+                        >
+                            ROUTE{' '}
+                            {selectedVehicle?.routeNumber ??
+                                '—'}
+                        </Text>
+                    </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.stopRow}>
+                    <Ionicons
+                        name="ellipse-outline"
+                        size={14}
+                        color="#0066CC"
+                    />
+
+                    <View style={{ marginLeft: 10 }}>
+                        <Text style={styles.stopLabel}>
+                            Pick-up
+                        </Text>
+
+                        <Text style={styles.stopValue}>
+                            {journeyOrigin}
+                        </Text>
+                    </View>
+                </View>
+
+                <View style={styles.stopRow}>
+                    <Ionicons
+                        name="location"
+                        size={14}
+                        color="#0F172A"
+                    />
+
+                    <View style={{ marginLeft: 10 }}>
+                        <Text style={styles.stopLabel}>
+                            Drop-off
+                        </Text>
+
+                        <Text style={styles.stopValue}>
+                            {journeyDestination}
+                        </Text>
+                    </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.timeRow}>
+                    <Text style={styles.timeText}>
+                        Departs{' '}
+                        {selectedVehicle?.departureTime ??
+                            '—'}
+                    </Text>
+
+                    <Text style={styles.timeText}>
+                        Est. arrival{' '}
+                        {selectedVehicle?.estimatedArrivalTime ??
+                            '—'}
+                    </Text>
+                </View>
+            </View>
+
+            {/* Seat */}
+            <Text style={styles.sectionLabel}>
+                Seat
+            </Text>
+
+            <View style={styles.card}>
+                <View style={styles.row}>
+                    <Text style={styles.rowLabel}>
+                        Seat Number
+                    </Text>
+
+                    <Text style={styles.rowValue}>
+                        {(seatNumber as string) ?? '—'}
+                        {isPrioritySeat === '1'
+                            ? ' (Priority)'
+                            : ''}
+                    </Text>
+                </View>
+            </View>
+
+            {/* Assistance Requested */}
+            <Text style={styles.sectionLabel}>
+                Assistance Requested
+            </Text>
+
+            <View style={styles.card}>
+                <AssistanceToggle
+                    label="Boarding Assistance"
+                    value={boardingAssistance}
+                    onChange={setBoardingAssistance}
+                />
+
+                <AssistanceToggle
+                    label="Walking Assistance"
+                    value={walkingAssistance}
+                    onChange={setWalkingAssistance}
+                />
+
+                <AssistanceToggle
+                    label="Priority Seat Assistance"
+                    value={prioritySeatAssistance}
+                    onChange={setPrioritySeatAssistance}
+                    isLast
+                />
+            </View>
+
+            {/* Estimated Fare */}
+            <Text style={styles.sectionLabel}>
+                Estimated Fare
+            </Text>
+
+            <View style={styles.fareCard}>
+                {fareLoading ? (
+                    <ActivityIndicator color="#0066CC" />
+                ) : fareError ? (
+                    <Text style={styles.fareErrorText}>
+                        {fareError}
+                    </Text>
+                ) : fare ? (
+                    <>
+                        <View style={styles.fareTopRow}>
+                            <View>
+                                <Text
+                                    style={styles.fareLabel}
+                                >
+                                    Estimated Fare
+                                </Text>
+
+                                <Text
+                                    style={styles.fareSub}
+                                >
+                                    Payment: Pay on boarding
+                                </Text>
+                            </View>
+
+                            <Text
+                                style={styles.fareAmount}
+                            >
+                                LKR {fare.totalFare}
+                            </Text>
+                        </View>
+
+                        <Text
+                            style={styles.fareDetail}
+                        >
+                            {fare.distanceKm} km · Base LKR{' '}
+                            {fare.baseFare} + LKR{' '}
+                            {fare.distanceFare} distance fare
+                            {fare.isEstimate
+                                ? ' · approximate'
+                                : ''}
+                        </Text>
+                    </>
+                ) : (
+                    <Text style={styles.fareErrorText}>
+                        Fare unavailable for this journey.
+                    </Text>
+                )}
+            </View>
+
+            <View style={styles.noteBanner}>
+                <Ionicons
+                    name="information-circle-outline"
+                    size={16}
+                    color="#0066CC"
+                />
+
+                <Text style={styles.noteText}>
+                    Please arrive at the boarding point at least 10 minutes before departure.
+                </Text>
+            </View>
+
+            <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() =>
+                    setHasConfirmedDetails(
+                        (v) => !v
+                    )
+                }
+                accessibilityRole="checkbox"
+                accessibilityState={{
+                    checked: hasConfirmedDetails,
+                }}
+                accessibilityLabel="I confirm that the booking details are correct"
+            >
+                <Ionicons
+                    name={
+                        hasConfirmedDetails
+                            ? 'checkbox'
+                            : 'square-outline'
+                    }
+                    size={22}
+                    color={
+                        hasConfirmedDetails
+                            ? '#0066CC'
+                            : '#94A3B8'
+                    }
+                />
+
+                <Text style={styles.checkboxText}>
+                    I confirm that the booking details are correct.
+                </Text>
+            </TouchableOpacity>
 
             {!!submitError && (
                 <View style={styles.errorBanner}>
-                    <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
-                    <Text style={styles.errorText}>{submitError}</Text>
+                    <Ionicons
+                        name="alert-circle-outline"
+                        size={18}
+                        color="#D32F2F"
+                    />
+
+                    <Text style={styles.errorText}>
+                        {submitError}
+                    </Text>
                 </View>
             )}
 
             <TouchableOpacity
-                style={[styles.confirmButton, isSubmitting && styles.confirmButtonDisabled]}
+                style={[
+                    styles.confirmButton,
+                    (!hasConfirmedDetails ||
+                        isSubmitting) &&
+                        styles.confirmButtonDisabled,
+                ]}
                 onPress={handleConfirm}
-                disabled={isSubmitting}
+                disabled={
+                    !hasConfirmedDetails ||
+                    isSubmitting
+                }
                 accessibilityRole="button"
                 accessibilityLabel="Confirm booking"
+                accessibilityState={{
+                    disabled:
+                        !hasConfirmedDetails ||
+                        isSubmitting,
+                }}
             >
-                {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmButtonText}>CONFIRM BOOKING</Text>}
+                {isSubmitting ? (
+                    <ActivityIndicator color="#fff" />
+                ) : (
+                    <Text
+                        style={
+                            styles.confirmButtonText
+                        }
+                    >
+                        CONFIRM BOOKING
+                    </Text>
+                )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => router.back()}
+                disabled={isSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Edit booking"
+            >
+                <Text style={styles.editButtonText}>
+                    Edit Booking
+                </Text>
             </TouchableOpacity>
         </ScrollView>
     );
 }
 
-function SummaryRow({ label, value, isLast }: { label: string; value: string; isLast?: boolean }) {
+function AssistanceToggle({
+    label,
+    value,
+    onChange,
+    isLast,
+}: {
+    label: string;
+    value: boolean;
+    onChange: (v: boolean) => void;
+    isLast?: boolean;
+}) {
     return (
-        <View style={[styles.row, isLast && styles.rowLast]}>
-            <Text style={styles.rowLabel}>{label}</Text>
-            <Text style={styles.rowValue}>{value}</Text>
-        </View>
+        <TouchableOpacity
+            style={[
+                styles.assistanceRow,
+                isLast &&
+                    styles.assistanceRowLast,
+            ]}
+            onPress={() => onChange(!value)}
+            accessibilityRole="checkbox"
+            accessibilityState={{
+                checked: value,
+            }}
+            accessibilityLabel={label}
+        >
+            <Text style={styles.assistanceLabel}>
+                {label}
+            </Text>
+
+            <Ionicons
+                name={
+                    value
+                        ? 'checkmark-circle'
+                        : 'ellipse-outline'
+                }
+                size={20}
+                color={
+                    value
+                        ? '#10B981'
+                        : '#CBD5E1'
+                }
+            />
+        </TouchableOpacity>
     );
 }
 
 const styles = StyleSheet.create({
-    content: { padding: 16, backgroundColor: '#F8FAFC', flexGrow: 1 },
-    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    backButton: { width: 40, height: 40, justifyContent: 'center' },
-    title: { fontSize: 19, fontWeight: '800', color: '#0F172A', marginLeft: 6 },
-    journeyBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12 },
-    journeyStop: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
-    journeyText: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginLeft: 6, flexShrink: 1 },
-    card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#E2E8F0' },
-    row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-    rowLast: { borderBottomWidth: 0 },
-    rowLabel: { fontSize: 13, color: '#64748B' },
-    rowValue: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-    errorBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF4F4', borderRadius: 10, padding: 12, marginTop: 16 },
-    errorText: { color: '#D32F2F', marginLeft: 8, flex: 1, fontSize: 13, fontWeight: '600' },
-    confirmButton: { backgroundColor: '#0066CC', minHeight: 54, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
-    confirmButtonDisabled: { backgroundColor: '#94A3B8' },
-    confirmButtonText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
+    content: {
+        padding: 16,
+        backgroundColor: '#F8FAFC',
+        flexGrow: 1,
+        paddingBottom: 40,
+    },
+
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+
+    backButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+    },
+
+    title: {
+        fontSize: 19,
+        fontWeight: '800',
+        color: '#0F172A',
+        marginLeft: 6,
+    },
+
+    sectionLabel: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#64748B',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+
+    card: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+
+    passengerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+
+    passengerAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F1F5F9',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+
+    passengerName: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0F172A',
+    },
+
+    passengerType: {
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 2,
+    },
+
+    assistanceInput: {
+        marginTop: 12,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        borderRadius: 10,
+        padding: 10,
+        minHeight: 44,
+        fontSize: 13,
+        color: '#0F172A',
+        textAlignVertical: 'top',
+    },
+
+    busRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+
+    busPlate: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#0F172A',
+    },
+
+    busModel: {
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 2,
+    },
+
+    busBadge: {
+        backgroundColor: '#EBF3FA',
+        borderRadius: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+
+    busBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#0066CC',
+    },
+
+    divider: {
+        height: 1,
+        backgroundColor: '#F1F5F9',
+        marginVertical: 12,
+    },
+
+    stopRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 10,
+    },
+
+    stopLabel: {
+        fontSize: 11,
+        color: '#94A3B8',
+        fontWeight: '600',
+    },
+
+    stopValue: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0F172A',
+        marginTop: 1,
+    },
+
+    timeRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+
+    timeText: {
+        fontSize: 12,
+        color: '#475569',
+        fontWeight: '600',
+    },
+
+    row: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+
+    rowLabel: {
+        fontSize: 13,
+        color: '#64748B',
+    },
+
+    rowValue: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0F172A',
+    },
+
+    assistanceRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F1F5F9',
+    },
+
+    assistanceRowLast: {
+        borderBottomWidth: 0,
+    },
+
+    assistanceLabel: {
+        fontSize: 14,
+        color: '#0F172A',
+        fontWeight: '600',
+    },
+
+    fareCard: {
+        backgroundColor: '#0F172A',
+        borderRadius: 16,
+        padding: 16,
+    },
+
+    fareTopRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+
+    fareLabel: {
+        fontSize: 13,
+        color: '#CBD5E1',
+        fontWeight: '700',
+    },
+
+    fareSub: {
+        fontSize: 11,
+        color: '#94A3B8',
+        marginTop: 2,
+    },
+
+    fareAmount: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#fff',
+    },
+
+    fareDetail: {
+        fontSize: 11,
+        color: '#94A3B8',
+        marginTop: 10,
+    },
+
+    fareErrorText: {
+        fontSize: 13,
+        color: '#FCA5A5',
+        textAlign: 'center',
+    },
+
+    noteBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EBF3FA',
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 16,
+    },
+
+    noteText: {
+        flex: 1,
+        fontSize: 12,
+        color: '#0066CC',
+        marginLeft: 8,
+        fontWeight: '600',
+        lineHeight: 16,
+    },
+
+    checkboxRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+    },
+
+    checkboxText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#334155',
+        marginLeft: 10,
+        fontWeight: '600',
+    },
+
+    errorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF4F4',
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 16,
+    },
+
+    errorText: {
+        color: '#D32F2F',
+        marginLeft: 8,
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+    },
+
+    confirmButton: {
+        backgroundColor: '#0F172A',
+        minHeight: 54,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 20,
+    },
+
+    confirmButtonDisabled: {
+        backgroundColor: '#94A3B8',
+    },
+
+    confirmButtonText: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 16,
+        letterSpacing: 0.5,
+    },
+
+    editButton: {
+        minHeight: 50,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 10,
+    },
+
+    editButtonText: {
+        color: '#334155',
+        fontWeight: '700',
+        fontSize: 14,
+    },
 });
