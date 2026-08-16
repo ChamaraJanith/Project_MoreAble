@@ -69,11 +69,7 @@ export const LoginForm = () => {
     };
 
     const handleForgotPassword = () => {
-        if (Platform.OS === 'web') {
-            window.alert('Please contact your transit support hotline or guardian for password recovery assistance.');
-        } else {
-            Alert.alert('Password Recovery', 'Please contact your transit support hotline or registered guardian to reset your account password.');
-        }
+        router.push('/(auth)/forgot-password' as any);
     };
 
     const handleContactSupport = () => {
