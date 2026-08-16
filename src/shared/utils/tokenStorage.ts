@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 const KEYS = {
     ACCESS_TOKEN: 'moreable_access_token',
     USER_DATA: 'moreable_user_data',
+    SAVED_CREDENTIALS: 'moreable_saved_credentials',
 } as const;
 
 /**
@@ -93,5 +94,55 @@ export function isTokenExpired(token: string): boolean {
         return Date.now() >= expiryMs;
     } catch {
         return true;
+    }
+}
+
+/**
+ * Save user login credentials for quick auto-fill after successful login
+ */
+export async function saveSavedCredentials(credentials: {
+    identifier: string;
+    password: string;
+    userName?: string;
+}): Promise<void> {
+    const credStr = JSON.stringify(credentials);
+    if (Platform.OS === 'web') {
+        localStorage.setItem(KEYS.SAVED_CREDENTIALS, credStr);
+    } else {
+        await SecureStore.setItemAsync(KEYS.SAVED_CREDENTIALS, credStr);
+    }
+}
+
+/**
+ * Retrieve saved user login credentials for auto-fill
+ */
+export async function getSavedCredentials(): Promise<{
+    identifier: string;
+    password: string;
+    userName?: string;
+} | null> {
+    let raw: string | null = null;
+    if (Platform.OS === 'web') {
+        raw = localStorage.getItem(KEYS.SAVED_CREDENTIALS);
+    } else {
+        raw = await SecureStore.getItemAsync(KEYS.SAVED_CREDENTIALS);
+    }
+
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Clear saved credentials
+ */
+export async function clearSavedCredentials(): Promise<void> {
+    if (Platform.OS === 'web') {
+        localStorage.removeItem(KEYS.SAVED_CREDENTIALS);
+    } else {
+        await SecureStore.deleteItemAsync(KEYS.SAVED_CREDENTIALS);
     }
 }
