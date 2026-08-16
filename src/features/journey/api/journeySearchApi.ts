@@ -1,4 +1,4 @@
-import { JourneySearchMatch } from '../../../entities/route/model/types';
+import { JourneyGeoInformation, JourneySearchMatch } from '../../../entities/route/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 
 export interface JourneySearchCriteria {
@@ -14,6 +14,12 @@ export interface JourneySearchResponse {
     count: number;
     searchCriteria: JourneySearchCriteria;
     routes: JourneySearchMatch[];
+    /**
+     * Best-effort geographic data for the searched journey (MOV-85). Optional
+     * because the endpoint reports it as unavailable rather than failing when
+     * the mapping services cannot resolve the locations.
+     */
+    geo?: JourneyGeoInformation;
 }
 
 export async function searchJourneys(criteria: JourneySearchCriteria): Promise<JourneySearchResponse> {

@@ -40,6 +40,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="journey/route-details"
+        options={{
+          // Reached via "View details" on a recommended route, not a standalone tab.
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
