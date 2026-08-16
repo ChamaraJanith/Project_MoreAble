@@ -261,10 +261,15 @@ export default function ProfileScreen() {
               <Text style={styles.roleTagText}>{displayUser.role}</Text>
             </View>
 
-            {isElderly && (
+            {isElderly ? (
               <View style={styles.elderTag}>
                 <Ionicons name="heart" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.roleTagText}>Senior Citizen (60+)</Text>
+              </View>
+            ) : (
+              <View style={[styles.roleTag, { backgroundColor: age >= 18 ? '#0284C7' : '#64748B' }]}>
+                <Ionicons name={age >= 18 ? 'checkmark-circle' : 'person'} size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.roleTagText}>{age >= 18 ? 'Citizen' : 'Minor'}</Text>
               </View>
             )}
           </View>
