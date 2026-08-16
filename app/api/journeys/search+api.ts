@@ -1,8 +1,16 @@
 import { Bus } from '../../../src/entities/bus/model/types';
-import { JourneySearchMatch, Route } from '../../../src/entities/route/model/types';
+import {
+  JourneySearchMatch,
+  JourneyStopPoint,
+  Route,
+} from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import { Coordinates, GeocodedLocation, geocodeLocation } from '../../../src/shared/api/locationService';
-import { getRouteBetweenCoordinates, RoadRoute } from '../../../src/shared/api/routingService';
+import {
+  getRouteBetweenCoordinates,
+  getRouteThroughCoordinates,
+  RoadRoute,
+} from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { normalizeLocation } from '../../../src/shared/utils/location';
 export { normalizeLocation };
@@ -135,7 +143,50 @@ export interface JourneyGeoInformation {
   origin?: GeocodedLocation;
   destination?: GeocodedLocation;
   road?: RoadRoute;
+  stops?: JourneyStopPoint[];
   message?: string;
+}
+
+/**
+ * Coordinates for the stops on the matched routes, from the stop data already
+ * loaded for this request — no extra Firestore read and no geocoding call.
+ *
+ * Deliberately a directory rather than a path: one search can match several
+ * routes with different stop sequences, so travel order stays with each route's
+ * own `journeyStops`. Stops without usable coordinates are skipped rather than
+ * guessed at, and a stop shared by two matched routes is emitted once.
+ */
+export function collectJourneyStopPoints(
+  matches: JourneySearchMatch[],
+  stopCoordinates: Map<string, Coordinates>
+): JourneyStopPoint[] {
+  const points: JourneyStopPoint[] = [];
+  const seen = new Set<string>();
+
+  for (const match of matches) {
+    for (const stopName of match.journeyStops) {
+      const key = normalizeLocation(stopName);
+      if (!key || seen.has(key)) continue;
+
+      const coordinate = stopCoordinates.get(key);
+      if (
+        !coordinate ||
+        !Number.isFinite(coordinate.latitude) ||
+        !Number.isFinite(coordinate.longitude)
+      ) {
+        continue;
+      }
+
+      seen.add(key);
+      points.push({
+        name: stopName,
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+      });
+    }
+  }
+
+  return points;
 }
 
 /**
@@ -182,6 +233,65 @@ async function buildGeoInformation(
       message: 'Map information is currently unavailable for this journey.',
     };
   }
+}
+
+/**
+ * The ordered coordinates OSRM should route through for one matched route.
+ *
+ * Order comes straight from `journeyStops`, which already covers only the
+ * travelled segment and is already reversed for the return direction — so the
+ * waypoints inherit both without any sorting here. The first and last stops fall
+ * back to the endpoints the search already resolved, which may have been
+ * geocoded when the stops collection had no entry for them; that reuses work
+ * already done rather than geocoding anything new. Stops with no coordinates at
+ * all are skipped, so the path still runs through the stops that are known.
+ */
+export function buildRouteWaypoints(
+  journeyStops: string[],
+  stopCoordinates: Map<string, Coordinates>,
+  originPoint?: Coordinates,
+  destinationPoint?: Coordinates
+): Coordinates[] {
+  const waypoints: Coordinates[] = [];
+  const lastIndex = journeyStops.length - 1;
+
+  journeyStops.forEach((stopName, index) => {
+    const stored = stopCoordinates.get(normalizeLocation(stopName));
+
+    const endpointFallback =
+      index === 0 ? originPoint : index === lastIndex ? destinationPoint : undefined;
+
+    const point = stored ?? endpointFallback;
+
+    if (point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
+      waypoints.push({ latitude: point.latitude, longitude: point.longitude });
+    }
+  });
+
+  return waypoints;
+}
+
+/**
+ * Attaches the road path that follows this route's own stop sequence.
+ *
+ * Without the intermediate waypoints OSRM would return its preferred road
+ * between the two endpoints, which is not the road the bus takes.
+ */
+async function attachRoadRoute(
+  match: JourneySearchMatch,
+  stopCoordinates: Map<string, Coordinates>,
+  geo: JourneyGeoInformation
+): Promise<JourneySearchMatch> {
+  const waypoints = buildRouteWaypoints(
+    match.journeyStops,
+    stopCoordinates,
+    geo.origin,
+    geo.destination
+  );
+
+  const road = await getRouteThroughCoordinates(waypoints);
+
+  return road ? { ...match, road } : match;
 }
 
 // A route matches only when both origin and destination are stops on it and the
@@ -432,11 +542,14 @@ export async function POST(request: Request) {
 
     // MOV-85: geographic enrichment around the already-validated locations. This
     // never influences which public transport route is matched.
-    const geo = await buildGeoInformation(
-      trimmedOrigin,
-      trimmedDestination,
-      buildStopCoordinateMap(stops)
-    );
+    const stopCoordinates = buildStopCoordinateMap(stops);
+
+    const geo: JourneyGeoInformation = {
+      ...(await buildGeoInformation(trimmedOrigin, trimmedDestination, stopCoordinates)),
+      // Attached separately so the stops still reach the map when road routing
+      // itself is unavailable.
+      stops: collectJourneyStopPoints(matchedRoutes, stopCoordinates),
+    };
 
     const searchCriteria = {
       origin: trimmedOrigin,
@@ -462,10 +575,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Attach each route's upcoming trips (and each trip's bus), if any.
+    // Attach each route's upcoming trips (and each trip's bus), if any, plus the
+    // road path along that route's own stops.
     const busCache = new Map<string, Bus | null>();
     const enrichedRoutes = await Promise.all(
-      matchedRoutes.map((match) => attachUpcomingTrips(adminDb, match, travelTime, busCache))
+      matchedRoutes.map(async (match) =>
+        attachRoadRoute(
+          await attachUpcomingTrips(adminDb, match, travelTime, busCache),
+          stopCoordinates,
+          geo
+        )
+      )
     );
 
     return Response.json(

@@ -4,11 +4,18 @@ import { Trip } from '../../../src/entities/trip/model/types';
 import { POST } from '../../../app/api/journeys/search+api';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { geocodeLocation } from '../../../src/shared/api/locationService';
-import { getRouteBetweenCoordinates } from '../../../src/shared/api/routingService';
+import {
+    getRouteBetweenCoordinates,
+    getRouteThroughCoordinates,
+} from '../../../src/shared/api/routingService';
 
 const mockGeocodeLocation = geocodeLocation as jest.MockedFunction<typeof geocodeLocation>;
 const mockGetRoute = getRouteBetweenCoordinates as jest.MockedFunction<
     typeof getRouteBetweenCoordinates
+>;
+// Each matched route's own road path is requested through its ordered stops.
+const mockGetRouteThrough = getRouteThroughCoordinates as jest.MockedFunction<
+    typeof getRouteThroughCoordinates
 >;
 
 const mockGetAdminDb = jest.fn();
@@ -27,6 +34,7 @@ jest.mock('../../../src/shared/api/locationService', () => ({
 
 jest.mock('../../../src/shared/api/routingService', () => ({
     getRouteBetweenCoordinates: jest.fn(),
+    getRouteThroughCoordinates: jest.fn(),
 }));
 
 function buildRequest(body: unknown): Request {
@@ -114,6 +122,7 @@ beforeEach(() => {
         displayName: 'Mocked Location, Sri Lanka',
     });
     mockGetRoute.mockResolvedValue({ distanceKm: 22.5, durationMinutes: 69 });
+    mockGetRouteThrough.mockResolvedValue({ distanceKm: 22.5, durationMinutes: 69 });
 });
 
 describe('POST /api/journeys/search', () => {
@@ -619,5 +628,145 @@ describe('POST /api/journeys/search', () => {
             expect(options[0].bus.numberPlate).toBe('NB-1234');
             expect(options[1].bus.numberPlate).toBe('NB-5678');
         });
+    });
+});
+
+// ==================================================================
+// ROAD PATH ALONG THE ROUTE'S OWN STOPS
+//
+// A bus route is not the fastest road between its endpoints. Routing on the
+// endpoints alone let OSRM pick its own shortcut, so each matched route's road
+// path is now requested through that route's ordered stops.
+// ==================================================================
+describe('POST /api/journeys/search - waypoint-constrained road path', () => {
+    const STOP_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
+        Kaduwela: { latitude: 6.9333, longitude: 79.9833 },
+        Malabe: { latitude: 6.9061, longitude: 79.9558 },
+        Battaramulla: { latitude: 6.8994, longitude: 79.9186 },
+        Rajagiriya: { latitude: 6.9094, longitude: 79.8944 },
+        Borella: { latitude: 6.9147, longitude: 79.8778 },
+        Kollupitiya: { latitude: 6.9167, longitude: 79.85 },
+    };
+
+    const mappedStops = Object.entries(STOP_COORDINATES).map(([name, point]) => ({
+        id: `STOP-${name.toUpperCase()}`,
+        stopId: `STOP-${name.toUpperCase()}`,
+        name,
+        ...point,
+    }));
+
+    const dbWithMappedStops = (routes: (Route & { id: string })[] = [forwardRoute]) =>
+        createFakeFirestore({ routes, trips: [], buses: [bus1], stops: mappedStops });
+
+    /** The waypoints handed to OSRM, named by looking their coordinates up. */
+    const requestedWaypointNames = () =>
+        (mockGetRouteThrough.mock.calls[0][0] as { latitude: number; longitude: number }[]).map(
+            (point) =>
+                Object.keys(STOP_COORDINATES).find(
+                    (name) =>
+                        STOP_COORDINATES[name].latitude === point.latitude &&
+                        STOP_COORDINATES[name].longitude === point.longitude
+                ) ?? 'unknown'
+        );
+
+    it('routes through every stop of the journey, not just the endpoints', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+
+        await POST(buildRequest({ ...validBody, destination: 'Kollupitiya' }));
+
+        expect(requestedWaypointNames()).toEqual([
+            'Kaduwela',
+            'Malabe',
+            'Battaramulla',
+            'Rajagiriya',
+            'Borella',
+            'Kollupitiya',
+        ]);
+    });
+
+    it('constrains a partial journey to its own stops only', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+
+        // Kaduwela -> Battaramulla must pass through Malabe and stop there.
+        await POST(buildRequest(validBody));
+
+        expect(requestedWaypointNames()).toEqual(['Kaduwela', 'Malabe', 'Battaramulla']);
+    });
+
+    it('routes a single hop between its two stops', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+
+        await POST(buildRequest({ ...validBody, destination: 'Malabe' }));
+
+        expect(requestedWaypointNames()).toEqual(['Kaduwela', 'Malabe']);
+    });
+
+    it('follows the return direction for the reverse route', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops([reverseRoute]));
+
+        await POST(
+            buildRequest({ ...validBody, origin: 'Kollupitiya', destination: 'Kaduwela' })
+        );
+
+        expect(requestedWaypointNames()).toEqual([
+            'Kollupitiya',
+            'Borella',
+            'Rajagiriya',
+            'Battaramulla',
+            'Malabe',
+            'Kaduwela',
+        ]);
+    });
+
+    it('attaches the resulting road path to the matched route', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+        mockGetRouteThrough.mockResolvedValue({
+            distanceKm: 18.4,
+            durationMinutes: 41,
+            geometry: { type: 'LineString', coordinates: [[79.98, 6.93], [79.92, 6.9]] },
+        });
+
+        const response = await POST(buildRequest({ ...validBody, destination: 'Kollupitiya' }));
+        const json = await response.json();
+
+        expect(json.routes[0].road).toEqual({
+            distanceKm: 18.4,
+            durationMinutes: 41,
+            geometry: { type: 'LineString', coordinates: [[79.98, 6.93], [79.92, 6.9]] },
+        });
+    });
+
+    it('asks for one road path per matched route', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops([forwardRoute, reverseRoute]));
+
+        // Only the forward route runs Kaduwela -> Kollupitiya in that order.
+        await POST(buildRequest({ ...validBody, destination: 'Kollupitiya' }));
+
+        expect(mockGetRouteThrough).toHaveBeenCalledTimes(1);
+    });
+
+    it('still returns the route when the road path cannot be resolved', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+        mockGetRouteThrough.mockResolvedValue(null);
+
+        const response = await POST(buildRequest({ ...validBody, destination: 'Kollupitiya' }));
+        const json = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(json.routes).toHaveLength(1);
+        expect(json.routes[0].road).toBeUndefined();
+        // The scheduled figures are untouched by any of this.
+        expect(json.routes[0].estimatedDuration).toBe('1h 15m');
+    });
+
+    it('leaves the scheduled duration alone when a road duration is available', async () => {
+        mockGetAdminDb.mockReturnValue(dbWithMappedStops());
+        mockGetRouteThrough.mockResolvedValue({ distanceKm: 18.4, durationMinutes: 41 });
+
+        const response = await POST(buildRequest({ ...validBody, destination: 'Kollupitiya' }));
+        const json = await response.json();
+
+        expect(json.routes[0].estimatedDuration).toBe('1h 15m');
+        expect(json.routes[0].road.durationMinutes).toBe(41);
     });
 });

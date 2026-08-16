@@ -1,4 +1,5 @@
 import { BusAccessibilityFacilities } from '../../bus/model/types';
+import { Stop } from '../../stop/model/types';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -77,11 +78,28 @@ export interface JourneyRoadRoute {
     geometry?: RouteGeometry;
 }
 
+/**
+ * A stop whose coordinates are known, as carried in the journey geo block.
+ *
+ * Exactly the part of a Stop a map needs — the stop entity itself stays the
+ * single source of truth for the shape.
+ */
+export type JourneyStopPoint = Pick<Stop, 'name' | 'latitude' | 'longitude'>;
+
 export interface JourneyGeoInformation {
     available: boolean;
     origin?: GeoPoint;
     destination?: GeoPoint;
     road?: JourneyRoadRoute;
+    /**
+     * Known coordinates for the stops on the matched routes.
+     *
+     * A directory, not a path: several routes can match one search, each with
+     * its own stop sequence, so travel order belongs to a route's own
+     * `journeyStops` rather than to this shared list. Stops without usable
+     * coordinates are omitted entirely.
+     */
+    stops?: JourneyStopPoint[];
     message?: string;
 }
 
@@ -97,6 +115,14 @@ export interface JourneySearchMatch {
     journeyStops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
+    /**
+     * The road path along this route's own stop sequence, from OSRM.
+     *
+     * Per route rather than per search: two routes can connect the same pair of
+     * places by different roads, so the geometry belongs to the route the
+     * passenger picked. Absent when the road could not be resolved.
+     */
+    road?: JourneyRoadRoute;
     // Every ACTIVE trip departing at/after the requested travel time, ordered
     // earliest first. Empty when the route matches but has no upcoming trip.
     trips: JourneySearchOption[];

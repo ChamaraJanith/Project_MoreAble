@@ -1,16 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { GeoPoint, RouteGeometry } from '../../../entities/route/model/types';
-import { Stop } from '../../../entities/stop/model/types';
-
-/** The part of a Stop the map needs: a named coordinate. */
-export type RouteMapStop = Pick<Stop, 'name' | 'latitude' | 'longitude'>;
+import {
+    GeoPoint,
+    JourneyStopPoint,
+    RouteGeometry,
+} from '../../../entities/route/model/types';
 
 export interface RouteMapProps {
     origin: GeoPoint;
     destination: GeoPoint;
-    stops?: RouteMapStop[];
+    stops?: JourneyStopPoint[];
     geometry?: RouteGeometry;
     originLabel: string;
     destinationLabel: string;

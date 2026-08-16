@@ -1,17 +1,18 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import MapView, { Callout, LatLng, Marker, Polyline, UrlTile } from 'react-native-maps';
-import { GeoPoint, RouteGeometry } from '../../../entities/route/model/types';
-import { Stop } from '../../../entities/stop/model/types';
-
-/** The part of a Stop the map needs: a named coordinate. */
-export type RouteMapStop = Pick<Stop, 'name' | 'latitude' | 'longitude'>;
+import {
+    GeoPoint,
+    JourneyStopPoint,
+    RouteGeometry,
+} from '../../../entities/route/model/types';
 
 export interface RouteMapProps {
     origin: GeoPoint;
     destination: GeoPoint;
     /** Intermediate stops, in travel order. Rendered only when coordinates exist. */
-    stops?: RouteMapStop[];
+    stops?: JourneyStopPoint[];
     /** OSRM road geometry from the Journey Search response. */
     geometry?: RouteGeometry;
     originLabel: string;
@@ -25,6 +26,58 @@ const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_MAX_ZOOM = 19;
 
 const FIT_EDGE_PADDING = { top: 55, right: 55, bottom: 55, left: 55 };
+
+const ENDPOINT_PIN_SIZE = 38;
+
+/** Standard map convention: start is blue, destination is red, stops are grey. */
+export const ORIGIN_COLOR = '#0066CC';
+export const DESTINATION_COLOR = '#DC2626';
+export const STOP_COLOR = '#64748B';
+
+/** A pin hangs above its coordinate, so its tip is the anchor. */
+const PIN_ANCHOR = { x: 0.5, y: 1 } as const;
+
+/** A stop dot is centred on its coordinate. */
+const DOT_ANCHOR = { x: 0.5, y: 0.5 } as const;
+
+/**
+ * A dropped location pin, drawn from the icon set the app already uses.
+ *
+ * Endpoints and intermediate stops share this one shape so they read as the
+ * same kind of thing at different weights, and the contrasting centre keeps the
+ * head legible against busy map detail.
+ */
+function MapPin({
+    size,
+    color,
+    coreColor,
+}: {
+    size: number;
+    color: string;
+    coreColor: string;
+}) {
+    const coreSize = size * 0.26;
+
+    return (
+        <View style={{ width: size, height: size }}>
+            <Ionicons name="location" size={size} color={color} />
+            <View
+                style={[
+                    styles.pinCore,
+                    {
+                        width: coreSize,
+                        height: coreSize,
+                        borderRadius: coreSize / 2,
+                        backgroundColor: coreColor,
+                        // Centres the dot on the pin's head rather than the box.
+                        top: size * 0.24,
+                        left: size * 0.37,
+                    },
+                ]}
+            />
+        </View>
+    );
+}
 
 /**
  * Converts one GeoJSON position to a react-native-maps coordinate.
@@ -58,6 +111,16 @@ export function RouteMap({
     height,
 }: RouteMapProps) {
     const mapRef = useRef<MapView | null>(null);
+
+    // The pins are icon-font glyphs, and a marker snapshotted before the font
+    // has painted comes out blank. Tracking stays on just long enough for the
+    // first paint, then switches off so panning and zooming stay cheap.
+    const [tracksMarkerChanges, setTracksMarkerChanges] = useState(true);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setTracksMarkerChanges(false), 1500);
+        return () => clearTimeout(timer);
+    }, []);
 
     const originCoordinate = useMemo<LatLng>(
         () => ({ latitude: origin.latitude, longitude: origin.longitude }),
@@ -151,16 +214,17 @@ export function RouteMap({
                 </>
             )}
 
-            {/* Intermediate stops: smaller than the endpoints, tappable for the name */}
+            {/* Intermediate stops: a plain View dot, so nothing depends on an
+                icon font having painted before the marker is snapshotted. */}
             {drawableStops.map((stop, index) => (
                 <Marker
                     key={`${stop.name}-${index}`}
                     coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
-                    anchor={{ x: 0.5, y: 0.5 }}
+                    anchor={DOT_ANCHOR}
                     tracksViewChanges={false}
                     accessibilityLabel={`Stop: ${stop.name}`}
                 >
-                    <View style={styles.stopMarker} />
+                    <View style={styles.stopDot} />
                     <Callout tooltip>
                         <View style={styles.callout}>
                             <Text style={styles.calloutText}>{stop.name}</Text>
@@ -169,16 +233,14 @@ export function RouteMap({
                 </Marker>
             ))}
 
-            {/* Origin: hollow ring, labelled "Start" so it is not colour-only */}
+            {/* Origin: blue pin, captioned "Start" so it is never colour-only */}
             <Marker
                 coordinate={originCoordinate}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={false}
+                anchor={PIN_ANCHOR}
+                tracksViewChanges={tracksMarkerChanges}
                 accessibilityLabel={`Start: ${originLabel}`}
             >
-                <View style={styles.originMarker}>
-                    <View style={styles.originMarkerCore} />
-                </View>
+                <MapPin size={ENDPOINT_PIN_SIZE} color={ORIGIN_COLOR} coreColor="#FFFFFF" />
                 <Callout tooltip>
                     <View style={styles.callout}>
                         <Text style={styles.calloutCaption}>Start</Text>
@@ -187,14 +249,14 @@ export function RouteMap({
                 </Callout>
             </Marker>
 
-            {/* Destination: solid square, a different shape as well as a different tone */}
+            {/* Destination: the same pin in red, captioned "Destination" */}
             <Marker
                 coordinate={destinationCoordinate}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={false}
+                anchor={PIN_ANCHOR}
+                tracksViewChanges={tracksMarkerChanges}
                 accessibilityLabel={`Destination: ${destinationLabel}`}
             >
-                <View style={styles.destinationMarker} />
+                <MapPin size={ENDPOINT_PIN_SIZE} color={DESTINATION_COLOR} coreColor="#FFFFFF" />
                 <Callout tooltip>
                     <View style={styles.callout}>
                         <Text style={styles.calloutCaption}>Destination</Text>
@@ -211,37 +273,16 @@ const styles = StyleSheet.create({
         width: '100%',
     },
 
-    originMarker: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        borderWidth: 4,
-        borderColor: '#0066CC',
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
+    pinCore: {
+        position: 'absolute',
     },
-    originMarkerCore: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#0066CC',
-    },
-    destinationMarker: {
-        width: 20,
-        height: 20,
-        borderRadius: 5,
-        backgroundColor: '#0F172A',
+    stopDot: {
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        backgroundColor: STOP_COLOR,
         borderWidth: 3,
         borderColor: '#FFFFFF',
-    },
-    stopMarker: {
-        width: 13,
-        height: 13,
-        borderRadius: 6.5,
-        backgroundColor: '#FFFFFF',
-        borderWidth: 3,
-        borderColor: '#64748B',
     },
 
     callout: {
