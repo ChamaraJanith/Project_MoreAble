@@ -101,18 +101,27 @@ export default function ProfileScreen() {
   const completedSteps = isGuardianCompleted ? 1 : 0;
   const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
 
-  const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/(auth)');
+  const handleLogout = async () => {
+    const performLogout = async () => {
+      await logout();
+      router.replace('/(auth)');
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to log out?');
+      if (confirmed) {
+        await performLogout();
+      }
+    } else {
+      Alert.alert('Logout', 'Are you sure you want to log out?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: performLogout,
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const getInitials = (name: string) => {
