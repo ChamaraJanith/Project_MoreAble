@@ -1,58 +1,73 @@
-# Pull Request: Feature - Bus Device Login & Vehicle Dashboard Flow
+# Pull Request: Feature - Guardian Details Fix, Dual Mobile Number Registration, & Forgot Password Flow
 
 ## 📌 Title
-`feat(auth): Add Bus Device Login authentication flow and Vehicle Dashboard view`
+`feat(auth): Add Forgot Password reset flow, Dual Mobile Number registration, and Guardian sync fix`
 
 ---
 
 ## 📝 Description
-This PR introduces the **Bus Device Login** authentication flow to the MoreAble transit application. Bus operators and drivers can now navigate to a dedicated device login portal directly from the main login screen, enter their vehicle credentials (**Bus Number Plate** and **Bus Password**), and access the **Vehicle Dashboard**.
+This PR delivers key authentication and user management enhancements to the MoreAble application:
+1. **Interactive Forgot Password / Reset Password Flow**: Users can now recover and update their account password by providing their Email, NIC Number, or Mobile Phone Number. Password reset requests update the hashed credentials securely in Firestore.
+2. **Dual Mobile Number Registration**: Added support for both Primary and Secondary mobile numbers during user registration and rendered both in the Personal Information section of the profile screen.
+3. **Guardian Details Synchronization**: Fixed a UI status mismatch and added automatic backend fetching for Guardian details stored in Firestore.
 
 ---
 
 ## ✨ Key Changes
 
-### 🛠️ UI Components & Features
+### 🔑 Forgot Password Recovery Flow
+- **[reset-password+api.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/api/auth/reset-password+api.ts)** *(NEW)*:
+  - Created REST endpoint `POST /api/auth/reset-password`.
+  - Queries Firestore `users` collection by Email, NIC, Primary Mobile Number, or Secondary Mobile Number.
+  - Hashes new password with `bcrypt` and updates `passwordHash` in Firestore.
+- **[ForgotPasswordForm.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/features/auth/ui/ForgotPasswordForm.tsx)** *(NEW)*:
+  - Accessible password recovery form component.
+  - Features real-time password matching validation, loading state, error alerts, and success banner with automatic back-to-login routing.
+- **[forgot-password.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/%28auth%29/forgot-password.tsx)** *(NEW)* & **[_layout.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/%28auth%29/_layout.tsx)**:
+  - Registered `forgot-password` route screen in the `(auth)` stack.
 - **[LoginForm.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/features/auth/ui/LoginForm.tsx)**:
-  - Added a small **"Device Login"** button directly below the SIGN IN button.
-  - Added a **"Kiosk / NFC Device Login"** button at the bottom of the screen (visible upon scrolling down).
-  - Configured navigation to route to `/(auth)/device-login`.
+  - Updated **Forgot Password?** link to navigate to `/(auth)/forgot-password`.
 
-- **[BusDeviceLoginForm.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/features/auth/ui/BusDeviceLoginForm.tsx)** *(NEW)*:
-  - Created a dedicated form component for bus device authentication.
-  - Added input validation for **Bus Number Plate** (e.g. `NC-6789`) and **Bus Password**.
-  - Added **"LOGIN TO VEHICLE"** action button navigating to `/vehicle-dashboard`.
-  - Added a back navigation link to return to standard user login.
+### 📱 Dual Mobile Number Support
+- **[types.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/entities/user/model/types.ts)** & **[authStore.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/shared/store/authStore.ts)**:
+  - Added `secondaryPhoneNumber?: string | null` to `User`, `AuthUser`, and `UserRegistrationDTO`.
+- **[RegistrationForm.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/src/features/auth/ui/RegistrationForm.tsx)**:
+  - Added input fields for **Primary Mobile Number *** and **Secondary Mobile Number *** with format and uniqueness validation.
+- **[register+api.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/api/auth/register+api.ts)**:
+  - Persists `secondaryPhoneNumber` to Firestore `users` collection.
+- **[profile.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/profile.tsx)**:
+  - Displays both Primary Phone Number and Secondary Phone Number under Personal Information.
 
-### 📱 Routes & Navigation Layouts
-- **[device-login.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/%28auth%29/device-login.tsx)** *(NEW)*:
-  - Created the route screen under `(auth)` rendering `BusDeviceLoginForm`.
-- **[_layout.tsx (Auth Stack)](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/%28auth%29/_layout.tsx)**:
-  - Registered `device-login` screen in the `(auth)` stack.
-
-- **[vehicle-dashboard.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/vehicle-dashboard.tsx)** *(NEW)*:
-  - Created the initial **Vehicle Dashboard** screen displaying the transit console status and exit button.
-- **[_layout.tsx (Root Stack)](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/_layout.tsx)**:
-  - Registered `vehicle-dashboard` screen in the root stack layout.
+### 🛡️ Guardian Synchronization & Backend API
+- **[index+api.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/api/guardians/index+api.ts)** *(NEW)*:
+  - Created REST endpoints `GET /api/guardians` and `POST /api/guardians` for querying and updating Guardian records.
+- **[login+api.ts](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/api/auth/login+api.ts)**:
+  - Automatically fetches and attaches `guardianDetails` on login response.
+- **[profile.tsx](file:///c:/Campus_Projects/UEE/Project_MoreAble/app/profile.tsx)**:
+  - Added automatic `useEffect` to load missing Guardian details on mount.
 
 ---
 
 ## 🧪 How to Test
 
-1. Open the app and navigate to the main **Login** screen (`/(auth)`).
-2. Click on the **"Device Login"** button below the SIGN IN button (or scroll down to click the bottom **"Kiosk / NFC Device Login"** button).
-3. Confirm navigation to the **Bus Device Login** screen (`/(auth)/device-login`).
-4. Fill in:
-   - **Bus Number Plate**: e.g., `NC-6789`
-   - **Bus Password**: Enter any test password
-5. Tap **LOGIN TO VEHICLE**.
-6. Verify successful navigation to the **Vehicle Dashboard** screen displaying **"Vehicle Dashboard"**.
-7. Tap the **Exit** button in the top header to return to the auth stack.
+### 1. Forgot Password Test
+1. Go to the Sign In screen (`/(auth)`).
+2. Click **Forgot Password?**.
+3. Confirm navigation to `/forgot-password`.
+4. Enter account Email, NIC, or Mobile Number.
+5. Enter a new password (min 6 chars) and confirm password.
+6. Tap **RESET PASSWORD**.
+7. Verify success message and tap **BACK TO LOGIN** to log in with the new password.
+
+### 2. Dual Mobile Number Registration Test
+1. Go to Registration (`/(auth)/register`).
+2. Fill in **Primary Mobile Number** (`0771234567`) and **Secondary Mobile Number** (`0719876543`).
+3. Complete registration and verify both numbers display in `/profile`.
 
 ---
 
 ## 📋 Checklist
-- [x] Code follows project coding standards and formatting.
-- [x] UI elements adhere to accessible design principles.
-- [x] Forms include input validation and error feedback.
-- [x] Cross-platform compatibility tested for Web and Mobile platforms.
+- [x] Code compiled cleanly with zero TypeScript errors (`npx tsc --noEmit`).
+- [x] Password hashing security verified (`bcrypt` with 10 salt rounds).
+- [x] Input validation and error messaging tested across all forms.
+- [x] Cross-platform compatibility verified for Web and Mobile platforms.
