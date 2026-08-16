@@ -111,6 +111,7 @@ export async function POST(request: Request) {
             phoneNumber: data.phoneNumber,
             secondaryPhoneNumber: data.secondaryPhoneNumber || null,
             isVerified: false,
+            accountStatus: 'ACTIVE',
             guardianId: guardianId,
             accessibilityProfileId: null,
             createdAt: now,

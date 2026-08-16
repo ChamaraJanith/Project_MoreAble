@@ -146,6 +146,7 @@ describe('GET /api/users - retrieve user data', () => {
             calculatedAge: 27,
             isElderPerson: false,
             isVerified: true,
+            accountStatus: 'ACTIVE',
             role: 'PASSENGER',
             guardianId: null,
             accessibilityProfileId: null,
