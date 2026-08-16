@@ -338,13 +338,31 @@ export function findMatchingRoutes(
   return matches;
 }
 
+/**
+ * Whether a value can be used as a Firestore document id or query value.
+ *
+ * Firestore throws on an empty or non-string document path rather than
+ * returning an empty result, so a malformed record has to be caught before the
+ * read, not after.
+ */
+export function isUsableDocumentId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 // Returns every ACTIVE trip departing at/after the requested travel time,
 // earliest first. Trips that have already departed are ignored. Keeps the
 // previously-existing route matching untouched — this only filters trips
 // already known to belong to one matched route.
 export function selectUpcomingTrips(trips: Trip[], travelTime: string): Trip[] {
   return trips
-    .filter((trip) => trip.status === 'ACTIVE' && trip.departureTime >= travelTime)
+    .filter(
+      (trip) =>
+        // A trip with no id cannot be selected, booked or matched back to the
+        // Route Details screen, so it is not offered as a departure.
+        isUsableDocumentId(trip?.tripId) &&
+        trip.status === 'ACTIVE' &&
+        trip.departureTime >= travelTime
+    )
     .sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 }
 
@@ -365,6 +383,13 @@ async function loadBus(
   busId: string,
   busCache: Map<string, Bus | null>
 ): Promise<Bus | null> {
+  // A trip naming no bus yields `bus: null`, which the UI already renders as
+  // "Bus details unavailable". Asking Firestore for an empty path would instead
+  // throw and fail the whole search.
+  if (!isUsableDocumentId(busId)) {
+    return null;
+  }
+
   if (busCache.has(busId)) {
     return busCache.get(busId) ?? null;
   }
@@ -385,7 +410,12 @@ async function attachUpcomingTrips(
   travelTime: string,
   busCache: Map<string, Bus | null>
 ): Promise<JourneySearchMatch> {
-  const trips = await fetchActiveTripsForRoute(adminDb, match.routeId);
+  // A route document with no usable id owns no trips that can be resolved, and
+  // querying on an undefined value throws. Treat it as having no departures.
+  const trips = isUsableDocumentId(match.routeId)
+    ? await fetchActiveTripsForRoute(adminDb, match.routeId)
+    : [];
+
   const upcomingTrips = selectUpcomingTrips(trips, travelTime);
 
   const options = await Promise.all(

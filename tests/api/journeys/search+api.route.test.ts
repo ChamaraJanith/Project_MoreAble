@@ -770,3 +770,178 @@ describe('POST /api/journeys/search - waypoint-constrained road path', () => {
         expect(json.routes[0].road.durationMinutes).toBe(41);
     });
 });
+
+// ==================================================================
+// MOV-96 — RESILIENT ROUTE DETAIL RETRIEVAL
+//
+// Every field the Route Details screen needs already comes from this endpoint.
+// What these cover is the retrieval surviving malformed records, so one bad
+// document cannot take the whole search down.
+// ==================================================================
+describe('POST /api/journeys/search - malformed records', () => {
+    /**
+     * The shared double resolves any document path, including an empty one.
+     * Firestore itself throws, so these guards would look unnecessary against
+     * the permissive double — this wrapper reproduces the real behaviour.
+     */
+    function strictFirestore(seed: Record<string, Record<string, any>[]>) {
+        const db = createFakeFirestore(seed);
+        const openCollection = db.collection;
+
+        return {
+            ...db,
+            collection: jest.fn((name: string) => {
+                const target = openCollection(name);
+
+                return {
+                    ...target,
+                    doc: jest.fn((id: string) => {
+                        if (typeof id !== 'string' || !id.trim()) {
+                            throw new Error(
+                                'Value for argument "documentPath" is not a valid resource path.'
+                            );
+                        }
+                        return target.doc(id);
+                    }),
+                    where: jest.fn((field: string, op: string, value: unknown) => {
+                        if (value === undefined) {
+                            throw new Error(
+                                'Value for argument "value" is not a valid query constraint.'
+                            );
+                        }
+                        return target.where(field, op, value);
+                    }),
+                };
+            }),
+        };
+    }
+
+    const kollupitiyaBody = { ...validBody, destination: 'Kollupitiya' };
+
+    it('returns the departure with no bus when the trip names none', async () => {
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [forwardRoute],
+                trips: [
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-00001',
+                        busId: '',
+                        departureTime: '09:00',
+                    }),
+                ],
+                buses: [bus1],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(json.routes[0].trips).toHaveLength(1);
+        expect(json.routes[0].trips[0].trip.tripId).toBe('TRIP-00001');
+        expect(json.routes[0].trips[0].bus).toBeNull();
+    });
+
+    it('returns the departure with no bus when the bus document is missing', async () => {
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [forwardRoute],
+                trips: [
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-00001',
+                        busId: 'BUS-DELETED',
+                        departureTime: '09:00',
+                    }),
+                ],
+                buses: [bus1],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(json.routes[0].trips[0].bus).toBeNull();
+    });
+
+    it('still returns a matched route whose document has no route id', async () => {
+        const { routeId: _omitted, ...withoutRouteId } = forwardRoute;
+
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [withoutRouteId as typeof forwardRoute],
+                trips: [trip({ routeId: forwardRoute.routeId, tripId: 'TRIP-00001' })],
+                buses: [bus1],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        // The stop sequence is still usable for the map and the timeline, so the
+        // route is reported with no departures rather than failing the search.
+        expect(response.status).toBe(200);
+        expect(json.routes).toHaveLength(1);
+        expect(json.routes[0].journeyStops).toEqual(forwardRoute.stops);
+        expect(json.routes[0].trips).toEqual([]);
+    });
+
+    it('omits a trip that has no trip id', async () => {
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [forwardRoute],
+                trips: [
+                    trip({ routeId: forwardRoute.routeId, tripId: '', departureTime: '09:00' }),
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-00002',
+                        departureTime: '09:30',
+                    }),
+                ],
+                buses: [bus1],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        // An id-less trip cannot be matched back from the Route Details screen.
+        expect(json.routes[0].trips).toHaveLength(1);
+        expect(json.routes[0].trips[0].trip.tripId).toBe('TRIP-00002');
+    });
+
+    it('keeps the selected trip tied to its own route and bus', async () => {
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [forwardRoute, reverseRoute],
+                trips: [
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-FORWARD',
+                        departureTime: '09:00',
+                    }),
+                    trip({
+                        routeId: reverseRoute.routeId,
+                        tripId: 'TRIP-REVERSE',
+                        departureTime: '09:05',
+                    }),
+                ],
+                buses: [bus1],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        // Only the forward route runs Kaduwela -> Kollupitiya in that order, so
+        // the reverse route's trip must not leak into this result.
+        expect(json.routes).toHaveLength(1);
+        expect(json.routes[0].routeId).toBe(forwardRoute.routeId);
+        expect(json.routes[0].trips.map((option: any) => option.trip.tripId)).toEqual([
+            'TRIP-FORWARD',
+        ]);
+        expect(json.routes[0].trips[0].bus.busId).toBe('BUS-00001');
+    });
+});
