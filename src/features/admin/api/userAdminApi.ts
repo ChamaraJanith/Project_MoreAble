@@ -1,4 +1,4 @@
-import { AdminUserSummary, UserRole } from '../../../entities/user/model/types';
+import { AccountStatus, AdminUserSummary, UserRole } from '../../../entities/user/model/types';
 import { adminFetch } from './adminHttp';
 
 /** Roles the retrieval endpoint accepts; 'ALL' returns every role. */
@@ -32,4 +32,33 @@ export async function getUserById(documentId: string): Promise<AdminUserSummary 
     const users = await getUsers('ALL');
 
     return users.find((user) => user.documentId === documentId) ?? null;
+}
+
+/** The account status acknowledgement returned by the status endpoint. */
+export interface AccountStatusUpdateResult {
+    documentId: string;
+    passengerId: string;
+    accountStatus: AccountStatus;
+    updatedAt: string | null;
+}
+
+/**
+ * PATCH /api/users/:userId/status
+ *
+ * Suspends or reactivates one account. `documentId` is the identifier the
+ * retrieval endpoint exposes and the status endpoint expects.
+ *
+ * adminFetch throws with the backend's own message when the request fails, so
+ * callers can surface it directly.
+ */
+export async function updateUserAccountStatus(
+    documentId: string,
+    accountStatus: AccountStatus
+): Promise<AccountStatusUpdateResult> {
+    const data = await adminFetch(`/api/users/${encodeURIComponent(documentId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accountStatus }),
+    });
+
+    return data.user as AccountStatusUpdateResult;
 }

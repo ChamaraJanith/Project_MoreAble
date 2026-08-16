@@ -1,12 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { AdminUserSummary } from '../../../entities/user/model/types';
-import { getUserById } from '../api/userAdminApi';
+import { getUserById, updateUserAccountStatus } from '../api/userAdminApi';
 import { AdminScreenHeader } from './AdminScreenHeader';
-import { AdminErrorState } from './AdminStates';
-import { ElderBadge, VerificationBadge, getUserInitials } from './UserListScreen';
+import { AdminErrorState, ConfirmDialog } from './AdminStates';
+import {
+    AccountStatusBadge,
+    ElderBadge,
+    VerificationBadge,
+    accountStatusActionCopy,
+    getUserInitials,
+} from './UserListScreen';
 import { adminColors, adminShadow } from './adminTheme';
 
 interface UserDetailsScreenProps {
@@ -34,6 +47,11 @@ export const UserDetailsScreen = ({ userId }: UserDetailsScreenProps) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
 
+    const [isConfirmVisible, setIsConfirmVisible] = useState(false);
+    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+    const [statusError, setStatusError] = useState('');
+    const [statusSuccess, setStatusSuccess] = useState('');
+
     const load = useCallback(async () => {
         setIsLoading(true);
         setError('');
@@ -58,6 +76,39 @@ export const UserDetailsScreen = ({ userId }: UserDetailsScreenProps) => {
             load();
         }, [load])
     );
+
+    const handleConfirmStatusChange = async () => {
+        if (!user || isUpdatingStatus) return;
+
+        const copy = accountStatusActionCopy(user);
+
+        setIsUpdatingStatus(true);
+        setStatusError('');
+        setStatusSuccess('');
+
+        try {
+            const updated = await updateUserAccountStatus(user.documentId, copy.nextStatus);
+
+            setUser((previous) =>
+                previous
+                    ? {
+                          ...previous,
+                          accountStatus: updated?.accountStatus ?? copy.nextStatus,
+                          updatedAt: updated?.updatedAt ?? previous.updatedAt,
+                      }
+                    : previous
+            );
+
+            setStatusSuccess(copy.successMessage);
+            setIsConfirmVisible(false);
+        } catch (err: any) {
+            // The displayed status is left unchanged.
+            setStatusError(err?.message || 'Unable to update this account status.');
+            setIsConfirmVisible(false);
+        } finally {
+            setIsUpdatingStatus(false);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -104,10 +155,33 @@ export const UserDetailsScreen = ({ userId }: UserDetailsScreenProps) => {
                     <Text style={styles.heroId}>{user.passengerId}</Text>
 
                     <View style={styles.heroBadges}>
+                        <AccountStatusBadge accountStatus={user.accountStatus} />
                         <VerificationBadge isVerified={user.isVerified} />
                         {user.isElderPerson && <ElderBadge />}
                     </View>
                 </View>
+
+                {!!statusSuccess && (
+                    <View style={styles.successBanner} accessibilityLiveRegion="polite">
+                        <Ionicons
+                            name="checkmark-circle-outline"
+                            size={18}
+                            color={adminColors.success}
+                        />
+                        <Text style={styles.successBannerText}>{statusSuccess}</Text>
+                    </View>
+                )}
+
+                {!!statusError && (
+                    <View style={styles.statusErrorBanner} accessibilityLiveRegion="assertive">
+                        <Ionicons
+                            name="alert-circle-outline"
+                            size={18}
+                            color={adminColors.danger}
+                        />
+                        <Text style={styles.statusErrorText}>{statusError}</Text>
+                    </View>
+                )}
 
                 {/* Personal */}
                 <Text style={styles.sectionTitle}>Personal Information</Text>
@@ -146,6 +220,10 @@ export const UserDetailsScreen = ({ userId }: UserDetailsScreenProps) => {
                 <Text style={styles.sectionTitle}>Account Information</Text>
                 <View style={styles.card}>
                     <DetailRow
+                        label="Account Status"
+                        value={user.accountStatus === 'ACTIVE' ? 'Active' : 'Suspended'}
+                    />
+                    <DetailRow
                         label="Verification"
                         value={user.isVerified ? 'Verified' : 'Unverified'}
                     />
@@ -181,7 +259,88 @@ export const UserDetailsScreen = ({ userId }: UserDetailsScreenProps) => {
                         </Text>
                     </View>
                 </View>
+
+                {/* Manage */}
+                <Text style={styles.sectionTitle}>Manage</Text>
+                <View style={styles.card}>
+                    <TouchableOpacity
+                        style={styles.actionRow}
+                        onPress={() => {
+                            setStatusError('');
+                            setStatusSuccess('');
+                            setIsConfirmVisible(true);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={accountStatusActionCopy(user).accessibilityLabel}
+                    >
+                        <View
+                            style={[
+                                styles.actionIcon,
+                                {
+                                    backgroundColor:
+                                        user.accountStatus === 'ACTIVE'
+                                            ? adminColors.dangerSoft
+                                            : adminColors.successSoft,
+                                },
+                            ]}
+                        >
+                            <Ionicons
+                                name={
+                                    user.accountStatus === 'ACTIVE'
+                                        ? 'ban-outline'
+                                        : 'checkmark-circle-outline'
+                                }
+                                size={20}
+                                color={
+                                    user.accountStatus === 'ACTIVE'
+                                        ? adminColors.danger
+                                        : adminColors.success
+                                }
+                            />
+                        </View>
+
+                        <View style={styles.actionTextGroup}>
+                            <Text
+                                style={[
+                                    styles.actionLabel,
+                                    {
+                                        color:
+                                            user.accountStatus === 'ACTIVE'
+                                                ? adminColors.danger
+                                                : adminColors.textPrimary,
+                                    },
+                                ]}
+                            >
+                                {accountStatusActionCopy(user).actionLabel} User
+                            </Text>
+                            <Text style={styles.actionHint}>
+                                {user.accountStatus === 'ACTIVE'
+                                    ? 'Blocks account access until reactivated'
+                                    : 'Restores this account access'}
+                            </Text>
+                        </View>
+
+                        <Ionicons name="chevron-forward" size={20} color={adminColors.textMuted} />
+                    </TouchableOpacity>
+                </View>
             </ScrollView>
+
+            <ConfirmDialog
+                visible={isConfirmVisible}
+                title={accountStatusActionCopy(user).title}
+                message={accountStatusActionCopy(user).message}
+                confirmLabel={
+                    isUpdatingStatus
+                        ? accountStatusActionCopy(user).busyLabel
+                        : accountStatusActionCopy(user).confirmLabel
+                }
+                destructive={accountStatusActionCopy(user).destructive}
+                isBusy={isUpdatingStatus}
+                onCancel={() => {
+                    if (!isUpdatingStatus) setIsConfirmVisible(false);
+                }}
+                onConfirm={handleConfirmStatusChange}
+            />
         </View>
     );
 };
@@ -283,6 +442,57 @@ const styles = StyleSheet.create({
         color: adminColors.textMuted,
         marginLeft: 7,
         lineHeight: 17,
+    },
+
+    actionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, minHeight: 60 },
+    actionIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    actionTextGroup: { flex: 1 },
+    actionLabel: { fontSize: 15, fontWeight: '700', color: adminColors.textPrimary },
+    actionHint: { fontSize: 12, color: adminColors.textMuted, marginTop: 2 },
+
+    successBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.successSoft,
+        borderWidth: 1,
+        borderColor: '#CDE8CE',
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 12,
+    },
+    successBannerText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.success,
+        marginLeft: 8,
+        lineHeight: 18,
+    },
+
+    statusErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.dangerSoft,
+        borderWidth: 1,
+        borderColor: adminColors.dangerBorder,
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 12,
+    },
+    statusErrorText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.danger,
+        marginLeft: 8,
+        lineHeight: 18,
     },
 
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },

@@ -10,10 +10,15 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { AdminUserSummary } from '../../../entities/user/model/types';
-import { getUsers } from '../api/userAdminApi';
+import { AccountStatus, AdminUserSummary } from '../../../entities/user/model/types';
+import { getUsers, updateUserAccountStatus } from '../api/userAdminApi';
 import { AdminScreenHeader } from './AdminScreenHeader';
-import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from './AdminStates';
+import {
+    AdminEmptyState,
+    AdminErrorState,
+    AdminListSkeleton,
+    ConfirmDialog,
+} from './AdminStates';
 import { adminColors, adminShadow } from './adminTheme';
 
 type VerificationFilter = 'ALL' | 'VERIFIED' | 'UNVERIFIED';
@@ -30,6 +35,28 @@ const USER_TYPE_FILTERS: { value: UserTypeFilter; label: string }[] = [
     { value: 'ELDER', label: 'Elder users' },
     { value: 'STANDARD', label: 'Other users' },
 ];
+
+/** Copy for the suspend/activate confirmation, shared with the details screen. */
+export function accountStatusActionCopy(user: AdminUserSummary) {
+    const name = user.userName || user.passengerId;
+    const isActive = user.accountStatus === 'ACTIVE';
+
+    return {
+        nextStatus: (isActive ? 'SUSPENDED' : 'ACTIVE') as AccountStatus,
+        actionLabel: isActive ? 'Suspend' : 'Activate',
+        accessibilityLabel: isActive ? `Suspend user ${name}` : `Activate user ${name}`,
+        title: isActive ? 'Suspend User?' : 'Activate User?',
+        message: isActive
+            ? `Are you sure you want to suspend ${name}? This will prevent the user from accessing their account until it is activated again.`
+            : `Are you sure you want to activate ${name}'s account? This will restore the user's account access.`,
+        confirmLabel: isActive ? 'Suspend User' : 'Activate User',
+        busyLabel: isActive ? 'Suspending…' : 'Activating…',
+        successMessage: isActive
+            ? `${name} was suspended successfully.`
+            : `${name} was activated successfully.`,
+        destructive: isActive,
+    };
+}
 
 /** Initials for the avatar, falling back to the passenger id. */
 export function getUserInitials(user: AdminUserSummary): string {
@@ -70,6 +97,12 @@ export const UserListScreen = () => {
     const [search, setSearch] = useState('');
     const [verification, setVerification] = useState<VerificationFilter>('ALL');
     const [userType, setUserType] = useState<UserTypeFilter>('ALL');
+
+    // Account status changes: the pending confirmation plus the resulting feedback.
+    const [pendingUser, setPendingUser] = useState<AdminUserSummary | null>(null);
+    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+    const [statusError, setStatusError] = useState('');
+    const [statusSuccess, setStatusSuccess] = useState('');
 
     const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
         if (mode === 'refresh') setIsRefreshing(true);
@@ -128,6 +161,46 @@ export const UserListScreen = () => {
         setUserType('ALL');
     };
 
+    const handleConfirmStatusChange = async () => {
+        if (!pendingUser || isUpdatingStatus) return;
+
+        const copy = accountStatusActionCopy(pendingUser);
+
+        setIsUpdatingStatus(true);
+        setStatusError('');
+        setStatusSuccess('');
+
+        try {
+            const updated = await updateUserAccountStatus(
+                pendingUser.documentId,
+                copy.nextStatus
+            );
+
+            // Patch just this row so the active search and filters are preserved
+            // and the whole list is not refetched.
+            setUsers((previous) =>
+                previous.map((user) =>
+                    user.documentId === pendingUser.documentId
+                        ? {
+                              ...user,
+                              accountStatus: updated?.accountStatus ?? copy.nextStatus,
+                              updatedAt: updated?.updatedAt ?? user.updatedAt,
+                          }
+                        : user
+                )
+            );
+
+            setStatusSuccess(copy.successMessage);
+            setPendingUser(null);
+        } catch (err: any) {
+            // The stored status is left as-is; the backend message is surfaced.
+            setStatusError(err?.message || 'Unable to update this account status.');
+            setPendingUser(null);
+        } finally {
+            setIsUpdatingStatus(false);
+        }
+    };
+
     const renderBody = () => {
         if (isLoading) return <AdminListSkeleton count={4} />;
 
@@ -179,23 +252,23 @@ export const UserListScreen = () => {
                 </Text>
 
                 {filteredUsers.map((user) => (
-                    <TouchableOpacity
-                        key={user.documentId}
-                        style={styles.card}
-                        onPress={() =>
-                            router.push({
-                                pathname: '/(admin)/users/[userId]',
-                                params: { userId: user.documentId },
-                            })
-                        }
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                            `${user.userName || user.passengerId}, ${user.passengerId}, ` +
-                            `${user.isVerified ? 'verified' : 'unverified'}` +
-                            `${user.isElderPerson ? ', elder user' : ''}`
-                        }
-                        accessibilityHint="Opens the full user profile"
-                    >
+                    <View key={user.documentId} style={styles.card}>
+                        <TouchableOpacity
+                            onPress={() =>
+                                router.push({
+                                    pathname: '/(admin)/users/[userId]',
+                                    params: { userId: user.documentId },
+                                })
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                `${user.userName || user.passengerId}, ${user.passengerId}, ` +
+                                `account ${user.accountStatus === 'ACTIVE' ? 'active' : 'suspended'}, ` +
+                                `${user.isVerified ? 'verified' : 'unverified'}` +
+                                `${user.isElderPerson ? ', elder user' : ''}`
+                            }
+                            accessibilityHint="Opens the full user profile"
+                        >
                         <View style={styles.cardTop}>
                             <View style={styles.avatar}>
                                 <Text style={styles.avatarText}>{getUserInitials(user)}</Text>
@@ -223,6 +296,7 @@ export const UserListScreen = () => {
                         </View>
 
                         <View style={styles.badgeRow}>
+                            <AccountStatusBadge accountStatus={user.accountStatus} />
                             <VerificationBadge isVerified={user.isVerified} />
                             {user.isElderPerson && <ElderBadge />}
                             {typeof user.calculatedAge === 'number' && (
@@ -231,7 +305,51 @@ export const UserListScreen = () => {
                                 </View>
                             )}
                         </View>
-                    </TouchableOpacity>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.statusAction,
+                                user.accountStatus === 'ACTIVE'
+                                    ? styles.statusActionSuspend
+                                    : styles.statusActionActivate,
+                            ]}
+                            onPress={() => {
+                                setStatusError('');
+                                setStatusSuccess('');
+                                setPendingUser(user);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={accountStatusActionCopy(user).accessibilityLabel}
+                        >
+                            <Ionicons
+                                name={
+                                    user.accountStatus === 'ACTIVE'
+                                        ? 'ban-outline'
+                                        : 'checkmark-circle-outline'
+                                }
+                                size={16}
+                                color={
+                                    user.accountStatus === 'ACTIVE'
+                                        ? adminColors.danger
+                                        : adminColors.success
+                                }
+                            />
+                            <Text
+                                style={[
+                                    styles.statusActionText,
+                                    {
+                                        color:
+                                            user.accountStatus === 'ACTIVE'
+                                                ? adminColors.danger
+                                                : adminColors.success,
+                                    },
+                                ]}
+                            >
+                                {accountStatusActionCopy(user).actionLabel}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 ))}
             </>
         );
@@ -373,11 +491,81 @@ export const UserListScreen = () => {
                     </TouchableOpacity>
                 )}
 
+                {!!statusSuccess && (
+                    <View style={styles.successBanner} accessibilityLiveRegion="polite">
+                        <Ionicons
+                            name="checkmark-circle-outline"
+                            size={18}
+                            color={adminColors.success}
+                        />
+                        <Text style={styles.successBannerText}>{statusSuccess}</Text>
+                    </View>
+                )}
+
+                {!!statusError && (
+                    <View style={styles.statusErrorBanner} accessibilityLiveRegion="assertive">
+                        <Ionicons
+                            name="alert-circle-outline"
+                            size={18}
+                            color={adminColors.danger}
+                        />
+                        <Text style={styles.statusErrorText}>{statusError}</Text>
+                    </View>
+                )}
+
                 {renderBody()}
             </ScrollView>
+
+            <ConfirmDialog
+                visible={!!pendingUser}
+                title={pendingUser ? accountStatusActionCopy(pendingUser).title : ''}
+                message={pendingUser ? accountStatusActionCopy(pendingUser).message : ''}
+                confirmLabel={
+                    pendingUser
+                        ? isUpdatingStatus
+                            ? accountStatusActionCopy(pendingUser).busyLabel
+                            : accountStatusActionCopy(pendingUser).confirmLabel
+                        : ''
+                }
+                destructive={pendingUser ? accountStatusActionCopy(pendingUser).destructive : false}
+                isBusy={isUpdatingStatus}
+                onCancel={() => {
+                    if (!isUpdatingStatus) setPendingUser(null);
+                }}
+                onConfirm={handleConfirmStatusChange}
+            />
         </View>
     );
 };
+
+/** Account status: icon plus word, never colour alone. */
+export function AccountStatusBadge({ accountStatus }: { accountStatus: AccountStatus }) {
+    const isActive = accountStatus === 'ACTIVE';
+
+    return (
+        <View
+            style={[
+                styles.badge,
+                { backgroundColor: isActive ? adminColors.successSoft : adminColors.dangerSoft },
+            ]}
+            accessibilityLabel={isActive ? 'Account active' : 'Account suspended'}
+        >
+            <Ionicons
+                name={isActive ? 'shield-checkmark' : 'ban'}
+                size={13}
+                color={isActive ? adminColors.success : adminColors.danger}
+            />
+            <Text
+                style={[
+                    styles.badgeText,
+                    { color: isActive ? adminColors.success : adminColors.danger },
+                ]}
+            >
+                {isActive ? 'Active' : 'Suspended'}
+            </Text>
+        </View>
+    );
+}
 
 // ------------------------------------------------------------------
 function SummaryCard({
@@ -670,6 +858,63 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     ageChipText: { fontSize: 11, fontWeight: '700', color: adminColors.textSecondary },
+
+    statusAction: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
+        borderRadius: 10,
+        borderWidth: 1,
+        marginTop: 14,
+    },
+    statusActionSuspend: {
+        borderColor: adminColors.dangerBorder,
+        backgroundColor: adminColors.dangerSoft,
+    },
+    statusActionActivate: {
+        borderColor: '#CDE8CE',
+        backgroundColor: adminColors.successSoft,
+    },
+    statusActionText: { fontSize: 14, fontWeight: '700', marginLeft: 7 },
+
+    successBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.successSoft,
+        borderWidth: 1,
+        borderColor: '#CDE8CE',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 12,
+    },
+    successBannerText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.success,
+        marginLeft: 8,
+        lineHeight: 18,
+    },
+
+    statusErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.dangerSoft,
+        borderWidth: 1,
+        borderColor: adminColors.dangerBorder,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 12,
+    },
+    statusErrorText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.danger,
+        marginLeft: 8,
+        lineHeight: 18,
+    },
 
     resetButton: {
         flexDirection: 'row',
