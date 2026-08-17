@@ -478,9 +478,9 @@ export default function ProfileScreen() {
 
           <View style={styles.divider} />
 
-          <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/reports')}>
-            <Ionicons name="warning-outline" size={22} color="#EF4444" />
-            <Text style={styles.actionRowText}>Report Accessibility Issue</Text>
+          <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/accessibility-reports')}>
+            <Ionicons name="document-text-outline" size={22} color="#0066CC" />
+            <Text style={styles.actionRowText}>Accessibility Reports</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
         </View>
