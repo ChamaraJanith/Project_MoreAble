@@ -253,14 +253,27 @@ export async function GET(request: Request) {
     // --------------------------------
     // Retrieve reports
     // --------------------------------
-    const snapshot = await adminDb
-      .collection('reports')
+    let reportsQuery: any = adminDb.collection('reports');
+
+    const url = new URL(request.url);
+    const scope = url.searchParams.get('scope');
+
+    if (scope === 'my') {
+      reportsQuery = reportsQuery.where('passengerId', '==', user.passengerId);
+    } else if (scope === 'verified') {
+      reportsQuery = reportsQuery.where('status', '==', 'VERIFIED');
+    }
+
+    const snapshot = await reportsQuery
       .orderBy('createdAt', 'desc')
       .get();
 
     const reports = snapshot.docs.map((doc: any) => ({
       ...doc.data(),
       documentId: doc.id,
+      // Firestore timestamps need to be converted to ISO strings or serialized
+      createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : doc.data().createdAt,
+      updatedAt: doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : doc.data().updatedAt,
     }));
 
     // --------------------------------
