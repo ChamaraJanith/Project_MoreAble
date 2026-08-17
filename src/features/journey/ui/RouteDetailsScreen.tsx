@@ -1,11 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSelectedJourney } from '../store/selectedRouteStore';
+import { searchJourneys } from '../api/journeySearchApi';
+import { setSelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
 import { listAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { formatDurationBetween, formatFriendlyTime, parseApiTimeString } from '../utils/dateTime';
+import { formatLocationAge, resolveVehiclePosition } from '../utils/liveStatus';
 import { resolveIntermediateStops } from '../utils/routeMapStops';
+import { LiveStatusCard } from './LiveStatusCard';
+import { RouteMapVehicle } from './RouteMap';
 import { RouteMapCard } from './RouteMapCard';
 import { RouteStopTimeline } from './RouteStopTimeline';
 
@@ -31,6 +35,65 @@ export const RouteDetailsScreen = () => {
         (!tripId || held.option.trip.tripId === tripId)
             ? held
             : null;
+
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [refreshError, setRefreshError] = useState<string | null>(null);
+
+    /**
+     * Fetches this journey again so the bus position is current.
+     *
+     * The position on screen is a snapshot from the search that produced it —
+     * there is no live feed — so this repeats that one search rather than
+     * polling or calling a second endpoint, and only when the passenger asks.
+     * The held selection is replaced with the same route and departure taken
+     * from the fresh response, so every part of the screen stays consistent.
+     */
+    const handleRefresh = useCallback(async () => {
+        if (!selection?.travelDate || !selection.travelTime) return;
+
+        const { route, option, travelDate, travelTime } = selection;
+
+        setIsRefreshing(true);
+        setRefreshError(null);
+
+        try {
+            const response = await searchJourneys({
+                origin: route.origin,
+                destination: route.destination,
+                travelDate,
+                travelTime,
+            });
+
+            const freshRoute = response.routes?.find(
+                (candidate) => candidate.routeId === route.routeId
+            );
+            const freshOption = freshRoute?.trips.find(
+                (candidate) => candidate.trip.tripId === option.trip.tripId
+            );
+
+            // The departure has gone from the results. Keeping what is already
+            // shown beats blanking the screen the passenger is reading.
+            if (!freshRoute || !freshOption) {
+                setRefreshError(
+                    'This departure is no longer listed. The details below are from your earlier search.'
+                );
+                return;
+            }
+
+            setSelectedJourney({
+                route: freshRoute,
+                option: freshOption,
+                geo: response.geo ?? null,
+                travelDate,
+                travelTime,
+                selectedAt: Date.now(),
+            });
+        } catch {
+            setRefreshError('Could not refresh the bus location. Please try again.');
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [selection]);
 
     // Reached without a matching selection (for example a deep link or a
     // reload), so there is nothing to describe. Send the passenger back rather
@@ -71,6 +134,24 @@ export const RouteDetailsScreen = () => {
     const distanceLabel = route.distanceKm != null ? `${route.distanceKm} km` : null;
     const facilities = listAccessibilityFacilities(bus?.accessibilityFacilities);
     const mapStops = resolveIntermediateStops(route.journeyStops, geo);
+
+    // The live vehicle (MOV-119). Optional-chained because a selection held from
+    // an earlier response may predate the live block entirely; a departure with
+    // no usable position simply gets no marker.
+    const liveStatus = option.liveStatus;
+    const vehiclePosition = resolveVehiclePosition(liveStatus);
+    const locationAgeLabel = formatLocationAge(liveStatus?.locationAgeSeconds);
+
+    const mapVehicle: RouteMapVehicle | null = vehiclePosition
+        ? {
+              ...vehiclePosition,
+              title: `Route ${route.routeNumber}`,
+              subtitle: bus?.numberPlate,
+              updatedLabel: locationAgeLabel ?? undefined,
+          }
+        : null;
+
+    const canRefresh = !!(selection.travelDate && selection.travelTime);
 
 
     const handleBook = () =>
@@ -151,12 +232,25 @@ export const RouteDetailsScreen = () => {
                     </View>
                 </View>
 
+                {/* ---------------- Live status ---------------- */}
+                {/* Directly under the scheduled times and directly above the
+                    map: the passenger reads the timetable, then whether the bus
+                    is actually reporting, then where it is. */}
+                <LiveStatusCard
+                    liveStatus={liveStatus}
+                    numberPlate={bus?.numberPlate}
+                    onRefresh={canRefresh ? handleRefresh : undefined}
+                    isRefreshing={isRefreshing}
+                    refreshError={refreshError}
+                />
+
                 {/* ---------------- Map ---------------- */}
                 <RouteMapCard
                     geo={geo}
                     stops={mapStops.stops}
                     unmappedStopCount={mapStops.unmappedCount}
                     road={route.road}
+                    vehicle={mapVehicle}
                     originLabel={route.origin}
                     destinationLabel={route.destination}
                 />

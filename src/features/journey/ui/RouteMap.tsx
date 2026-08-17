@@ -8,6 +8,24 @@ import {
     RouteGeometry,
 } from '../../../entities/route/model/types';
 
+/**
+ * Where the bus reported itself, ready to draw (MOV-119).
+ *
+ * Only ever built from the live vehicle position; the caller resolves it and
+ * passes nothing at all when the bus is not reporting, so this component never
+ * has to decide what to fall back to.
+ */
+export interface RouteMapVehicle {
+    latitude: number;
+    longitude: number;
+    /** What the vehicle is, e.g. "Route 177". */
+    title: string;
+    /** How it is identified to a passenger, e.g. its number plate. */
+    subtitle?: string;
+    /** How recent the report is, e.g. "Updated 2 mins ago". */
+    updatedLabel?: string;
+}
+
 export interface RouteMapProps {
     origin: GeoPoint;
     destination: GeoPoint;
@@ -15,6 +33,8 @@ export interface RouteMapProps {
     stops?: JourneyStopPoint[];
     /** OSRM road geometry from the Journey Search response. */
     geometry?: RouteGeometry;
+    /** The live vehicle position. Absent when the bus is not reporting. */
+    vehicle?: RouteMapVehicle | null;
     originLabel: string;
     destinationLabel: string;
     height: number;
@@ -33,6 +53,17 @@ const ENDPOINT_PIN_SIZE = 38;
 export const ORIGIN_COLOR = '#0066CC';
 export const DESTINATION_COLOR = '#DC2626';
 export const STOP_COLOR = '#64748B';
+
+/**
+ * The live vehicle, in a green reserved for it alone.
+ *
+ * Colour is the least of what separates it from the other markers: it is the
+ * only round badge on the map and the only one carrying a vehicle glyph, so it
+ * stays distinguishable without relying on colour vision.
+ */
+export const VEHICLE_COLOR = '#047857';
+
+const VEHICLE_BADGE_SIZE = 34;
 
 /** A pin hangs above its coordinate, so its tip is the anchor. */
 const PIN_ANCHOR = { x: 0.5, y: 1 } as const;
@@ -106,6 +137,7 @@ export function RouteMap({
     destination,
     stops = [],
     geometry,
+    vehicle,
     originLabel,
     destinationLabel,
     height,
@@ -153,10 +185,25 @@ export function RouteMap({
         [stops]
     );
 
-    // Everything the opening view must contain.
+    const vehicleCoordinate = useMemo<LatLng | null>(
+        () =>
+            vehicle && isDrawablePoint(vehicle)
+                ? { latitude: vehicle.latitude, longitude: vehicle.longitude }
+                : null,
+        [vehicle]
+    );
+
+    // Everything the opening view must contain. The bus joins it so a vehicle
+    // slightly off the drawn corridor is still on screen when the map opens.
     const fitTargets = useMemo<LatLng[]>(
-        () => [originCoordinate, ...roadPath, ...drawableStops, destinationCoordinate],
-        [originCoordinate, roadPath, drawableStops, destinationCoordinate]
+        () => [
+            originCoordinate,
+            ...roadPath,
+            ...drawableStops,
+            ...(vehicleCoordinate ? [vehicleCoordinate] : []),
+            destinationCoordinate,
+        ],
+        [originCoordinate, roadPath, drawableStops, vehicleCoordinate, destinationCoordinate]
     );
 
     // Fitting once the map is laid out avoids a hardcoded region and keeps the
@@ -264,6 +311,38 @@ export function RouteMap({
                     </View>
                 </Callout>
             </Marker>
+
+            {/* The bus itself, drawn last so it sits above the route and stops.
+                A round badge rather than a pin: it marks where the vehicle is,
+                not a fixed place on the route. It does not animate — the
+                position is a snapshot, and movement would imply otherwise. */}
+            {vehicle && vehicleCoordinate && (
+                <Marker
+                    coordinate={vehicleCoordinate}
+                    anchor={DOT_ANCHOR}
+                    tracksViewChanges={tracksMarkerChanges}
+                    accessibilityLabel={
+                        `Live bus location: ${vehicle.title}` +
+                        (vehicle.updatedLabel ? `. ${vehicle.updatedLabel}` : '')
+                    }
+                >
+                    <View style={styles.vehicleBadge}>
+                        <Ionicons name="bus" size={18} color="#FFFFFF" />
+                    </View>
+                    <Callout tooltip>
+                        <View style={styles.callout}>
+                            <Text style={styles.calloutCaption}>Bus location</Text>
+                            <Text style={styles.calloutText}>{vehicle.title}</Text>
+                            {!!vehicle.subtitle && (
+                                <Text style={styles.calloutSubtext}>{vehicle.subtitle}</Text>
+                            )}
+                            {!!vehicle.updatedLabel && (
+                                <Text style={styles.calloutSubtext}>{vehicle.updatedLabel}</Text>
+                            )}
+                        </View>
+                    </Callout>
+                </Marker>
+            )}
         </MapView>
     );
 }
@@ -281,6 +360,18 @@ const styles = StyleSheet.create({
         height: 14,
         borderRadius: 7,
         backgroundColor: STOP_COLOR,
+        borderWidth: 3,
+        borderColor: '#FFFFFF',
+    },
+    vehicleBadge: {
+        width: VEHICLE_BADGE_SIZE,
+        height: VEHICLE_BADGE_SIZE,
+        borderRadius: VEHICLE_BADGE_SIZE / 2,
+        backgroundColor: VEHICLE_COLOR,
+        justifyContent: 'center',
+        alignItems: 'center',
+        // A white ring keeps the badge readable over both the route line and
+        // busy map detail.
         borderWidth: 3,
         borderColor: '#FFFFFF',
     },
@@ -306,5 +397,11 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '700',
         color: '#0F172A',
+    },
+    calloutSubtext: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#475569',
+        marginTop: 2,
     },
 });
