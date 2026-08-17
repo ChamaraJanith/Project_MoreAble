@@ -912,6 +912,71 @@ describe('POST /api/journeys/search - malformed records', () => {
         expect(json.routes[0].trips[0].trip.tripId).toBe('TRIP-00002');
     });
 
+    it('gives each departure the accessibility facilities of its own bus', async () => {
+        // Two buses on one route with different facilities: the Route Details
+        // screen reads `option.bus.accessibilityFacilities`, so one departure
+        // must never carry the other bus's facilities.
+        const plainBus: Bus & { id: string } = {
+            ...bus1,
+            id: 'BUS-00002',
+            busId: 'BUS-00002',
+            numberPlate: 'NB-8899',
+            accessibilityFacilities: {
+                wheelchairRamp: false,
+                audioAnnouncement: false,
+                lowFloorVehicle: false,
+                walkingAssistance: false,
+                wheelchairSpace: { available: false, count: 0 },
+                guardianSeats: { available: false, count: 0 },
+                prioritySeats: { available: false, count: 0 },
+                elderlySeats: { available: false, count: 0 },
+            },
+        };
+
+        mockGetAdminDb.mockReturnValue(
+            strictFirestore({
+                routes: [forwardRoute],
+                trips: [
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-ACCESSIBLE',
+                        busId: 'BUS-00001',
+                        departureTime: '09:00',
+                    }),
+                    trip({
+                        routeId: forwardRoute.routeId,
+                        tripId: 'TRIP-PLAIN',
+                        busId: 'BUS-00002',
+                        departureTime: '09:30',
+                    }),
+                ],
+                buses: [bus1, plainBus],
+            })
+        );
+
+        const response = await POST(buildRequest(kollupitiyaBody));
+        const json = await response.json();
+
+        const [accessible, plain] = json.routes[0].trips;
+
+        expect(accessible.trip.tripId).toBe('TRIP-ACCESSIBLE');
+        expect(accessible.bus.numberPlate).toBe('NB-1234');
+        expect(accessible.bus.accessibilityFacilities.wheelchairRamp).toBe(true);
+        expect(accessible.bus.accessibilityFacilities.prioritySeats).toEqual({
+            available: true,
+            count: 4,
+        });
+
+        expect(plain.trip.tripId).toBe('TRIP-PLAIN');
+        expect(plain.bus.numberPlate).toBe('NB-8899');
+        // The equipped bus's facilities must not bleed into this departure.
+        expect(plain.bus.accessibilityFacilities.wheelchairRamp).toBe(false);
+        expect(plain.bus.accessibilityFacilities.prioritySeats).toEqual({
+            available: false,
+            count: 0,
+        });
+    });
+
     it('keeps the selected trip tied to its own route and bus', async () => {
         mockGetAdminDb.mockReturnValue(
             strictFirestore({
