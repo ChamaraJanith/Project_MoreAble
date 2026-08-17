@@ -1,4 +1,4 @@
-import { BusAccessibilityFacilities } from '../../bus/model/types';
+import { BusAccessibilityFacilities, VehicleLocation } from '../../bus/model/types';
 import { Stop } from '../../stop/model/types';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
@@ -43,12 +43,49 @@ export interface JourneySearchBus {
     accessibilityFacilities: BusAccessibilityFacilities;
 }
 
+/**
+ * What is known right now about the vehicle operating a trip (MOV-120).
+ *
+ * Follows the same best-effort shape as `JourneyGeoInformation`: `available`
+ * says whether there is anything to show, and `message` explains its absence.
+ * A vehicle that has never reported a position is the normal case, not an
+ * error — nothing here is ever estimated or filled in from schedule data.
+ *
+ * Deliberately narrow. It carries the reported position and how old that
+ * report is, and nothing else. Delay and a live arrival time are part of the
+ * MOV-81 story but are not derivable from the data the project stores today —
+ * see the MOV-120 report — and a fabricated figure would be worse for a
+ * passenger than an honest absence.
+ */
+export interface JourneyLiveStatus {
+    /** True only when a real GPS report exists for this trip's own bus. */
+    available: boolean;
+    /** The stored report, exactly as the vehicle sent it. */
+    location?: VehicleLocation;
+    /**
+     * Whole seconds between the GPS fix and the moment this response was built.
+     *
+     * Reported rather than classified: the project has no agreed threshold for
+     * when a position stops counting as current, so how old is "too old" is
+     * left to the caller. A negative value means the reporting device's clock
+     * is ahead of the server's.
+     */
+    locationAgeSeconds?: number;
+    message?: string;
+}
+
 // One travellable journey option: a specific trip on a matched route, together
 // with the bus operating it. `bus` is null only when the referenced bus document
 // is missing, so the UI can still show the departure without crashing.
 export interface JourneySearchOption {
     trip: JourneySearchTrip;
     bus: JourneySearchBus | null;
+    /**
+     * Live vehicle data for this option's own bus, resolved through the same
+     * `trip.busId` as `bus`. Always present, so a caller can tell "not tracked"
+     * from "not implemented" without guessing.
+     */
+    liveStatus: JourneyLiveStatus;
 }
 
 // ------------------------------------------------------------------

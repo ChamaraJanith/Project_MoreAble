@@ -1,4 +1,4 @@
-import { Bus } from '../../../src/entities/bus/model/types';
+import { Bus, VehicleLocation } from '../../../src/entities/bus/model/types';
 import {
   JourneySearchMatch,
   JourneyStopPoint,
@@ -12,6 +12,7 @@ import {
   RoadRoute,
 } from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
 import { normalizeLocation } from '../../../src/shared/utils/location';
 export { normalizeLocation };
 
@@ -416,7 +417,9 @@ async function attachUpcomingTrips(
   adminDb: any,
   match: JourneySearchMatch,
   travelTime: string,
-  busCache: Map<string, Promise<Bus | null>>
+  busCache: Map<string, Promise<Bus | null>>,
+  locationCache: Map<string, Promise<VehicleLocation | null>>,
+  now: Date
 ): Promise<JourneySearchMatch> {
   // A route document with no usable id owns no trips that can be resolved, and
   // querying on an undefined value throws. Treat it as having no departures.
@@ -428,11 +431,17 @@ async function attachUpcomingTrips(
 
   const options = await Promise.all(
     upcomingTrips.map(async (trip) => {
-      const bus = await loadBus(adminDb, trip.busId, busCache);
+      // Both reads are keyed on this trip's own busId, so the vehicle shown and
+      // the position shown are always the same vehicle. MOV-120.
+      const [bus, vehicleLocation] = await Promise.all([
+        loadBus(adminDb, trip.busId, busCache),
+        loadVehicleLocation(adminDb, trip.busId, locationCache),
+      ]);
 
       return {
         trip: {
           tripId: trip.tripId,
+          // Scheduled times, unchanged. Nothing below reinterprets them as live.
           departureTime: trip.departureTime,
           estimatedArrivalTime: trip.estimatedArrivalTime,
           turnNumber: trip.turnNumber,
@@ -447,6 +456,7 @@ async function attachUpcomingTrips(
               accessibilityFacilities: bus.accessibilityFacilities,
             }
           : null,
+        liveStatus: buildLiveStatus(vehicleLocation, now),
       };
     })
   );
@@ -616,10 +626,15 @@ export async function POST(request: Request) {
     // Attach each route's upcoming trips (and each trip's bus), if any, plus the
     // road path along that route's own stops.
     const busCache = new Map<string, Promise<Bus | null>>();
+    const locationCache = new Map<string, Promise<VehicleLocation | null>>();
+    // One instant for the whole response, so every reported location age is
+    // measured against the same clock.
+    const now = new Date();
+
     const enrichedRoutes = await Promise.all(
       matchedRoutes.map(async (match) =>
         attachRoadRoute(
-          await attachUpcomingTrips(adminDb, match, travelTime, busCache),
+          await attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now),
           stopCoordinates,
           geo
         )
