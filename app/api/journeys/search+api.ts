@@ -378,10 +378,14 @@ async function fetchActiveTripsForRoute(adminDb: any, routeId: string): Promise<
 
 // Loads a bus once per request — the same bus commonly operates several trips,
 // so results are memoised to avoid repeating identical Firestore reads.
+//
+// The in-flight read is cached rather than its result: a route's trips are
+// resolved concurrently, so caching only on completion would let every turn on
+// the same vehicle start its own identical read before the first one returned.
 async function loadBus(
   adminDb: any,
   busId: string,
-  busCache: Map<string, Bus | null>
+  busCache: Map<string, Promise<Bus | null>>
 ): Promise<Bus | null> {
   // A trip naming no bus yields `bus: null`, which the UI already renders as
   // "Bus details unavailable". Asking Firestore for an empty path would instead
@@ -390,15 +394,19 @@ async function loadBus(
     return null;
   }
 
-  if (busCache.has(busId)) {
-    return busCache.get(busId) ?? null;
+  let pendingBus = busCache.get(busId);
+
+  if (!pendingBus) {
+    pendingBus = adminDb
+      .collection('buses')
+      .doc(busId)
+      .get()
+      .then((busDoc: any) => (busDoc.exists ? (busDoc.data() as Bus) : null));
+
+    busCache.set(busId, pendingBus!);
   }
 
-  const busDoc = await adminDb.collection('buses').doc(busId).get();
-  const bus = busDoc.exists ? (busDoc.data() as Bus) : null;
-
-  busCache.set(busId, bus);
-  return bus;
+  return pendingBus!;
 }
 
 // Enriches a matched route with every upcoming trip and each trip's bus. A route
@@ -408,7 +416,7 @@ async function attachUpcomingTrips(
   adminDb: any,
   match: JourneySearchMatch,
   travelTime: string,
-  busCache: Map<string, Bus | null>
+  busCache: Map<string, Promise<Bus | null>>
 ): Promise<JourneySearchMatch> {
   // A route document with no usable id owns no trips that can be resolved, and
   // querying on an undefined value throws. Treat it as having no departures.
@@ -607,7 +615,7 @@ export async function POST(request: Request) {
 
     // Attach each route's upcoming trips (and each trip's bus), if any, plus the
     // road path along that route's own stops.
-    const busCache = new Map<string, Bus | null>();
+    const busCache = new Map<string, Promise<Bus | null>>();
     const enrichedRoutes = await Promise.all(
       matchedRoutes.map(async (match) =>
         attachRoadRoute(
