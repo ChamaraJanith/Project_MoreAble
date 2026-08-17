@@ -19,6 +19,11 @@ const COUNTED_FACILITIES: [keyof BusAccessibilityFacilities, string][] = [
  * Only available facilities are returned, so a bus is never implied to have
  * something it does not. No score, percentage or ranking is derived from them —
  * that is a separate, future feature.
+ *
+ * Availability is tested against `true` rather than for truthiness on purpose.
+ * A stored value of `'no'` is truthy, and a passenger who depends on a ramp
+ * cannot be told one exists because a record was written in the wrong shape;
+ * anything that is not exactly `true` is treated as not recorded.
  */
 export function listAccessibilityFacilities(
     facilities?: BusAccessibilityFacilities | null
@@ -27,25 +32,30 @@ export function listAccessibilityFacilities(
 
     const items: AccessibilityFacilityItem[] = [];
 
-    if (facilities.wheelchairRamp) items.push({ key: 'wheelchairRamp', label: 'Wheelchair ramp' });
-    if (facilities.lowFloorVehicle) items.push({ key: 'lowFloorVehicle', label: 'Low floor' });
-    if (facilities.audioAnnouncement) {
+    if (facilities.wheelchairRamp === true) {
+        items.push({ key: 'wheelchairRamp', label: 'Wheelchair ramp' });
+    }
+    if (facilities.lowFloorVehicle === true) {
+        items.push({ key: 'lowFloorVehicle', label: 'Low floor' });
+    }
+    if (facilities.audioAnnouncement === true) {
         items.push({ key: 'audioAnnouncement', label: 'Audio announcements' });
     }
-    if (facilities.walkingAssistance) {
+    if (facilities.walkingAssistance === true) {
         items.push({ key: 'walkingAssistance', label: 'Walking assistance' });
     }
 
     for (const [key, label] of COUNTED_FACILITIES) {
         const facility = facilities[key];
 
-        if (typeof facility === 'object' && facility?.available) {
+        if (typeof facility === 'object' && facility?.available === true) {
+            // A count that is not a real number states nothing reliable, so the
+            // facility is named without one rather than with a made-up figure.
+            const count = typeof facility.count === 'number' ? facility.count : 0;
+
             items.push({
                 key,
-                label:
-                    facility.count > 0
-                        ? `${facility.count} ${label}${facility.count > 1 ? 's' : ''}`
-                        : label,
+                label: count > 0 ? `${count} ${label}${count > 1 ? 's' : ''}` : label,
             });
         }
     }
