@@ -475,6 +475,14 @@ export default function ProfileScreen() {
             <Text style={styles.actionRowText}>My Journeys & Bookings</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/reports')}>
+            <Ionicons name="warning-outline" size={22} color="#EF4444" />
+            <Text style={styles.actionRowText}>Report Accessibility Issue</Text>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
         </View>
 
         {/* Logout Button */}
