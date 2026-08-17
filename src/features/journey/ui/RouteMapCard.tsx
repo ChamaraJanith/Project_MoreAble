@@ -7,7 +7,14 @@ import {
     JourneyRoadRoute,
     JourneyStopPoint,
 } from '../../../entities/route/model/types';
-import { DESTINATION_COLOR, ORIGIN_COLOR, RouteMap, STOP_COLOR } from './RouteMap';
+import {
+    DESTINATION_COLOR,
+    ORIGIN_COLOR,
+    RouteMap,
+    RouteMapVehicle,
+    STOP_COLOR,
+    VEHICLE_COLOR,
+} from './RouteMap';
 
 interface RouteMapCardProps {
     /** Geographic data from the Journey Search response; may be absent. */
@@ -21,6 +28,8 @@ interface RouteMapCardProps {
      * describes only the direct road between the searched endpoints.
      */
     road?: JourneyRoadRoute | null;
+    /** The live vehicle position (MOV-119). Absent when the bus is not reporting. */
+    vehicle?: RouteMapVehicle | null;
     originLabel: string;
     destinationLabel: string;
 }
@@ -45,6 +54,7 @@ export function RouteMapCard({
     stops = [],
     unmappedStopCount = 0,
     road: routeRoad,
+    vehicle,
     originLabel,
     destinationLabel,
 }: RouteMapCardProps) {
@@ -69,6 +79,7 @@ export function RouteMapCard({
                         destination={destination}
                         stops={stops}
                         geometry={road?.geometry}
+                        vehicle={vehicle}
                         originLabel={originLabel}
                         destinationLabel={destinationLabel}
                         height={MAP_HEIGHT}
@@ -107,6 +118,18 @@ export function RouteMapCard({
                             {destinationLabel}
                         </Text>
                     </View>
+                    {/* Named in the key so the round green badge is never left
+                        to be worked out from its colour alone. */}
+                    {!!vehicle && (
+                        <View style={styles.legendItem}>
+                            <View style={styles.legendVehicleDot}>
+                                <Ionicons name="bus" size={9} color="#FFFFFF" />
+                            </View>
+                            <Text style={styles.legendText} numberOfLines={1}>
+                                Your bus
+                            </Text>
+                        </View>
+                    )}
                 </View>
             )}
 
@@ -207,6 +230,14 @@ const styles = StyleSheet.create({
         backgroundColor: STOP_COLOR,
         borderWidth: 2,
         borderColor: '#FFFFFF',
+    },
+    legendVehicleDot: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        backgroundColor: VEHICLE_COLOR,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     legendText: {
         flexShrink: 1,
