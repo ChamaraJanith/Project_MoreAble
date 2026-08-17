@@ -189,6 +189,33 @@ describe('POST /api/journeys/search', () => {
         expect(json.routes[0].routeId).toBe('177_KADUWELA_KOLLUPITIYA');
     });
 
+    it('exposes the route identity the transport display reads', async () => {
+        mockGetAdminDb.mockReturnValue(
+            createFakeFirestore({ routes: [forwardRoute], trips: [], buses: [bus1] })
+        );
+
+        const response = await POST(buildRequest(validBody));
+        const json = await response.json();
+        const match = json.routes[0];
+
+        // Route Details renders the number badge, the route name and the
+        // origin -> destination pair from these fields; dropping one would leave
+        // the header blank without failing anything else.
+        expect(match).toMatchObject({
+            routeId: '177_KADUWELA_KOLLUPITIYA',
+            routeNumber: '177',
+            routeName: 'Kaduwela - Kollupitiya',
+            origin: 'Kaduwela',
+            destination: 'Battaramulla',
+        });
+
+        // origin/destination are the passenger's own boarding and alighting
+        // stops, not the route's endpoints — the searched journey stops short of
+        // Kollupitiya, and the display must say so.
+        expect(match.destination).not.toBe(match.endLocation);
+        expect(match.endLocation).toBe('Kollupitiya');
+    });
+
     it('returns an empty success result when both locations are valid but no route connects them', async () => {
         mockGetAdminDb.mockReturnValue(
             createFakeFirestore({ routes: [forwardRoute], trips: [], buses: [bus1] })
