@@ -554,6 +554,55 @@ describe('POST /api/journeys/search', () => {
             expect(json.routes[0].trips[0].bus.numberPlate).toBe('NB-5678');
         });
 
+        it('gives both turns of one vehicle the same bus, reading it once', async () => {
+            // One bus commonly runs several turns in a day, so this is the
+            // ordinary case for the per-request bus memoisation: the second turn
+            // must still carry the full vehicle, not a null or a stale entry.
+            const busReads: string[] = [];
+
+            const db = createFakeFirestore({
+                routes: [forwardRoute],
+                trips: [
+                    trip({ tripId: 'TRIP-00003', routeId: forwardRoute.routeId, departureTime: '09:00', estimatedArrivalTime: '10:10', turnNumber: 3, busId: 'BUS-00001' }),
+                    trip({ tripId: 'TRIP-00007', routeId: forwardRoute.routeId, departureTime: '13:00', estimatedArrivalTime: '14:10', turnNumber: 7, busId: 'BUS-00001' }),
+                ],
+                buses: [bus1],
+            });
+
+            const openCollection = db.collection;
+
+            mockGetAdminDb.mockReturnValue({
+                ...db,
+                collection: jest.fn((name: string) => {
+                    const target = openCollection(name);
+                    if (name !== 'buses') return target;
+
+                    return {
+                        ...target,
+                        doc: jest.fn((id: string) => {
+                            busReads.push(id);
+                            return target.doc(id);
+                        }),
+                    };
+                }),
+            });
+
+            const response = await POST(buildRequest({ ...validBody, travelTime: '08:30' }));
+            const json = await response.json();
+
+            const options = json.routes[0].trips;
+
+            expect(options.map((option: any) => option.trip.tripId)).toEqual([
+                'TRIP-00003',
+                'TRIP-00007',
+            ]);
+            expect(options[0].bus).toEqual(options[1].bus);
+            expect(options[1].bus.numberPlate).toBe('NB-1234');
+            expect(options[1].bus.accessibilityFacilities).toEqual(bus1.accessibilityFacilities);
+            // Memoised: the shared vehicle is fetched a single time per request.
+            expect(busReads).toEqual(['BUS-00001']);
+        });
+
         it('resolves trips for the reverse-direction route independently', async () => {
             mockGetAdminDb.mockReturnValue(
                 createFakeFirestore({
