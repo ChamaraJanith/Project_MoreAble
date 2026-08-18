@@ -46,6 +46,16 @@ export default function ProfileScreen() {
   const [gRelationship, setGRelationship] = useState('Son / Daughter');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
+  // Modal State for Edit User Profile Details
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
+  const [editUserName, setEditUserName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editNic, setEditNic] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editSecondaryPhone, setEditSecondaryPhone] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
+
   // Fallback demo user details if store user is null
   const displayUser = user || {
     uid: 'demo-user-123',
@@ -122,6 +132,113 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to save accessibility profile.');
     } finally {
       setIsSavingAcc(false);
+    }
+  };
+
+  const openEditProfileModal = () => {
+    setEditUserName(displayUser.userName || '');
+    setEditEmail(displayUser.email || '');
+    setEditNic(displayUser.nicNo || '');
+    setEditPhone(displayUser.phoneNumber || '');
+    setEditSecondaryPhone(displayUser.secondaryPhoneNumber || '');
+    setEditFormErrors({});
+    setIsEditProfileModalOpen(true);
+  };
+
+  const handleSaveProfileDetails = async () => {
+    const errors: Record<string, string> = {};
+
+    if (!editUserName.trim()) {
+      errors.editUserName = 'Full Name is required';
+    }
+
+    if (!editEmail.trim()) {
+      errors.editEmail = 'Email Address is required';
+    } else if (!/\S+@\S+\.\S+/.test(editEmail.trim())) {
+      errors.editEmail = 'Please enter a valid email address';
+    }
+
+    if (!editNic.trim()) {
+      errors.editNic = 'NIC Number is required';
+    } else {
+      const parsed = parseSriLankanNic(editNic.trim());
+      if (!parsed.isValid) {
+        errors.editNic = 'Please enter a valid Sri Lankan NIC number';
+      }
+    }
+
+    if (!editPhone.trim()) {
+      errors.editPhone = 'Primary Mobile Phone is required';
+    } else if (!/^(?:0|94|\+94)?7[0-9]{8}$/.test(editPhone.trim().replace(/\s+/g, ''))) {
+      errors.editPhone = 'Please enter a valid Sri Lankan mobile number (e.g. 0771234567)';
+    }
+
+    if (editSecondaryPhone.trim() && !/^(?:0|94|\+94)?7[0-9]{8}$/.test(editSecondaryPhone.trim().replace(/\s+/g, ''))) {
+      errors.editSecondaryPhone = 'Please enter a valid Sri Lankan mobile number (e.g. 0719876543)';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setEditFormErrors(errors);
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setEditFormErrors({});
+
+    try {
+      const payload = {
+        passengerId: displayUser.passengerId,
+        uid: displayUser.uid,
+        userName: editUserName.trim(),
+        email: editEmail.trim(),
+        nicNo: editNic.trim(),
+        phoneNumber: editPhone.trim(),
+        secondaryPhoneNumber: editSecondaryPhone.trim() || null,
+      };
+
+      const res = await fetch(`${API_BASE_URL}/api/users/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.success) {
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) {
+          const parsedNic = parseSriLankanNic(editNic.trim());
+          const newAge = parsedNic.isValid ? parsedNic.age : currentUser.calculatedAge;
+          const isElder = parsedNic.isValid ? parsedNic.age >= 60 : currentUser.isElderPerson;
+
+          useAuthStore.setState({
+            user: {
+              ...currentUser,
+              userName: editUserName.trim(),
+              email: editEmail.trim(),
+              nicNo: editNic.trim(),
+              phoneNumber: editPhone.trim(),
+              secondaryPhoneNumber: editSecondaryPhone.trim() || null,
+              calculatedAge: newAge,
+              isElderPerson: isElder,
+            },
+          });
+        }
+
+        setIsEditProfileModalOpen(false);
+        if (Platform.OS === 'web') {
+          window.alert('Profile details updated successfully!');
+        } else {
+          Alert.alert('Success', 'Profile details updated successfully!');
+        }
+      } else {
+        Alert.alert('Update Failed', result.message || 'Could not update profile details.');
+      }
+    } catch (err) {
+      console.error('Error updating profile details:', err);
+      Alert.alert('Error', 'Network error. Failed to update profile details.');
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -487,7 +604,18 @@ export default function ProfileScreen() {
 
         {/* Details Section */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Personal Information</Text>
+            <TouchableOpacity
+              onPress={openEditProfileModal}
+              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit Personal Profile Details"
+            >
+              <Ionicons name="create-outline" size={16} color="#0066CC" style={{ marginRight: 4 }} />
+              <Text style={{ color: '#0066CC', fontSize: 13, fontWeight: '700' }}>Edit Details</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.infoRow}>
             <View style={styles.iconCircle}>
@@ -571,6 +699,14 @@ export default function ProfileScreen() {
         {/* Quick Settings & Actions */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Account Options</Text>
+
+          <TouchableOpacity style={styles.actionRow} onPress={openEditProfileModal}>
+            <Ionicons name="create-outline" size={22} color="#0066CC" />
+            <Text style={styles.actionRowText}>Edit Personal Profile Details</Text>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
 
           {(isElderly || hasAccessibility) && (
             <>
@@ -963,6 +1099,141 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ====================================================================== */}
+      {/* MODAL: EDIT PERSONAL PROFILE DETAILS */}
+      {/* ====================================================================== */}
+      <Modal visible={isEditProfileModalOpen} animationType="slide" transparent onRequestClose={() => setIsEditProfileModalOpen(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} showsVerticalScrollIndicator={false}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="create-outline" size={24} color="#0066CC" style={{ marginRight: 8 }} />
+                  <Text style={styles.modalTitle}>Edit Profile Details</Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsEditProfileModalOpen(false)} style={styles.modalCloseButton}>
+                  <Ionicons name="close" size={24} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalSubtitle}>
+                Update your personal info, contact numbers, and identification details.
+              </Text>
+
+              {/* Full Name Input */}
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalInputLabel}>Full Name *</Text>
+                <View style={[styles.modalInputWrapper, editFormErrors.editUserName ? styles.modalInputError : null]}>
+                  <Ionicons name="person-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.modalTextInput}
+                    placeholder="e.g. Sunil Perera"
+                    placeholderTextColor="#94A3B8"
+                    value={editUserName}
+                    onChangeText={setEditUserName}
+                  />
+                </View>
+                {editFormErrors.editUserName && <Text style={styles.modalErrorText}>{editFormErrors.editUserName}</Text>}
+              </View>
+
+              {/* Email Input */}
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalInputLabel}>Email Address *</Text>
+                <View style={[styles.modalInputWrapper, editFormErrors.editEmail ? styles.modalInputError : null]}>
+                  <Ionicons name="mail-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.modalTextInput}
+                    placeholder="e.g. sunil.p@example.com"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={editEmail}
+                    onChangeText={setEditEmail}
+                  />
+                </View>
+                {editFormErrors.editEmail && <Text style={styles.modalErrorText}>{editFormErrors.editEmail}</Text>}
+              </View>
+
+              {/* NIC Input */}
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalInputLabel}>NIC Number *</Text>
+                <View style={[styles.modalInputWrapper, editFormErrors.editNic ? styles.modalInputError : null]}>
+                  <Ionicons name="card-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.modalTextInput}
+                    placeholder="197512345678 or 751234567V"
+                    placeholderTextColor="#94A3B8"
+                    value={editNic}
+                    onChangeText={setEditNic}
+                  />
+                </View>
+                {editFormErrors.editNic && <Text style={styles.modalErrorText}>{editFormErrors.editNic}</Text>}
+              </View>
+
+              {/* Primary Phone Input */}
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalInputLabel}>Primary Mobile Phone *</Text>
+                <View style={[styles.modalInputWrapper, editFormErrors.editPhone ? styles.modalInputError : null]}>
+                  <Ionicons name="call-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.modalTextInput}
+                    placeholder="e.g. 0771234567"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    value={editPhone}
+                    onChangeText={setEditPhone}
+                  />
+                </View>
+                {editFormErrors.editPhone && <Text style={styles.modalErrorText}>{editFormErrors.editPhone}</Text>}
+              </View>
+
+              {/* Secondary Phone Input */}
+              <View style={styles.modalInputGroup}>
+                <Text style={styles.modalInputLabel}>Secondary Mobile Phone (Optional)</Text>
+                <View style={[styles.modalInputWrapper, editFormErrors.editSecondaryPhone ? styles.modalInputError : null]}>
+                  <Ionicons name="phone-portrait-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.modalTextInput}
+                    placeholder="e.g. 0719876543"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    value={editSecondaryPhone}
+                    onChangeText={setEditSecondaryPhone}
+                  />
+                </View>
+                {editFormErrors.editSecondaryPhone && <Text style={styles.modalErrorText}>{editFormErrors.editSecondaryPhone}</Text>}
+              </View>
+
+              {/* Modal Actions */}
+              <View style={styles.modalActionsRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelBtn}
+                  onPress={() => setIsEditProfileModalOpen(false)}
+                  disabled={isSavingProfile}
+                >
+                  <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalSaveBtn}
+                  onPress={handleSaveProfileDetails}
+                  disabled={isSavingProfile}
+                >
+                  {isSavingProfile ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.modalSaveBtnText}>Save Details</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
