@@ -22,12 +22,22 @@ export interface Guardian {
   createdAt: string;
 }
 
+export interface AccessibilityRequestedServices {
+  wheelchairRamp?: boolean;
+  wheelchairSpace?: boolean;
+  prioritySeats?: boolean;
+  clearAnnouncements?: boolean;
+  vibratedDevices?: boolean;
+  visualAnnouncements?: boolean;
+}
+
 export interface AccessibilityProfile {
   accessibilityProfileId: string; // e.g. ACC-2026-00001
   userId: string;                  // Firebase Auth UID
   passengerId: string;             // Auto-generated Passenger ID (e.g. PAS-2026-00001)
   hasAccessibilityNeeds: boolean;
   accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment']
+  requestedServices?: AccessibilityRequestedServices;
   createdAt: string;
   updatedAt: string;
 }
