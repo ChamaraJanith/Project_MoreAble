@@ -32,6 +32,13 @@ export default function ProfileScreen() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Modal State for Manage Accessibility Profile
+  const [isAccModalOpen, setIsAccModalOpen] = useState(false);
+  const [accWheelchair, setAccWheelchair] = useState(false);
+  const [accLowVision, setAccLowVision] = useState(false);
+  const [accHearing, setAccHearing] = useState(false);
+  const [isSavingAcc, setIsSavingAcc] = useState(false);
+
   // Form States for Guardian
   const [gName, setGName] = useState('');
   const [gNic, setGNic] = useState('');
@@ -76,6 +83,50 @@ export default function ProfileScreen() {
     isLowVision ||
     isHearingImpaired
   );
+
+  const openAccModal = () => {
+    setAccWheelchair(isWheelchair);
+    setAccLowVision(isLowVision);
+    setAccHearing(isHearingImpaired);
+    setIsAccModalOpen(true);
+  };
+
+  const handleSaveAccessibilityProfile = async () => {
+    setIsSavingAcc(true);
+    const updatedNeeds: string[] = [];
+    if (accWheelchair) updatedNeeds.push('wheelchair');
+    if (accLowVision) updatedNeeds.push('low_vision');
+    if (accHearing) updatedNeeds.push('hearing_impairment');
+
+    try {
+      const currentAuthUser = useAuthStore.getState().user;
+      if (currentAuthUser) {
+        const profileId = currentAuthUser.accessibilityProfileId || `ACC-${new Date().getFullYear()}-00012`;
+        const updatedAuthUser = {
+          ...currentAuthUser,
+          accessibilityProfileId: profileId,
+          hasAccessibilityNeeds: true,
+          accessibilityNeeds: updatedNeeds,
+          isWheelchairUser: accWheelchair,
+          isLowVisionPerson: accLowVision,
+          isHearingImpaired: accHearing,
+        };
+        useAuthStore.setState({ user: updatedAuthUser });
+      }
+
+      setIsAccModalOpen(false);
+      if (Platform.OS === 'web') {
+        window.alert('Accessibility Profile updated successfully!');
+      } else {
+        Alert.alert('Success', 'Accessibility Profile updated successfully!');
+      }
+    } catch (err) {
+      console.error('Error saving accessibility profile:', err);
+      Alert.alert('Error', 'Failed to save accessibility profile.');
+    } finally {
+      setIsSavingAcc(false);
+    }
+  };
 
   // Guardian completion status
   const currentGuardian = displayUser.guardianDetails;
@@ -524,6 +575,20 @@ export default function ProfileScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Account Options</Text>
 
+          {(isElderly || hasAccessibility) && (
+            <>
+              <TouchableOpacity style={styles.actionRow} onPress={openAccModal}>
+                <Ionicons name="body-outline" size={22} color="#7C3AED" />
+                <Text style={[styles.actionRowText, { color: '#7C3AED', fontWeight: 'bold' }]}>
+                  Manage Accessibility Profile
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color="#7C3AED" />
+              </TouchableOpacity>
+
+              <View style={styles.divider} />
+            </>
+          )}
+
           <TouchableOpacity style={styles.actionRow} onPress={() => setIsViewModalOpen(true)}>
             <Ionicons name="eye-outline" size={22} color="#0066CC" />
             <Text style={styles.actionRowText}>View Guardian Details</Text>
@@ -787,6 +852,121 @@ export default function ProfileScreen() {
             )}
           </View>
         </View>
+      </Modal>
+
+      {/* ====================================================================== */}
+      {/* MODAL: MANAGE ACCESSIBILITY PROFILE */}
+      {/* ====================================================================== */}
+      <Modal visible={isAccModalOpen} animationType="slide" transparent onRequestClose={() => setIsAccModalOpen(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="body" size={24} color="#7C3AED" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Manage Accessibility Profile</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsAccModalOpen(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              Update your transit accessibility needs and accommodations. Profile ID: {displayUser.accessibilityProfileId || 'ACC-2026-00012'}
+            </Text>
+
+            {/* Wheelchair User Toggle Card */}
+            <TouchableOpacity
+              style={[
+                styles.checkboxCardModal,
+                accWheelchair && styles.checkboxCardModalSelected
+              ]}
+              onPress={() => setAccWheelchair(!accWheelchair)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: accWheelchair }}
+            >
+              <Ionicons
+                name={accWheelchair ? "checkbox" : "square-outline"}
+                size={24}
+                color={accWheelchair ? "#7C3AED" : "#94A3B8"}
+                style={{ marginRight: 10 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkboxTitleModal}>♿ Wheelchair User</Text>
+                <Text style={styles.checkboxSubtextModal}>Requires ramp access, low-floor vehicle, and priority space.</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Low Vision Toggle Card */}
+            <TouchableOpacity
+              style={[
+                styles.checkboxCardModal,
+                accLowVision && styles.checkboxCardModalSelected
+              ]}
+              onPress={() => setAccLowVision(!accLowVision)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: accLowVision }}
+            >
+              <Ionicons
+                name={accLowVision ? "checkbox" : "square-outline"}
+                size={24}
+                color={accLowVision ? "#D97706" : "#94A3B8"}
+                style={{ marginRight: 10 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkboxTitleModal}>👁️ Low Vision Person</Text>
+                <Text style={styles.checkboxSubtextModal}>Requires audio route announcements and high contrast support.</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Hearing Impaired Toggle Card */}
+            <TouchableOpacity
+              style={[
+                styles.checkboxCardModal,
+                accHearing && styles.checkboxCardModalSelected
+              ]}
+              onPress={() => setAccHearing(!accHearing)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: accHearing }}
+            >
+              <Ionicons
+                name={accHearing ? "checkbox" : "square-outline"}
+                size={24}
+                color={accHearing ? "#2563EB" : "#94A3B8"}
+                style={{ marginRight: 10 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkboxTitleModal}>👂 Hearing Impairment Person</Text>
+                <Text style={styles.checkboxSubtextModal}>Requires visual screen displays and text notifications.</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Modal Actions */}
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setIsAccModalOpen(false)}
+                disabled={isSavingAcc}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, { backgroundColor: '#7C3AED' }]}
+                onPress={handleSaveAccessibilityProfile}
+                disabled={isSavingAcc}
+              >
+                {isSavingAcc ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.modalSaveBtnText}>Save Preferences</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1396,5 +1576,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     paddingHorizontal: 12,
+  },
+  checkboxCardModal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  checkboxCardModalSelected: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#F5F3FF',
+  },
+  checkboxTitleModal: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 2,
+  },
+  checkboxSubtextModal: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 16,
   },
 });
