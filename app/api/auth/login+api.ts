@@ -128,11 +128,44 @@ export async function POST(request: Request) {
       }
     }
 
+    let accessibilityNeeds: string[] = userQueryDoc.accessibilityNeeds || [];
+    let hasAccessibilityNeeds = Boolean(userQueryDoc.hasAccessibilityNeeds || userQueryDoc.accessibilityProfileId || accessibilityNeeds.length > 0);
+    let isWheelchairUser = Boolean(userQueryDoc.isWheelchairUser || accessibilityNeeds.includes('wheelchair'));
+    let isLowVisionPerson = Boolean(userQueryDoc.isLowVisionPerson || accessibilityNeeds.includes('low_vision'));
+    let isHearingImpaired = Boolean(userQueryDoc.isHearingImpaired || accessibilityNeeds.includes('hearing_impairment'));
+
+    if (userQueryDoc.accessibilityProfileId) {
+      try {
+        const accDoc = await adminDb
+          .collection('accessibility_needs_persons')
+          .doc(userQueryDoc.accessibilityProfileId)
+          .get();
+
+        if (accDoc.exists) {
+          const accData = accDoc.data();
+          if (accData) {
+            accessibilityNeeds = Array.isArray(accData.accessibilityNeeds) ? accData.accessibilityNeeds : [];
+            hasAccessibilityNeeds = true;
+            isWheelchairUser = isWheelchairUser || accessibilityNeeds.includes('wheelchair');
+            isLowVisionPerson = isLowVisionPerson || accessibilityNeeds.includes('low_vision');
+            isHearingImpaired = isHearingImpaired || accessibilityNeeds.includes('hearing_impairment');
+          }
+        }
+      } catch (accError) {
+        console.error('Error fetching accessibility details during login:', accError);
+      }
+    }
+
     // Build sanitized user object (exclude passwordHash from response)
     const { passwordHash: _hash, ...sanitizedUser } = userQueryDoc;
     if (guardianDetails) {
       sanitizedUser.guardianDetails = guardianDetails;
     }
+    sanitizedUser.hasAccessibilityNeeds = hasAccessibilityNeeds;
+    sanitizedUser.accessibilityNeeds = accessibilityNeeds;
+    sanitizedUser.isWheelchairUser = isWheelchairUser;
+    sanitizedUser.isLowVisionPerson = isLowVisionPerson;
+    sanitizedUser.isHearingImpaired = isHearingImpaired;
 
     // Return successful login response with JWT token and user profile
     return Response.json(

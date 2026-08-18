@@ -122,6 +122,10 @@ export async function POST(request: Request) {
             await adminDb.collection('accessibility_needs_persons').doc(accessibilityProfileId).set(accessibilityProfileRecord);
         }
 
+        const isWheelchairUser = selectedNeeds.includes('wheelchair');
+        const isLowVisionPerson = selectedNeeds.includes('low_vision');
+        const isHearingImpaired = selectedNeeds.includes('hearing_impairment');
+
         // 4. Save User in Firestore 'users' collection (with passwordHash for JWT auth)
         const newUser: User = {
             uid: uid,
@@ -138,6 +142,10 @@ export async function POST(request: Request) {
             accountStatus: 'ACTIVE',
             guardianId: guardianId,
             accessibilityProfileId: accessibilityProfileId,
+            hasAccessibilityNeeds: hasNeeds,
+            isWheelchairUser: isWheelchairUser,
+            isLowVisionPerson: isLowVisionPerson,
+            isHearingImpaired: isHearingImpaired,
             createdAt: now,
             updatedAt: now,
         };

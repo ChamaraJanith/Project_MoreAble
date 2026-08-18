@@ -34,6 +34,11 @@ export interface AuthUser {
     guardianId?: string | null;
     guardianDetails?: GuardianDetails | null;
     accessibilityProfileId?: string | null;
+    hasAccessibilityNeeds?: boolean;
+    accessibilityNeeds?: string[];
+    isWheelchairUser?: boolean;
+    isLowVisionPerson?: boolean;
+    isHearingImpaired?: boolean;
     createdAt: string;
     updatedAt: string;
 }
