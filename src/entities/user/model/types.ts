@@ -36,7 +36,8 @@ export interface AccessibilityProfile {
   userId: string;                  // Firebase Auth UID
   passengerId: string;             // Auto-generated Passenger ID (e.g. PAS-2026-00001)
   hasAccessibilityNeeds: boolean;
-  accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment']
+  accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment', 'walking_difficulty', 'other']
+  otherDescription?: string;
   requestedServices?: AccessibilityRequestedServices;
   createdAt: string;
   updatedAt: string;
@@ -61,6 +62,9 @@ export interface User {
   isWheelchairUser?: boolean;
   isLowVisionPerson?: boolean;
   isHearingImpaired?: boolean;
+  isWalkingDifficultyPerson?: boolean;
+  isOtherAccessibilityPerson?: boolean;
+  otherDescription?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +105,7 @@ export interface UserRegistrationDTO {
   isElderPerson?: boolean;
   hasAccessibilityNeeds?: boolean;
   accessibilityNeeds?: string[];
+  otherDescription?: string;
   guardianDetails?: {
     fullName: string;
     email: string;

@@ -37,6 +37,15 @@ export default function AccessibilityProfileScreen() {
     const [isHearing, setIsHearing] = useState(() =>
         Boolean((user as any)?.isHearingImpaired || initialAccNeeds.includes('hearing_impairment'))
     );
+    const [isWalking, setIsWalking] = useState(() =>
+        Boolean((user as any)?.isWalkingDifficultyPerson || initialAccNeeds.includes('walking_difficulty'))
+    );
+    const [isOther, setIsOther] = useState(() =>
+        Boolean((user as any)?.isOtherAccessibilityPerson || initialAccNeeds.includes('other'))
+    );
+    const [otherDescText, setOtherDescText] = useState(() =>
+        (user as any)?.otherDescription || ''
+    );
     const [profileId, setProfileId] = useState<string>(initialProfileId);
 
     // Requested Bus Services & Facilities State
@@ -62,7 +71,7 @@ export default function AccessibilityProfileScreen() {
             try {
                 const pId = displayUser.passengerId;
                 const userObj = user as any;
-                
+
                 // Read current registered choices from user profile
                 const storeNeeds: string[] = Array.isArray(userObj?.accessibilityNeeds) ? userObj.accessibilityNeeds : [];
                 let wheelchairState = Boolean(userObj?.isWheelchairUser || storeNeeds.includes('wheelchair'));
@@ -121,6 +130,8 @@ export default function AccessibilityProfileScreen() {
         if (isWheelchair) selectedNeeds.push('wheelchair');
         if (isLowVision) selectedNeeds.push('low_vision');
         if (isHearing) selectedNeeds.push('hearing_impairment');
+        if (isWalking) selectedNeeds.push('walking_difficulty');
+        if (isOther) selectedNeeds.push('other');
 
         try {
             const payload = {
@@ -128,6 +139,7 @@ export default function AccessibilityProfileScreen() {
                 userId: displayUser.uid,
                 accessibilityProfileId: profileId || undefined,
                 accessibilityNeeds: selectedNeeds,
+                otherDescription: isOther ? otherDescText.trim() : undefined,
                 requestedServices: services,
             };
 
@@ -152,6 +164,9 @@ export default function AccessibilityProfileScreen() {
                             isWheelchairUser: isWheelchair,
                             isLowVisionPerson: isLowVision,
                             isHearingImpaired: isHearing,
+                            isWalkingDifficultyPerson: isWalking,
+                            isOtherAccessibilityPerson: isOther,
+                            otherDescription: isOther ? otherDescText.trim() : undefined,
                         },
                     });
                 }
@@ -502,6 +517,83 @@ export default function AccessibilityProfileScreen() {
                                             <Text style={styles.serviceDesc}>Seating positioned with clear view of digital displays.</Text>
                                         </View>
                                     </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* CATEGORY 4: WALKING DIFFICULTY SERVICES */}
+                        <View style={styles.categoryCard}>
+                            <View style={styles.categoryHeader}>
+                                <Text style={styles.categoryEmoji}>🚶</Text>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.categoryTitle}>Walking Difficulty Support</Text>
+                                    <Text style={styles.categorySubtitle}>Reduced walking distance & low boarding steps</Text>
+                                </View>
+                                <Switch
+                                    value={isWalking}
+                                    onValueChange={setIsWalking}
+                                    trackColor={{ false: '#E2E8F0', true: '#A7F3D0' }}
+                                    thumbColor={isWalking ? '#059669' : '#F8FAFC'}
+                                    accessibilityLabel="Enable Walking Difficulty Support"
+                                />
+                            </View>
+
+                            {isWalking && (
+                                <View style={styles.servicesContainer}>
+                                    <Text style={styles.servicesTitle}>Bus Services Requested:</Text>
+
+                                    <TouchableOpacity
+                                        style={[styles.serviceRow, services.prioritySeats && { borderColor: '#059669', backgroundColor: '#ECFDF5' }]}
+                                        onPress={() => toggleService('prioritySeats')}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: services.prioritySeats }}
+                                    >
+                                        <Ionicons
+                                            name={services.prioritySeats ? "checkbox" : "square-outline"}
+                                            size={22}
+                                            color={services.prioritySeats ? "#059669" : "#94A3B8"}
+                                            style={{ marginRight: 10 }}
+                                        />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.serviceName}>Low Boarding Step & Entrance Seating</Text>
+                                            <Text style={styles.serviceDesc}>Kneeling bus entrance and seats near doors to minimize walking.</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* CATEGORY 5: OTHER ACCESSIBILITY REQUIREMENTS */}
+                        <View style={styles.categoryCard}>
+                            <View style={styles.categoryHeader}>
+                                <Text style={styles.categoryEmoji}>✍️</Text>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.categoryTitle}>Other Requirement Support</Text>
+                                    <Text style={styles.categorySubtitle}>Custom mobility, medical, or sensory needs</Text>
+                                </View>
+                                <Switch
+                                    value={isOther}
+                                    onValueChange={setIsOther}
+                                    trackColor={{ false: '#E2E8F0', true: '#F472B6' }}
+                                    thumbColor={isOther ? '#DB2777' : '#F8FAFC'}
+                                    accessibilityLabel="Enable Other Accessibility Requirement Support"
+                                />
+                            </View>
+
+                            {isOther && (
+                                <View style={styles.servicesContainer}>
+                                    <Text style={styles.servicesTitle}>Short Description of Requirements:</Text>
+                                    <View style={{ backgroundColor: '#FDF2F8', borderWidth: 1.5, borderColor: '#F472B6', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, flexDirection: 'row', alignItems: 'center' }}>
+                                        <Ionicons name="document-text-outline" size={22} color="#DB2777" style={{ marginRight: 8 }} />
+                                        <TextInput
+                                            style={{ flex: 1, fontSize: 14, color: '#1E293B', minHeight: 44 }}
+                                            placeholder="e.g. claustrophobia support"
+                                            placeholderTextColor="#94A3B8"
+                                            value={otherDescText}
+                                            onChangeText={setOtherDescText}
+                                            accessibilityLabel="Short Description of Requirements"
+                                        />
+                                    </View>
                                 </View>
                             )}
                         </View>

@@ -104,6 +104,7 @@ export async function POST(request: Request) {
 
         const selectedNeeds = Array.isArray(data.accessibilityNeeds) ? data.accessibilityNeeds : [];
         const hasNeeds = !!data.hasAccessibilityNeeds || selectedNeeds.length > 0;
+        const otherDesc = data.otherDescription ? data.otherDescription.trim() : undefined;
 
         if (hasNeeds) {
             accessibilityProfileId = `ACC-${currentYear}-${formattedSequence}`;
@@ -114,6 +115,7 @@ export async function POST(request: Request) {
                 passengerId: passengerId,
                 hasAccessibilityNeeds: true,
                 accessibilityNeeds: selectedNeeds,
+                otherDescription: otherDesc,
                 createdAt: now,
                 updatedAt: now,
             };
@@ -125,6 +127,8 @@ export async function POST(request: Request) {
         const isWheelchairUser = selectedNeeds.includes('wheelchair');
         const isLowVisionPerson = selectedNeeds.includes('low_vision');
         const isHearingImpaired = selectedNeeds.includes('hearing_impairment');
+        const isWalkingDifficultyPerson = selectedNeeds.includes('walking_difficulty');
+        const isOtherAccessibilityPerson = selectedNeeds.includes('other');
 
         // 4. Save User in Firestore 'users' collection (with passwordHash for JWT auth)
         const newUser: User = {
@@ -146,6 +150,9 @@ export async function POST(request: Request) {
             isWheelchairUser: isWheelchairUser,
             isLowVisionPerson: isLowVisionPerson,
             isHearingImpaired: isHearingImpaired,
+            isWalkingDifficultyPerson: isWalkingDifficultyPerson,
+            isOtherAccessibilityPerson: isOtherAccessibilityPerson,
+            otherDescription: otherDesc,
             createdAt: now,
             updatedAt: now,
         };
