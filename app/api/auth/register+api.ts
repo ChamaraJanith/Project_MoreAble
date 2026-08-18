@@ -114,6 +114,8 @@ export async function POST(request: Request) {
             accountStatus: 'ACTIVE',
             guardianId: guardianId,
             accessibilityProfileId: null,
+            hasAccessibilityNeeds: !!data.hasAccessibilityNeeds,
+            accessibilityNeeds: Array.isArray(data.accessibilityNeeds) ? data.accessibilityNeeds : [],
             createdAt: now,
             updatedAt: now,
         };
