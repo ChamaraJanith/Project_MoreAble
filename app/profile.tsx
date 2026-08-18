@@ -63,6 +63,20 @@ export default function ProfileScreen() {
   const age = testAge60 ? 64 : (displayUser.calculatedAge ?? parsedNicInfo?.age ?? 27);
   const isElderly = testAge60 ? true : (age >= 60 || Boolean(displayUser.isElderPerson));
 
+  // Determine accessibility status & category flags
+  const accNeeds: string[] = Array.isArray((displayUser as any).accessibilityNeeds) ? (displayUser as any).accessibilityNeeds : [];
+  const isWheelchair = Boolean((displayUser as any).isWheelchairUser || accNeeds.includes('wheelchair'));
+  const isLowVision = Boolean((displayUser as any).isLowVisionPerson || accNeeds.includes('low_vision'));
+  const isHearingImpaired = Boolean((displayUser as any).isHearingImpaired || accNeeds.includes('hearing_impairment'));
+  const hasAccessibility = Boolean(
+    (displayUser as any).hasAccessibilityNeeds ||
+    (displayUser as any).accessibilityProfileId ||
+    accNeeds.length > 0 ||
+    isWheelchair ||
+    isLowVision ||
+    isHearingImpaired
+  );
+
   // Guardian completion status
   const currentGuardian = displayUser.guardianDetails;
   const isGuardianCompleted = Boolean(currentGuardian && currentGuardian.fullName);
@@ -261,12 +275,42 @@ export default function ProfileScreen() {
               <Text style={styles.roleTagText}>{displayUser.role}</Text>
             </View>
 
-            {isElderly ? (
+            {isElderly && (
               <View style={styles.elderTag}>
                 <Ionicons name="heart" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.roleTagText}>Senior Citizen (60+)</Text>
               </View>
-            ) : (
+            )}
+
+            {isWheelchair && (
+              <View style={[styles.roleTag, { backgroundColor: '#7C3AED' }]}>
+                <Text style={{ fontSize: 12, marginRight: 4 }}>♿</Text>
+                <Text style={styles.roleTagText}>Wheelchair User</Text>
+              </View>
+            )}
+
+            {isLowVision && (
+              <View style={[styles.roleTag, { backgroundColor: '#D97706' }]}>
+                <Text style={{ fontSize: 12, marginRight: 4 }}>👁️</Text>
+                <Text style={styles.roleTagText}>Low Vision</Text>
+              </View>
+            )}
+
+            {isHearingImpaired && (
+              <View style={[styles.roleTag, { backgroundColor: '#2563EB' }]}>
+                <Text style={{ fontSize: 12, marginRight: 4 }}>👂</Text>
+                <Text style={styles.roleTagText}>Hearing Impaired</Text>
+              </View>
+            )}
+
+            {hasAccessibility && !isWheelchair && !isLowVision && !isHearingImpaired && (
+              <View style={[styles.roleTag, { backgroundColor: '#0284C7' }]}>
+                <Ionicons name="body" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.roleTagText}>Accessibility Support</Text>
+              </View>
+            )}
+
+            {!isElderly && !hasAccessibility && (
               <View style={[styles.roleTag, { backgroundColor: age >= 18 ? '#0284C7' : '#64748B' }]}>
                 <Ionicons name={age >= 18 ? 'checkmark-circle' : 'person'} size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.roleTagText}>{age >= 18 ? 'Citizen' : 'Minor'}</Text>
@@ -453,6 +497,24 @@ export default function ProfileScreen() {
               <Text style={styles.infoLabel}>Calculated Age</Text>
               <Text style={styles.infoValue}>
                 {age} years {isElderly ? '(Senior Citizen)' : age >= 18 ? '(Citizen)' : '(Minor)'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <View style={styles.iconCircle}>
+              <Ionicons name="accessibility-outline" size={20} color="#0066CC" />
+            </View>
+            <View style={styles.infoTextContainer}>
+              <Text style={styles.infoLabel}>Accessibility Profile</Text>
+              <Text style={styles.infoValue}>
+                {displayUser.accessibilityProfileId
+                  ? `Active (${displayUser.accessibilityProfileId})`
+                  : displayUser.hasAccessibilityNeeds
+                  ? 'Active (Standard Support)'
+                  : 'Not Required (Standard Transit)'}
               </Text>
             </View>
           </View>

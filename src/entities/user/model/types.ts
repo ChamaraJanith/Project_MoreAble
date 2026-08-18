@@ -47,6 +47,10 @@ export interface User {
   accountStatus?: AccountStatus;
   guardianId?: string | null;
   accessibilityProfileId?: string | null;
+  hasAccessibilityNeeds?: boolean;
+  isWheelchairUser?: boolean;
+  isLowVisionPerson?: boolean;
+  isHearingImpaired?: boolean;
   createdAt: string;
   updatedAt: string;
 }

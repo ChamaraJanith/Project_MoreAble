@@ -50,7 +50,7 @@ describe('Registration Accessibility Needs DTO, User model & AccessibilityProfil
         expect(dto.accessibilityNeeds).toEqual([]);
     });
 
-    it('should verify User document links to separate AccessibilityProfile collection via accessibilityProfileId', () => {
+    it('should verify User document contains explicit boolean profile indicator flags and links to AccessibilityProfile', () => {
         const profile: AccessibilityProfile = {
             accessibilityProfileId: 'ACC-2026-00001',
             userId: 'test-uid-123',
@@ -76,14 +76,21 @@ describe('Registration Accessibility Needs DTO, User model & AccessibilityProfil
             accountStatus: 'ACTIVE',
             guardianId: null,
             accessibilityProfileId: profile.accessibilityProfileId,
+            hasAccessibilityNeeds: true,
+            isWheelchairUser: true,
+            isLowVisionPerson: true,
+            isHearingImpaired: false,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
         expect(user.accessibilityProfileId).toBe('ACC-2026-00001');
+        expect(user.hasAccessibilityNeeds).toBe(true);
+        expect(user.isWheelchairUser).toBe(true);
+        expect(user.isLowVisionPerson).toBe(true);
+        expect(user.isHearingImpaired).toBe(false);
         expect(profile.accessibilityProfileId).toBe('ACC-2026-00001');
         expect(profile.passengerId).toBe('PAS-2026-00001');
-        expect(profile.hasAccessibilityNeeds).toBe(true);
         expect(profile.accessibilityNeeds).toEqual(['wheelchair', 'low_vision']);
     });
 });
