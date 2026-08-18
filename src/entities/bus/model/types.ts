@@ -32,6 +32,16 @@ export interface VehicleLocation {
     recordedAt: string;
 }
 
+/**
+ * A vehicle in the fleet.
+ *
+ * `password` is the bus login credential, held on the Firestore document as
+ * the literal configured string so an authorised admin can read it directly.
+ * It is optional here for two reasons: buses created before the credential
+ * existed do not have one, and — importantly — every bus API strips it, so a
+ * record that arrived from an HTTP response will never carry it. Treat its
+ * presence as meaning "this object came from Firestore, not from an API".
+ */
 export interface Bus {
     busId: string;
     numberPlate: string;
@@ -42,6 +52,8 @@ export interface Bus {
     seatCapacity: number;
     accessibilityFacilities: BusAccessibilityFacilities;
     status: BusStatus;
+    /** Server-side only; removed from every API response. */
+    password?: string;
     createdAt?: unknown;
     updatedAt?: unknown;
 }

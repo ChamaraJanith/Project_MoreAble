@@ -1,4 +1,6 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { withoutBusCredentials } from '../../../src/shared/server/busCredentials';
+import { validatePassword } from '../../../src/shared/utils/password';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -27,6 +29,7 @@ export async function POST(request: Request) {
       seatCapacity,
       accessibilityFacilities,
       status,
+      password,
     } = body;
 
     // --------------------------------
@@ -44,6 +47,29 @@ export async function POST(request: Request) {
         {
           success: false,
           message: 'Required bus details are missing.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // --------------------------------
+    // Bus login password
+    //
+    // Checked on the server, not only in the admin form: the form is one
+    // caller of this endpoint, and a rule enforced only there is not enforced
+    // at all. The policy is the project's existing one, shared with
+    // registration and password reset.
+    // --------------------------------
+    const passwordCheck = validatePassword(password, 'Bus password');
+
+    if (!passwordCheck.valid) {
+      return Response.json(
+        {
+          success: false,
+          message: passwordCheck.message,
         },
         {
           status: 400,
@@ -311,6 +337,12 @@ export async function POST(request: Request) {
 
       status: status || 'ACTIVE',
 
+      // Stored exactly as supplied, so an authorised admin reading the bus
+      // document in Firestore sees the credential that actually works. Not
+      // trimmed or normalised: any change here would silently stop matching
+      // what the driver types at the login screen.
+      password,
+
       createdAt: now,
 
       updatedAt: now,
@@ -331,7 +363,7 @@ export async function POST(request: Request) {
       {
         success: true,
         message: 'Bus created successfully.',
-        bus,
+        bus: withoutBusCredentials(bus),
       },
       {
         status: 201,
@@ -365,10 +397,14 @@ export async function GET() {
       .orderBy('createdAt', 'desc')
       .get();
 
- const buses = snapshot.docs.map((doc: any) => ({
-  ...doc.data(),
-  documentId: doc.id,
-}));
+ // Spreading the stored document would carry the credential straight out to
+ // every caller of this list, so it is removed on the way past.
+ const buses = snapshot.docs.map((doc: any) =>
+  withoutBusCredentials({
+    ...doc.data(),
+    documentId: doc.id,
+  })
+ );
 
     return Response.json(
       {

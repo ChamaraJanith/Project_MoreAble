@@ -1,4 +1,6 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { withoutBusCredentials } from '../../../src/shared/server/busCredentials';
+import { validatePassword } from '../../../src/shared/utils/password';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -111,7 +113,7 @@ export async function GET(
       {
         success: true,
         message: 'Bus retrieved successfully.',
-        bus: resolvedBus.busDoc.data(),
+        bus: withoutBusCredentials(resolvedBus.busDoc.data() ?? {}),
       },
       {
         status: 200,
@@ -207,6 +209,7 @@ export async function PUT(
       seatCapacity,
       accessibilityFacilities,
       status,
+      password,
     } = body;
 
     // --------------------------------------------------
@@ -507,6 +510,31 @@ export async function PUT(
       updates.status = status;
     }
 
+    // Bus login password
+    //
+    // Follows the same partial-update rule as every field above: absent means
+    // "leave it alone", so an edit that changes only the seat capacity cannot
+    // wipe the credential. Only an explicitly supplied value replaces it, and
+    // it is validated against the project policy before it does.
+    if (password !== undefined) {
+      const passwordCheck = validatePassword(password, 'Bus password');
+
+      if (!passwordCheck.valid) {
+        return Response.json(
+          {
+            success: false,
+            message: passwordCheck.message,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+
+      updates.password = password as string;
+    }
+
     // --------------------------------------------------
     // Prevent empty update
     // --------------------------------------------------
@@ -542,7 +570,7 @@ export async function PUT(
       {
         success: true,
         message: 'Bus updated successfully.',
-        bus: updatedBusDoc.data(),
+        bus: withoutBusCredentials(updatedBusDoc.data() ?? {}),
       },
       {
         status: 200,

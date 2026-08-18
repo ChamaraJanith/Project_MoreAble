@@ -14,6 +14,7 @@ import {
     setBusStatus,
     updateBus,
 } from '../../../src/features/admin/api/busAdminApi';
+import { buildTestPassword, buildTooShortTestPassword } from '../../testUtils/testPassword';
 
 // Hoisted above the imports by ts-jest, so the module graph never pulls in
 // react-native / expo-constants, which cannot load under the node environment.
@@ -116,6 +117,7 @@ describe('createBus', () => {
         seatCapacity: 48,
         accessibilityFacilities: sampleBus.accessibilityFacilities,
         status: 'ACTIVE' as const,
+        password: buildTestPassword('create'),
     };
 
     it('POSTs the bus and returns the created record', async () => {
@@ -241,5 +243,96 @@ describe('deleteBus', () => {
         mockFetch.mockResolvedValue(jsonResponse({ success: false, message: 'Bus not found.' }, false));
 
         await expect(deleteBus('BUS-99999')).rejects.toThrow('Bus not found.');
+    });
+});
+// ==================================================================
+// BUS LOGIN PASSWORD
+//
+// What the admin form sends. The rule that matters is the omission one: a
+// status change or a seat-count edit must not carry a password key at all,
+// because the backend reads an absent key as "leave the credential alone" and
+// anything else would quietly wipe it.
+// ==================================================================
+describe('bus password over the wire', () => {
+    const editPayload = {
+        chassisNumber: sampleBus.chassisNumber,
+        busModel: sampleBus.busModel,
+        manufacturer: sampleBus.manufacturer,
+        manufactureYear: sampleBus.manufactureYear,
+        seatCapacity: sampleBus.seatCapacity,
+        accessibilityFacilities: sampleBus.accessibilityFacilities,
+        status: 'ACTIVE' as const,
+    };
+
+    /** The parsed body of the request the client actually sent. */
+    function sentBody() {
+        return JSON.parse(mockFetch.mock.calls[0][1].body);
+    }
+
+    it('sends the password when creating a bus', async () => {
+        mockFetch.mockResolvedValue(jsonResponse({ success: true, bus: sampleBus }));
+
+        const password = buildTestPassword('create');
+        await createBus({
+            numberPlate: 'NB-5678',
+            chassisNumber: 'CHS-2026-00002',
+            busModel: 'Tata Starbus',
+            manufacturer: 'Tata',
+            manufactureYear: 2024,
+            seatCapacity: 48,
+            accessibilityFacilities: sampleBus.accessibilityFacilities,
+            status: 'ACTIVE',
+            password,
+        });
+
+        expect(sentBody().password).toBe(password);
+    });
+
+    it('sends a new password when the admin changes one', async () => {
+        mockFetch.mockResolvedValue(jsonResponse({ success: true, bus: sampleBus }));
+
+        const password = buildTestPassword('replacement');
+        await updateBus('NB-1234', { ...editPayload, password });
+
+        expect(sentBody().password).toBe(password);
+    });
+
+    it('omits the password key entirely from an edit that does not change it', async () => {
+        mockFetch.mockResolvedValue(jsonResponse({ success: true, bus: sampleBus }));
+
+        await updateBus('NB-1234', editPayload);
+
+        const body = sentBody();
+        // Not null, not an empty string — absent. Any present value would be
+        // validated and stored, replacing the working credential.
+        expect('password' in body).toBe(false);
+        expect(body.seatCapacity).toBe(54);
+    });
+
+    it('never carries a password through a status change', async () => {
+        mockFetch.mockResolvedValue(
+            jsonResponse({ success: true, bus: { ...sampleBus, status: 'INACTIVE' } })
+        );
+
+        // setBusStatus resends the whole record; the credential is not part of
+        // that record and must not become part of it.
+        await setBusStatus(sampleBus, 'INACTIVE');
+
+        const body = sentBody();
+        expect('password' in body).toBe(false);
+        expect(body.status).toBe('INACTIVE');
+    });
+
+    it('surfaces the backend password rejection to the form', async () => {
+        mockFetch.mockResolvedValue(
+            jsonResponse(
+                { success: false, message: 'Bus password must be at least 6 characters.' },
+                false
+            )
+        );
+
+        await expect(
+            updateBus('NB-1234', { ...editPayload, password: buildTooShortTestPassword() })
+        ).rejects.toThrow(/at least/i);
     });
 });
