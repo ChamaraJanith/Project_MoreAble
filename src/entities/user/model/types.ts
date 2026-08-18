@@ -47,8 +47,6 @@ export interface User {
   accountStatus?: AccountStatus;
   guardianId?: string | null;
   accessibilityProfileId?: string | null;
-  hasAccessibilityNeeds?: boolean;
-  accessibilityNeeds?: string[];
   createdAt: string;
   updatedAt: string;
 }

@@ -139,8 +139,6 @@ export async function POST(request: Request) {
             accountStatus: 'ACTIVE',
             guardianId: guardianId,
             accessibilityProfileId: accessibilityProfileId,
-            hasAccessibilityNeeds: hasNeeds,
-            accessibilityNeeds: selectedNeeds,
             createdAt: now,
             updatedAt: now,
         };
