@@ -118,8 +118,7 @@ export async function POST(request: Request) {
                 updatedAt: now,
             };
 
-            // Save in both 'accessibility_profiles' and 'accessibility_needs_persons' Firestore collections
-            await adminDb.collection('accessibility_profiles').doc(accessibilityProfileId).set(accessibilityProfileRecord);
+            // Save in 'accessibility_needs_persons' Firestore collection
             await adminDb.collection('accessibility_needs_persons').doc(accessibilityProfileId).set(accessibilityProfileRecord);
         }
 
