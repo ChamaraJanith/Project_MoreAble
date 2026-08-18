@@ -1,6 +1,6 @@
 //We Use register+api.ts because this is a backend file.
 import bcrypt from 'bcryptjs';
-import { Guardian, User, UserRegistrationDTO } from '../../../src/entities/user/model/types';
+import { AccessibilityProfile, Guardian, User, UserRegistrationDTO } from '../../../src/entities/user/model/types';
 import { getAdminAuth, getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { parseSriLankanNic } from '../../../src/shared/utils/nicUtils';
 
@@ -98,7 +98,31 @@ export async function POST(request: Request) {
             await guardianRef.set(guardianRecord);
         }
 
-        // 3. Save User in Firestore 'users' collection (with passwordHash for JWT auth)
+        // 3. If User has accessibility needs, generate matching Accessibility Profile ID: ACC-2026-00001
+        let accessibilityProfileId: string | null = null;
+        let accessibilityProfileRecord: AccessibilityProfile | undefined = undefined;
+
+        const selectedNeeds = Array.isArray(data.accessibilityNeeds) ? data.accessibilityNeeds : [];
+        const hasNeeds = !!data.hasAccessibilityNeeds || selectedNeeds.length > 0;
+
+        if (hasNeeds) {
+            accessibilityProfileId = `ACC-${currentYear}-${formattedSequence}`;
+
+            accessibilityProfileRecord = {
+                accessibilityProfileId: accessibilityProfileId,
+                userId: uid,
+                passengerId: passengerId,
+                hasAccessibilityNeeds: true,
+                accessibilityNeeds: selectedNeeds,
+                createdAt: now,
+                updatedAt: now,
+            };
+
+            // Save in 'accessibility_needs_persons' Firestore collection
+            await adminDb.collection('accessibility_needs_persons').doc(accessibilityProfileId).set(accessibilityProfileRecord);
+        }
+
+        // 4. Save User in Firestore 'users' collection (with passwordHash for JWT auth)
         const newUser: User = {
             uid: uid,
             passengerId: passengerId,
@@ -113,7 +137,7 @@ export async function POST(request: Request) {
             isVerified: false,
             accountStatus: 'ACTIVE',
             guardianId: guardianId,
-            accessibilityProfileId: null,
+            accessibilityProfileId: accessibilityProfileId,
             createdAt: now,
             updatedAt: now,
         };
@@ -136,7 +160,7 @@ export async function POST(request: Request) {
             console.log('Registration might still be valid, but OTP could not be sent.');
         }
 
-        // 4. Success Response
+        // 5. Success Response
         const userWithGuardian = {
             ...newUser,
             guardianDetails: data.guardianDetails || null,
@@ -146,6 +170,7 @@ export async function POST(request: Request) {
             message: 'User registered successfully!',
             user: userWithGuardian,
             guardian: guardianRecord,
+            accessibilityProfile: accessibilityProfileRecord,
         }, { status: 201, headers: corsHeaders });
 
     } catch (error: any) {
