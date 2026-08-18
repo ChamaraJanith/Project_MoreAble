@@ -14,6 +14,7 @@ import { POST as searchJourneys } from '../../../app/api/journeys/search+api';
 import { POST as createRoute } from '../../../app/api/routes/index+api';
 import { POST as createTrip } from '../../../app/api/trips/index+api';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
+import { buildTestPassword } from '../../testUtils/testPassword';
 
 const mockGetAdminDb = jest.fn();
 
@@ -40,6 +41,9 @@ function post(path: string, body: unknown): Request {
 }
 
 const busPayload = {
+    // Required by the create endpoint since bus login credentials were added.
+    // Generated at run time; never a literal.
+    password: buildTestPassword('fleet'),
     numberPlate: 'NB-1234',
     chassisNumber: 'CHS-2026-00001',
     busModel: 'Ashok Leyland Viking',
@@ -143,6 +147,34 @@ describe('transport records written by admin are read back by journey search', (
             seatCapacity: 54,
             accessibilityFacilities: busPayload.accessibilityFacilities,
         });
+    });
+
+    it('keeps the bus login credential out of the passenger response', async () => {
+        const db = createFakeFirestore({});
+        const { busId } = await seedThroughAdminApi(db);
+
+        // The admin created this bus with a password, so the document really
+        // does hold the credential — this is not a vacuous assertion. It is
+        // stored in the clear by project decision, which is exactly why the
+        // passenger boundary below has to hold.
+        const storedBus = (await db.collection('buses').doc(busId).get()).data() ?? {};
+        expect(storedBus.password).toBe(busPayload.password);
+
+        const json = await (await searchJourneys(post('/api/journeys/search', searchBody))).json();
+        const { bus } = json.routes[0].trips[0];
+
+        // The passenger payload is an allow-list, so a credential stored beside
+        // the vehicle cannot travel with it.
+        expect(bus.password).toBeUndefined();
+        expect(bus.passwordHash).toBeUndefined();
+        expect(Object.keys(bus).sort()).toEqual([
+            'accessibilityFacilities',
+            'busId',
+            'busModel',
+            'manufacturer',
+            'numberPlate',
+            'seatCapacity',
+        ]);
     });
 
     it('stores the trip as references only, resolving route and bus at read time', async () => {

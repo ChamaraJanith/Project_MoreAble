@@ -19,6 +19,7 @@ import {
     BusStatus,
     CountedFacility,
 } from '../../../entities/bus/model/types';
+import { MIN_PASSWORD_LENGTH, validatePassword } from '../../../shared/utils/password';
 import { createBus, getBus, updateBus } from '../api/busAdminApi';
 import { AdminScreenHeader } from './AdminScreenHeader';
 import { AdminErrorState } from './AdminStates';
@@ -81,6 +82,10 @@ export const BusForm = ({ numberPlate }: BusFormProps) => {
     const [manufactureYear, setManufactureYear] = useState('');
     const [seatCapacity, setSeatCapacity] = useState('');
     const [status, setStatus] = useState<BusStatus>('ACTIVE');
+    // Always starts empty, including when editing: the stored credential is a
+    // hash the API never returns, so there is nothing to prefill and nothing
+    // to accidentally reveal.
+    const [password, setPassword] = useState('');
     const [facilities, setFacilities] = useState<BusAccessibilityFacilities>(defaultFacilities);
     // Counts are kept as strings so the input can be cleared while typing.
     const [counts, setCounts] = useState<Record<CountedFacilityKey, string>>({
@@ -179,6 +184,14 @@ export const BusForm = ({ numberPlate }: BusFormProps) => {
             next.seatCapacity = 'Seat capacity must be a positive whole number.';
         }
 
+        // Required when creating; when editing, only checked if the admin
+        // actually typed something, because a blank field means "keep the
+        // current password".
+        if (!isEditing || password.length > 0) {
+            const passwordCheck = validatePassword(password, 'Bus password');
+            if (!passwordCheck.valid) next.password = passwordCheck.message ?? '';
+        }
+
         for (const facility of COUNTED_FACILITIES) {
             const value = facilities[facility.key];
             if (value?.available && (!Number.isInteger(value.count) || value.count < 1)) {
@@ -210,9 +223,18 @@ export const BusForm = ({ numberPlate }: BusFormProps) => {
             let saved: Bus;
 
             if (isEditing && numberPlate) {
-                saved = await updateBus(numberPlate, sharedPayload);
+                // Omitted entirely when left blank, so the update endpoint
+                // leaves the existing credential untouched.
+                saved = await updateBus(numberPlate, {
+                    ...sharedPayload,
+                    ...(password ? { password } : {}),
+                });
             } else {
-                saved = await createBus({ numberPlate: plate.trim().toUpperCase(), ...sharedPayload });
+                saved = await createBus({
+                    numberPlate: plate.trim().toUpperCase(),
+                    ...sharedPayload,
+                    password,
+                });
             }
 
             setSavedPlate(saved?.numberPlate ?? plate.trim().toUpperCase());
@@ -371,6 +393,26 @@ export const BusForm = ({ numberPlate }: BusFormProps) => {
                             />
                         </View>
                     </View>
+
+                    <FormField
+                        label="Bus Password"
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder={
+                            isEditing
+                                ? 'Enter a new password'
+                                : `At least ${MIN_PASSWORD_LENGTH} characters`
+                        }
+                        helper={
+                            isEditing
+                                ? 'Leave blank to keep the current password.'
+                                : 'Used by the driver to sign in to this bus.'
+                        }
+                        error={errors.password}
+                        icon="key-outline"
+                        autoCapitalize="none"
+                        secureTextEntry
+                    />
 
                     <Text style={styles.fieldLabel}>Status</Text>
                     <View style={styles.statusRow}>
@@ -549,6 +591,8 @@ interface FormFieldProps {
     autoCapitalize?: 'none' | 'characters' | 'words';
     maxLength?: number;
     editable?: boolean;
+    /** Masks the value and offers a show/hide toggle, as the auth forms do. */
+    secureTextEntry?: boolean;
 }
 
 function FormField({
@@ -563,7 +607,10 @@ function FormField({
     autoCapitalize = 'words',
     maxLength,
     editable = true,
+    secureTextEntry = false,
 }: FormFieldProps) {
+    const [isRevealed, setIsRevealed] = useState(false);
+
     return (
         <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>{label}</Text>
@@ -591,9 +638,24 @@ function FormField({
                     autoCapitalize={autoCapitalize}
                     maxLength={maxLength}
                     editable={editable}
+                    secureTextEntry={secureTextEntry && !isRevealed}
                     accessibilityLabel={label}
                     accessibilityState={{ disabled: !editable }}
                 />
+                {secureTextEntry && (
+                    <TouchableOpacity
+                        onPress={() => setIsRevealed((shown) => !shown)}
+                        style={styles.revealButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={isRevealed ? 'Hide password' : 'Show password'}
+                    >
+                        <Ionicons
+                            name={isRevealed ? 'eye-off-outline' : 'eye-outline'}
+                            size={18}
+                            color={adminColors.textMuted}
+                        />
+                    </TouchableOpacity>
+                )}
                 {!editable && (
                     <Ionicons name="lock-closed" size={15} color={adminColors.textPlaceholder} />
                 )}
@@ -612,6 +674,13 @@ function FormField({
 }
 
 const styles = StyleSheet.create({
+    // Comfortably tappable rather than icon-sized.
+    revealButton: {
+        minWidth: 44,
+        minHeight: 44,
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+    },
     container: { flex: 1, backgroundColor: adminColors.background },
     content: { padding: 20, paddingBottom: 40 },
 

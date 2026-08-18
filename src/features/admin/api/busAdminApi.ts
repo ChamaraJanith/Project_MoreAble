@@ -10,11 +10,24 @@ export interface CreateBusPayload {
     seatCapacity: number;
     accessibilityFacilities: BusAccessibilityFacilities;
     status: BusStatus;
+    /**
+     * The bus login password. Sent over HTTPS and stored by the backend as the
+     * configured value; no bus API ever returns it, so this travels one way
+     * only.
+     */
+    password: string;
 }
 
 // The backend deliberately does not accept numberPlate on update — it is the
 // unique business identifier, so it stays read-only once the bus is created.
-export type UpdateBusPayload = Omit<CreateBusPayload, 'numberPlate'>;
+//
+// The password becomes optional rather than required: the update endpoint
+// treats an absent field as "leave unchanged", so an edit that does not set a
+// new password keeps the current one. Callers that change only a status or a
+// seat count therefore need no knowledge of the credential at all.
+export type UpdateBusPayload = Omit<CreateBusPayload, 'numberPlate' | 'password'> & {
+    password?: string;
+};
 
 /** GET /api/buses */
 export async function getBuses(): Promise<Bus[]> {
