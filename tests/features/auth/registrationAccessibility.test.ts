@@ -1,6 +1,6 @@
-import { UserRegistrationDTO, User } from '../../../src/entities/user/model/types';
+import { UserRegistrationDTO, User, AccessibilityProfile } from '../../../src/entities/user/model/types';
 
-describe('Registration Accessibility Needs DTO & User model', () => {
+describe('Registration Accessibility Needs DTO, User model & AccessibilityProfile', () => {
     it('should correctly format UserRegistrationDTO with accessibility needs for a Wheelchair User', () => {
         const dto: UserRegistrationDTO = {
             userName: 'John Doe',
@@ -50,10 +50,20 @@ describe('Registration Accessibility Needs DTO & User model', () => {
         expect(dto.accessibilityNeeds).toEqual([]);
     });
 
-    it('should verify User model contains accessibility needs properties', () => {
-        const user: User = {
-            uid: 'test-uid-123',
+    it('should verify User model contains non-null accessibilityProfileId when user has accessibility needs', () => {
+        const profile: AccessibilityProfile = {
+            accessibilityProfileId: 'ACC-2026-00001',
+            userId: 'test-uid-123',
             passengerId: 'PAS-2026-00001',
+            hasAccessibilityNeeds: true,
+            accessibilityNeeds: ['wheelchair', 'low_vision'],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        const user: User = {
+            uid: profile.userId,
+            passengerId: profile.passengerId,
             userName: 'Accessibility Test User',
             email: 'test@example.com',
             nicNo: '199012345678',
@@ -65,14 +75,17 @@ describe('Registration Accessibility Needs DTO & User model', () => {
             isVerified: false,
             accountStatus: 'ACTIVE',
             guardianId: null,
-            accessibilityProfileId: null,
+            accessibilityProfileId: profile.accessibilityProfileId,
             hasAccessibilityNeeds: true,
             accessibilityNeeds: ['wheelchair', 'low_vision'],
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
+        expect(user.accessibilityProfileId).toBe('ACC-2026-00001');
         expect(user.hasAccessibilityNeeds).toBe(true);
         expect(user.accessibilityNeeds).toEqual(['wheelchair', 'low_vision']);
+        expect(profile.accessibilityProfileId).toBe('ACC-2026-00001');
+        expect(profile.passengerId).toBe('PAS-2026-00001');
     });
 });

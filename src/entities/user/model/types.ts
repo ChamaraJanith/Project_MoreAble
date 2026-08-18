@@ -22,6 +22,16 @@ export interface Guardian {
   createdAt: string;
 }
 
+export interface AccessibilityProfile {
+  accessibilityProfileId: string; // e.g. ACC-2026-00001
+  userId: string;                  // Firebase Auth UID
+  passengerId: string;             // Auto-generated Passenger ID (e.g. PAS-2026-00001)
+  hasAccessibilityNeeds: boolean;
+  accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment']
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   uid: string;
   passengerId: string; // Auto-generated ID (e.g., PA-2026-1024)
