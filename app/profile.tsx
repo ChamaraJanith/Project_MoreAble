@@ -85,10 +85,7 @@ export default function ProfileScreen() {
   );
 
   const openAccModal = () => {
-    setAccWheelchair(isWheelchair);
-    setAccLowVision(isLowVision);
-    setAccHearing(isHearingImpaired);
-    setIsAccModalOpen(true);
+    router.push('/accessibility-profile' as any);
   };
 
   const handleSaveAccessibilityProfile = async () => {
