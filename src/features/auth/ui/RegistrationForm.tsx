@@ -37,7 +37,10 @@ export const RegistrationForm = () => {
         wheelchair: false,
         lowVision: false,
         hearingImpairment: false,
+        walkingDifficulty: false,
+        other: false,
     });
+    const [otherDescription, setOtherDescription] = useState('');
 
     // Guardian States
     const [guardianData, setGuardianData] = useState({
@@ -79,7 +82,7 @@ export const RegistrationForm = () => {
     const validateStep2 = () => {
         let newErrors: Record<string, string> = {};
 
-        if (hasAccessibilityNeeds && !accessibilityNeeds.wheelchair && !accessibilityNeeds.lowVision && !accessibilityNeeds.hearingImpairment) {
+        if (hasAccessibilityNeeds && !accessibilityNeeds.wheelchair && !accessibilityNeeds.lowVision && !accessibilityNeeds.hearingImpairment && !accessibilityNeeds.walkingDifficulty && !accessibilityNeeds.other) {
             newErrors.accessibilityNeeds = 'Please select at least one accessibility option that applies to you';
         }
 
@@ -106,7 +109,7 @@ export const RegistrationForm = () => {
         setStep(1);
     };
 
-    const toggleAccessibilityCategory = (key: 'wheelchair' | 'lowVision' | 'hearingImpairment') => {
+    const toggleAccessibilityCategory = (key: keyof typeof accessibilityNeeds) => {
         setAccessibilityNeeds(prev => ({
             ...prev,
             [key]: !prev[key],
@@ -123,6 +126,8 @@ export const RegistrationForm = () => {
             if (accessibilityNeeds.wheelchair) selectedNeeds.push('wheelchair');
             if (accessibilityNeeds.lowVision) selectedNeeds.push('low_vision');
             if (accessibilityNeeds.hearingImpairment) selectedNeeds.push('hearing_impairment');
+            if (accessibilityNeeds.walkingDifficulty) selectedNeeds.push('walking_difficulty');
+            if (accessibilityNeeds.other) selectedNeeds.push('other');
         }
 
         try {
@@ -135,6 +140,7 @@ export const RegistrationForm = () => {
                 secondaryPhoneNumber: formData.secondaryPhoneNumber,
                 hasAccessibilityNeeds: !!hasAccessibilityNeeds,
                 accessibilityNeeds: selectedNeeds,
+                otherDescription: accessibilityNeeds.other ? otherDescription.trim() : undefined,
                 guardianDetails: hasGuardian ? guardianData : undefined,
             };
 
@@ -598,6 +604,82 @@ export const RegistrationForm = () => {
                                             </Text>
                                         </View>
                                     </TouchableOpacity>
+
+                                    {/* Walking Difficulty Checkbox */}
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.checkboxCard,
+                                            accessibilityNeeds.walkingDifficulty && styles.checkboxCardSelected
+                                        ]}
+                                        onPress={() => toggleAccessibilityCategory('walkingDifficulty')}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: accessibilityNeeds.walkingDifficulty }}
+                                        accessibilityLabel="Walking Difficulty - Reduced mobility, handrails, or minimal walking distance support"
+                                    >
+                                        <View style={styles.checkboxIconWrapper}>
+                                            <Ionicons
+                                                name={accessibilityNeeds.walkingDifficulty ? "checkbox" : "square-outline"}
+                                                size={26}
+                                                color={accessibilityNeeds.walkingDifficulty ? "#0066CC" : "#777"}
+                                            />
+                                        </View>
+                                        <View style={styles.checkboxContent}>
+                                            <View style={styles.checkboxTitleRow}>
+                                                <Text style={styles.checkboxEmoji}>🚶</Text>
+                                                <Text style={styles.checkboxLabel}>Walking Difficulty</Text>
+                                            </View>
+                                            <Text style={styles.checkboxSubtext}>
+                                                Requires minimal stairs, handrail support, or low boarding steps.
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+
+                                    {/* Other Checkbox */}
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.checkboxCard,
+                                            accessibilityNeeds.other && styles.checkboxCardSelected
+                                        ]}
+                                        onPress={() => toggleAccessibilityCategory('other')}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: accessibilityNeeds.other }}
+                                        accessibilityLabel="Other - Custom mobility or sensory assistance requirements"
+                                    >
+                                        <View style={styles.checkboxIconWrapper}>
+                                            <Ionicons
+                                                name={accessibilityNeeds.other ? "checkbox" : "square-outline"}
+                                                size={26}
+                                                color={accessibilityNeeds.other ? "#0066CC" : "#777"}
+                                            />
+                                        </View>
+                                        <View style={styles.checkboxContent}>
+                                            <View style={styles.checkboxTitleRow}>
+                                                <Text style={styles.checkboxEmoji}>✍️</Text>
+                                                <Text style={styles.checkboxLabel}>Other Requirement</Text>
+                                            </View>
+                                            <Text style={styles.checkboxSubtext}>
+                                                Specify any custom sensory, mobility, or medical transit requirements.
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+
+                                    {/* Other Short Description Input Field */}
+                                    {accessibilityNeeds.other && (
+                                        <View style={[styles.inputGroup, { marginTop: 10 }]}>
+                                            <Text style={styles.label}>Short Description of Requirements (Optional)</Text>
+                                            <View style={styles.inputWrapper}>
+                                                <Ionicons name="document-text-outline" size={22} color="#0066CC" style={styles.inputIcon} />
+                                                <TextInput
+                                                    style={styles.input}
+                                                    placeholder="e.g. Service animal assistance, claustrophobia support"
+                                                    placeholderTextColor="#777"
+                                                    value={otherDescription}
+                                                    onChangeText={setOtherDescription}
+                                                    accessibilityLabel="Short Description of Other Requirements"
+                                                />
+                                            </View>
+                                        </View>
+                                    )}
 
                                     {errors.accessibilityNeeds && (
                                         <View style={styles.errorContainer}>

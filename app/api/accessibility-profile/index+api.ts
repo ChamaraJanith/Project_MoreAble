@@ -73,6 +73,7 @@ export async function POST(request: Request) {
       userId,
       accessibilityProfileId,
       accessibilityNeeds,
+      otherDescription,
       requestedServices,
     } = body;
 
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
     const isWheelchairUser = selectedNeeds.includes('wheelchair');
     const isLowVisionPerson = selectedNeeds.includes('low_vision');
     const isHearingImpaired = selectedNeeds.includes('hearing_impairment');
+    const isWalkingDifficultyPerson = selectedNeeds.includes('walking_difficulty');
+    const isOtherAccessibilityPerson = selectedNeeds.includes('other');
+    const otherDesc = otherDescription ? otherDescription.trim() : undefined;
     const hasNeeds = selectedNeeds.length > 0;
 
     const profileRecord: AccessibilityProfile = {
@@ -107,6 +111,7 @@ export async function POST(request: Request) {
       passengerId: passengerId || '',
       hasAccessibilityNeeds: hasNeeds,
       accessibilityNeeds: selectedNeeds,
+      otherDescription: otherDesc,
       requestedServices: requestedServices || {},
       createdAt: now,
       updatedAt: now,
@@ -127,6 +132,9 @@ export async function POST(request: Request) {
           isWheelchairUser: isWheelchairUser,
           isLowVisionPerson: isLowVisionPerson,
           isHearingImpaired: isHearingImpaired,
+          isWalkingDifficultyPerson: isWalkingDifficultyPerson,
+          isOtherAccessibilityPerson: isOtherAccessibilityPerson,
+          otherDescription: otherDesc,
           updatedAt: now,
         },
         { merge: true }

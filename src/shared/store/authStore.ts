@@ -39,6 +39,9 @@ export interface AuthUser {
     isWheelchairUser?: boolean;
     isLowVisionPerson?: boolean;
     isHearingImpaired?: boolean;
+    isWalkingDifficultyPerson?: boolean;
+    isOtherAccessibilityPerson?: boolean;
+    otherDescription?: string;
     createdAt: string;
     updatedAt: string;
 }
