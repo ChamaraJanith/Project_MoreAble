@@ -18,8 +18,11 @@ import {
     fetchSeats,
     SeatMapResponse,
 } from '../../../../src/features/booking/api/bookingApi';
+import { PriorityAccessModal } from '../../../../src/features/booking/ui/PriorityAccessModal';
 import { SeatMap } from '../../../../src/features/booking/ui/SeatMap';
 import { useAuthStore } from '../../../../src/shared/store/authStore';
+import { isAutoEligibleForPriority } from '../../../../src/shared/utils/priorityEligibility';
+
 
 const ELDERLY_MIN_AGE = 60;
 
@@ -31,6 +34,9 @@ export default function SeatSelectionScreen() {
     }>();
 
     const { user } = useAuthStore();
+
+    const [pendingPrioritySeat, setPendingPrioritySeat] = useState<Seat | null>(null);
+    const [priorityReasonBySeat, setPriorityReasonBySeat] = useState<Record<string, string>>({});
 
     const passengerAge =
         typeof user?.calculatedAge === 'number'
@@ -103,9 +109,25 @@ export default function SeatSelectionScreen() {
             }
         }
 
+        // Priority seats: auto-eligible passengers (elderly / have an
+        // accessibility profile) proceed straight through — the system has
+        // already "identified" their accessibility requirement. Everyone else
+        // is asked to briefly declare why they need it before it's held for them.
+        if (seat.category === 'PRIORITY' && !isAutoEligibleForPriority(user)) {
+            setPendingPrioritySeat(seat);
+            return;
+        }
+
         setSelectedSeatNumber(
             seat.seatNumber
         );
+    }
+
+    function handlePriorityReasonConfirm(reason: string) {
+        if (!pendingPrioritySeat) return;
+        setPriorityReasonBySeat((prev) => ({ ...prev, [pendingPrioritySeat.seatNumber]: reason }));
+        setSelectedSeatNumber(pendingPrioritySeat.seatNumber);
+        setPendingPrioritySeat(null);
     }
 
     const selectedSeat =
@@ -124,6 +146,7 @@ export default function SeatSelectionScreen() {
                 tripId: data.tripId,
                 seatNumber: selectedSeat.seatNumber,
                 isPrioritySeat: selectedSeat.isPrioritySeat ? '1' : '0',
+                priorityReason: selectedSeat.seatNumber ? (priorityReasonBySeat[selectedSeat.seatNumber] ?? '') : '',
                 origin: origin ?? '',
                 destination: destination ?? '',
             },
@@ -348,6 +371,13 @@ export default function SeatSelectionScreen() {
                     </Text>
                 </TouchableOpacity>
             </ScrollView>
+
+            <PriorityAccessModal
+                visible={!!pendingPrioritySeat}
+                onCancel={() => setPendingPrioritySeat(null)}
+                onConfirm={handlePriorityReasonConfirm}
+            />
+
         </SafeAreaView>
     );
 }
