@@ -107,6 +107,8 @@ export interface Booking {
   fare: FareBreakdown;
   assistanceRequested: AssistanceRequested;
   specialRequests: string;
+  isPriorityAutoEligible: boolean;
+  priorityAccessReason: string | null;
   createdAt: string;
 }
 
