@@ -65,7 +65,7 @@ let issuedToken: string;
 
 beforeEach(() => {
     jest.clearAllMocks();
-    issuedToken = buildTestToken('bus-session');
+    issuedToken = buildTestToken();
     mockGenerateToken.mockResolvedValue(issuedToken);
 });
 
@@ -74,8 +74,8 @@ beforeEach(() => {
 // ==================================================================
 describe('POST /api/auth/bus-login - identifying the bus', () => {
     it('signs in the bus that owns the number plate and password', async () => {
-        const passwordA = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(passwordA, buildTestPassword('bus-b')));
+        const passwordA = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(passwordA, buildTestPassword()));
 
         const response = await busLogin(
             loginRequest({ numberPlate: 'NB-8899', password: passwordA })
@@ -90,8 +90,8 @@ describe('POST /api/auth/bus-login - identifying the bus', () => {
     });
 
     it('accepts the plate however the driver types it', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         const response = await busLogin(
             loginRequest({ numberPlate: '  nb-8899  ', password })
@@ -102,8 +102,8 @@ describe('POST /api/auth/bus-login - identifying the bus', () => {
     });
 
     it("refuses one bus's password on another bus's plate", async () => {
-        const passwordA = buildTestPassword('bus-a');
-        const passwordB = buildTestPassword('bus-b');
+        const passwordA = buildTestPassword();
+        const passwordB = buildTestPassword();
         mockGetAdminDb.mockReturnValue(fleet(passwordA, passwordB));
 
         // The credential is per bus. Holding one must not open another.
@@ -116,14 +116,14 @@ describe('POST /api/auth/bus-login - identifying the bus', () => {
     });
 
     it('refuses an unknown plate the same way as a wrong password', async () => {
-        const passwordA = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(passwordA, buildTestPassword('bus-b')));
+        const passwordA = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(passwordA, buildTestPassword()));
 
         const unknownPlate = await busLogin(
             loginRequest({ numberPlate: 'ZZ-0000', password: passwordA })
         );
         const wrongPassword = await busLogin(
-            loginRequest({ numberPlate: 'NB-8899', password: buildTestPassword('wrong') })
+            loginRequest({ numberPlate: 'NB-8899', password: buildTestPassword() })
         );
 
         // Identical answers, so the response cannot be used to discover which
@@ -141,7 +141,7 @@ describe('POST /api/auth/bus-login - identifying the bus', () => {
         // An admin has simply not set one yet. It must not fall through to a
         // successful sign in.
         const response = await busLogin(
-            loginRequest({ numberPlate: 'NB-8899', password: buildTestPassword('any') })
+            loginRequest({ numberPlate: 'NB-8899', password: buildTestPassword() })
         );
 
         expect(response.status).toBe(401);
@@ -178,8 +178,8 @@ describe('POST /api/auth/bus-login - identifying the bus', () => {
 // ==================================================================
 describe('POST /api/auth/bus-login - the session token', () => {
     it('issues a BUS identity carrying the authenticated busId', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         await busLogin(loginRequest({ numberPlate: 'NB-8899', password }));
 
@@ -191,8 +191,8 @@ describe('POST /api/auth/bus-login - the session token', () => {
     });
 
     it('is not an admin session', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         await busLogin(loginRequest({ numberPlate: 'NB-8899', password }));
 
@@ -202,8 +202,8 @@ describe('POST /api/auth/bus-login - the session token', () => {
     });
 
     it('returns the token to the caller', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         const json = await (
             await busLogin(loginRequest({ numberPlate: 'NB-8899', password }))
@@ -213,7 +213,7 @@ describe('POST /api/auth/bus-login - the session token', () => {
     });
 
     it('refuses to issue a token for a record with no busId', async () => {
-        const password = buildTestPassword('broken');
+        const password = buildTestPassword();
         mockGetAdminDb.mockReturnValue(
             createFakeFirestore({
                 buses: [{ id: 'incomplete-record', numberPlate: 'NB-8899', password, status: 'ACTIVE' }],
@@ -233,8 +233,8 @@ describe('POST /api/auth/bus-login - the session token', () => {
 // ==================================================================
 describe('POST /api/auth/bus-login - the password stays put', () => {
     it('is absent from the response', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         const json = await (
             await busLogin(loginRequest({ numberPlate: 'NB-8899', password }))
@@ -246,8 +246,8 @@ describe('POST /api/auth/bus-login - the password stays put', () => {
     });
 
     it('is not put into the token claims', async () => {
-        const password = buildTestPassword('bus-a');
-        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword('bus-b')));
+        const password = buildTestPassword();
+        mockGetAdminDb.mockReturnValue(fleet(password, buildTestPassword()));
 
         await busLogin(loginRequest({ numberPlate: 'NB-8899', password }));
 
@@ -257,7 +257,7 @@ describe('POST /api/auth/bus-login - the password stays put', () => {
     });
 
     it('is never written to the console, even when the route fails', async () => {
-        const password = buildTestPassword('bus-a');
+        const password = buildTestPassword();
         mockGetAdminDb.mockImplementation(() => {
             throw new Error('Firestore unavailable');
         });

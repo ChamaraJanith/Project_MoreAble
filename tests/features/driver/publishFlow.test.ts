@@ -164,8 +164,8 @@ beforeEach(() => {
     jest.clearAllMocks();
     sentRequests.length = 0;
 
-    passwordA = buildTestPassword('bus-a');
-    passwordB = buildTestPassword('bus-b');
+    passwordA = buildTestPassword();
+    passwordB = buildTestPassword();
 
     db = createFakeFirestore({
         buses: [storedBus(BUS_A, PLATE_A, passwordA), storedBus(BUS_B, PLATE_B, passwordB)],
@@ -297,7 +297,7 @@ describe('the token decides which bus may be moved', () => {
     it('refuses a token that was not issued by this system', async () => {
         // Generated, so nothing token-shaped is written down here either.
         await expect(
-            publishBusLocation(BUS_A, READING, buildTestToken('never-issued'))
+            publishBusLocation(BUS_A, READING, buildTestToken())
         ).rejects.toMatchObject({ reason: 'NOT_AUTHENTICATED' });
 
         expect(await readStoredLocation(db, BUS_A)).toBeUndefined();
