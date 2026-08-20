@@ -268,6 +268,13 @@ function ReportCard({ report, isOwnReport }: ReportCardProps) {
     // starts returning one of these fields.
     const photoCount = report.photoCount ?? report.photoUrls?.length ?? 0;
 
+    // Prefer the display snapshot taken when the report was filed; fall back to
+    // the raw id so a report whose snapshot is missing still identifies its bus.
+    const busLabel = report.vehicle?.numberPlate ?? report.busId;
+    const routeLabel = report.route?.routeNumber
+        ? `Route ${report.route.routeNumber}`
+        : report.routeId;
+
     return (
         <View style={styles.card}>
             <View style={styles.cardTop}>
@@ -295,14 +302,10 @@ function ReportCard({ report, isOwnReport }: ReportCardProps) {
                 {report.description}
             </Text>
 
-            {(!!report.busNumber || !!report.routeNumber || photoCount > 0 || isOwnReport) && (
+            {(!!busLabel || !!routeLabel || photoCount > 0 || isOwnReport) && (
                 <View style={styles.chipWrap}>
-                    {!!report.busNumber && (
-                        <MetaChip icon="bus-outline" label={report.busNumber} />
-                    )}
-                    {!!report.routeNumber && (
-                        <MetaChip icon="git-branch-outline" label={`Route ${report.routeNumber}`} />
-                    )}
+                    {!!busLabel && <MetaChip icon="bus-outline" label={busLabel} />}
+                    {!!routeLabel && <MetaChip icon="git-branch-outline" label={routeLabel} />}
                     {photoCount > 0 && (
                         <MetaChip icon="images-outline" label={formatPhotoCount(photoCount)} />
                     )}

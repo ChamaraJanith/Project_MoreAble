@@ -6,52 +6,6 @@ import { adminColors } from '../../admin/ui/adminTheme';
 // Field shells styled from the same tokens as the Bus/Route admin forms, so the
 // report form reads as part of the same management UI.
 
-interface ReportTextFieldProps {
-    label: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    icon: keyof typeof Ionicons.glyphMap;
-    placeholder?: string;
-    helper?: string;
-    optional?: boolean;
-    autoCapitalize?: 'none' | 'characters' | 'words';
-    maxLength?: number;
-}
-
-export function ReportTextField({
-    label,
-    value,
-    onChangeText,
-    icon,
-    placeholder,
-    helper,
-    optional = false,
-    autoCapitalize = 'characters',
-    maxLength,
-}: ReportTextFieldProps) {
-    return (
-        <View style={styles.fieldBlock}>
-            <FieldLabel label={label} optional={optional} />
-
-            <View style={styles.inputWrapper}>
-                <Ionicons name={icon} size={18} color={adminColors.textMuted} style={styles.inputIcon} />
-                <TextInput
-                    style={styles.input}
-                    value={value}
-                    onChangeText={onChangeText}
-                    placeholder={placeholder}
-                    placeholderTextColor={adminColors.textPlaceholder}
-                    autoCapitalize={autoCapitalize}
-                    maxLength={maxLength}
-                    accessibilityLabel={label}
-                />
-            </View>
-
-            {!!helper && <Text style={styles.helperText}>{helper}</Text>}
-        </View>
-    );
-}
-
 interface ReportTextAreaProps {
     label: string;
     value: string;
@@ -103,6 +57,14 @@ interface ReportSelectFieldProps {
     placeholder: string;
     icon: keyof typeof Ionicons.glyphMap;
     onPress: () => void;
+    /** Supporting line shown under the value once something is selected. */
+    secondary?: string;
+    helper?: string;
+    optional?: boolean;
+    /** Disables the trigger, e.g. while its options are still loading. */
+    disabled?: boolean;
+    /** Replaces the chevron with a tick once a choice has been made. */
+    showSelectedTick?: boolean;
 }
 
 export function ReportSelectField({
@@ -111,18 +73,25 @@ export function ReportSelectField({
     placeholder,
     icon,
     onPress,
+    secondary,
+    helper,
+    optional = false,
+    disabled = false,
+    showSelectedTick = false,
 }: ReportSelectFieldProps) {
     return (
         <View style={styles.fieldBlock}>
-            <FieldLabel label={label} />
+            <FieldLabel label={label} optional={optional} />
 
             <TouchableOpacity
-                style={styles.inputWrapper}
+                style={[styles.inputWrapper, disabled && styles.inputWrapperDisabled]}
                 onPress={onPress}
+                disabled={disabled}
                 accessibilityRole="button"
                 accessibilityLabel={label}
                 accessibilityValue={{ text: value ?? 'Not selected' }}
                 accessibilityHint="Double tap to choose an option"
+                accessibilityState={{ disabled }}
             >
                 <Ionicons
                     name={icon}
@@ -130,14 +99,29 @@ export function ReportSelectField({
                     color={value ? adminColors.primary : adminColors.textMuted}
                     style={styles.inputIcon}
                 />
-                <Text
-                    style={[styles.selectValue, !value && styles.selectPlaceholder]}
-                    numberOfLines={1}
-                >
-                    {value ?? placeholder}
-                </Text>
-                <Ionicons name="chevron-down" size={18} color={adminColors.textMuted} />
+
+                <View style={styles.selectTextGroup}>
+                    <Text
+                        style={[styles.selectValue, !value && styles.selectPlaceholder]}
+                        numberOfLines={1}
+                    >
+                        {value ?? placeholder}
+                    </Text>
+                    {!!value && !!secondary && (
+                        <Text style={styles.selectSecondary} numberOfLines={1}>
+                            {secondary}
+                        </Text>
+                    )}
+                </View>
+
+                {value && showSelectedTick ? (
+                    <Ionicons name="checkmark-circle" size={20} color={adminColors.primary} />
+                ) : (
+                    <Ionicons name="chevron-down" size={18} color={adminColors.textMuted} />
+                )}
             </TouchableOpacity>
+
+            {!!helper && <Text style={styles.helperText}>{helper}</Text>}
         </View>
     );
 }
@@ -176,25 +160,29 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         paddingHorizontal: 12,
     },
-    inputIcon: { marginRight: 10 },
-    input: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '600',
-        color: adminColors.textPrimary,
-        paddingVertical: 12,
+    inputWrapperDisabled: {
+        backgroundColor: adminColors.borderSubtle,
+        opacity: 0.7,
     },
+    inputIcon: { marginRight: 10 },
 
-    selectValue: {
+    selectTextGroup: {
         flex: 1,
+        marginRight: 8,
+    },
+    selectValue: {
         fontSize: 15,
         fontWeight: '600',
         color: adminColors.textPrimary,
-        marginRight: 8,
     },
     selectPlaceholder: {
         fontWeight: '500',
         color: adminColors.textPlaceholder,
+    },
+    selectSecondary: {
+        fontSize: 12,
+        color: adminColors.textSecondary,
+        marginTop: 3,
     },
 
     textArea: {

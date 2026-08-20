@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StatusBadge } from './StatusBadge';
 
 export interface AdminSelectOption {
     /** Stable value kept internally — never rendered to the admin. */
@@ -9,6 +10,12 @@ export interface AdminSelectOption {
     label: string;
     /** Optional supporting line, e.g. bus model or route endpoints. */
     description?: string;
+    /**
+     * Optional record status, rendered as the shared badge. Use it where the
+     * choice is affected by the record not being active — a bus under
+     * maintenance, for instance.
+     */
+    status?: string;
 }
 
 interface AdminSelectModalProps {
@@ -72,15 +79,22 @@ export function AdminSelectModal({
                                         style={[styles.optionRow, isSelected && styles.optionRowSelected]}
                                         onPress={() => onSelect(option.value)}
                                         accessibilityRole="button"
-                                        accessibilityLabel={
-                                            option.description ? `${option.label}, ${option.description}` : option.label
-                                        }
+                                        accessibilityLabel={[option.label, option.description, option.status]
+                                            .filter(Boolean)
+                                            .join(', ')}
                                         accessibilityState={{ selected: isSelected }}
                                     >
                                         <View style={styles.optionTextGroup}>
-                                            <Text style={styles.optionLabel} numberOfLines={1}>
-                                                {option.label}
-                                            </Text>
+                                            <View style={styles.optionLabelRow}>
+                                                <Text style={styles.optionLabel} numberOfLines={1}>
+                                                    {option.label}
+                                                </Text>
+                                                {!!option.status && (
+                                                    <View style={styles.optionBadge}>
+                                                        <StatusBadge status={option.status} size="small" />
+                                                    </View>
+                                                )}
+                                            </View>
                                             {!!option.description && (
                                                 <Text style={styles.optionDescription} numberOfLines={1}>
                                                     {option.description}
@@ -158,10 +172,18 @@ const styles = StyleSheet.create({
         flex: 1,
         marginRight: 10,
     },
+    optionLabelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     optionLabel: {
+        flexShrink: 1,
         fontSize: 15,
         fontWeight: '700',
         color: '#1A2530',
+    },
+    optionBadge: {
+        marginLeft: 8,
     },
     optionDescription: {
         fontSize: 13,
