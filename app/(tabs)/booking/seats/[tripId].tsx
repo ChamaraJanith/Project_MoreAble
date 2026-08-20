@@ -21,7 +21,7 @@ import {
 import { PriorityAccessModal } from '../../../../src/features/booking/ui/PriorityAccessModal';
 import { SeatMap } from '../../../../src/features/booking/ui/SeatMap';
 import { useAuthStore } from '../../../../src/shared/store/authStore';
-import { isAutoEligibleForPriority } from '../../../../src/shared/utils/priorityEligibility';
+import { isEligibleForPrioritySeat } from '../../../../src/shared/utils/priorityEligibility';
 
 
 const ELDERLY_MIN_AGE = 60;
@@ -109,13 +109,15 @@ export default function SeatSelectionScreen() {
             }
         }
 
-        // Priority seats: auto-eligible passengers (elderly / have an
-        // accessibility profile) proceed straight through — the system has
-        // already "identified" their accessibility requirement. Everyone else
-        // is asked to briefly declare why they need it before it's held for them.
-        if (seat.category === 'PRIORITY' && !isAutoEligibleForPriority(user)) {
-            setPendingPrioritySeat(seat);
-            return;
+        // Priority seats are locked to normal commuters and available EXCLUSIVELY
+        // for passengers registered with low_vision, hearing_impairment, or other.
+        if (seat.category === 'PRIORITY') {
+            if (!isEligibleForPrioritySeat(user)) {
+                showLockedMessage(
+                    'Priority seats are strictly reserved for passengers with registered accessibility needs (Low Vision, Hearing Impairment, or Other special needs). Normal commuters cannot reserve priority seats.'
+                );
+                return;
+            }
         }
 
         setSelectedSeatNumber(
@@ -275,6 +277,7 @@ export default function SeatSelectionScreen() {
                         selectedSeatNumber
                     }
                     passengerAge={passengerAge}
+                    isPriorityEligible={isEligibleForPrioritySeat(user)}
                     onSelectSeat={handleSelectSeat}
                 />
 
