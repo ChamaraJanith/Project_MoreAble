@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
@@ -8,13 +9,19 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { getBusSession } from '../../../shared/utils/busSession';
 import { getCurrentPhoneLocation } from '../../../shared/utils/phoneLocation';
+import { publishBusLocation } from '../api/busLocationApi';
 import {
     PhoneLocationAction,
     PhoneLocationState,
+    busNotSignedIn,
     describePhoneLocationState,
     initialPhoneLocationState,
     isLocationRequestInFlight,
+    locationPublishFailed,
+    locationPublishStarted,
+    locationPublished,
     locationReceived,
     locationRequestFailed,
     locationRequestStarted,
@@ -27,28 +34,57 @@ import {
  * to offer lives in `phoneLocationState`, which is covered by tests. This holds
  * the state and renders the result.
  *
- * Nothing runs on mount. The driver presses a button to check location, so
- * opening the dashboard never sets off a permission prompt by itself.
+ * Nothing runs on mount or on focus. The driver presses a button, so opening
+ * the dashboard never sets off a permission prompt or a network request by
+ * itself — and nothing here repeats on a timer. Automatic, continuous
+ * publishing is MOV-262 and is deliberately absent.
  *
- * The reading stays on this screen — publishing it to the bus location endpoint
- * is MOV-265, and repeating it is MOV-262.
+ * One press does the whole manual flow: read the phone's position, look up the
+ * signed-in bus, and send the reading to that bus's location endpoint.
  */
 export function LocationStatusCard() {
     const [state, setState] = useState<PhoneLocationState>(initialPhoneLocationState);
 
     const requestLocation = useCallback(async () => {
-        // One request at a time. Without this a second tap would start another
-        // permission prompt on top of the first.
+        // One attempt at a time, covering both halves. Without this a second
+        // press would start another permission prompt on top of the first, or
+        // send the same position twice.
         if (isLocationRequestInFlight(state)) return;
 
         setState(locationRequestStarted);
 
+        let reading;
+
         try {
-            setState(locationReceived(await getCurrentPhoneLocation()));
+            reading = await getCurrentPhoneLocation();
         } catch (error) {
             // Every failure is classified into a driver-facing state. The
-            // native error itself is never rendered.
+            // native error itself is never rendered, and nothing is published
+            // when there is no position to publish.
             setState(locationRequestFailed(error));
+            return;
+        }
+
+        setState(locationReceived(reading));
+
+        // The bus this phone signed in as. Both values come from that session —
+        // neither the id nor the credential is derived or assumed here.
+        const session = await getBusSession();
+
+        if (!session) {
+            setState(busNotSignedIn);
+            return;
+        }
+
+        setState(locationPublishStarted);
+
+        try {
+            await publishBusLocation(session.busId, reading, session.token);
+            setState(locationPublished);
+        } catch (error) {
+            // The server's own wording is never shown; the state carries a
+            // message written for a driver.
+            setState((current) => locationPublishFailed(current, error));
         }
     }, [state]);
 
@@ -66,6 +102,10 @@ export function LocationStatusCard() {
         (action: PhoneLocationAction) => {
             if (action.kind === 'OPEN_SETTINGS') {
                 openSettings();
+                return;
+            }
+            if (action.kind === 'SIGN_IN') {
+                router.replace('/(auth)/device-login' as any);
                 return;
             }
             requestLocation();
@@ -95,7 +135,7 @@ export function LocationStatusCard() {
 
             {/* The coordinates are shown so the driver can see the phone really
                 did get a fix. Nothing is sent anywhere yet. */}
-            {state.status === 'AVAILABLE' && state.location && (
+            {(state.status === 'AVAILABLE' || state.status === 'PUBLISHED') && state.location && (
                 <View
                     style={styles.readingRow}
                     accessible

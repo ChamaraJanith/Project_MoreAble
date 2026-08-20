@@ -11,6 +11,7 @@
 // It decides nothing about publishing. Sending a reading to the backend is
 // MOV-265, and repeating it on a timer is MOV-262.
 
+import { PublishLocationError } from '../api/busLocationApi';
 import { PhoneLocation, PhoneLocationError } from '../../../shared/utils/phoneLocation';
 
 export type PhoneLocationStatus =
@@ -27,7 +28,15 @@ export type PhoneLocationStatus =
     /** Permission and services are fine, but no position could be fixed. */
     | 'POSITION_UNAVAILABLE'
     /** Something failed that the location service did not classify. */
-    | 'UNKNOWN_ERROR';
+    | 'UNKNOWN_ERROR'
+    /** A reading is on its way to the backend. */
+    | 'PUBLISHING'
+    /** A reading reached the backend and passengers can see it. */
+    | 'PUBLISHED'
+    /** A reading was obtained but could not be sent. */
+    | 'PUBLISH_FAILED'
+    /** No bus is signed in on this phone, so there is nothing to publish as. */
+    | 'NOT_SIGNED_IN';
 
 export interface PhoneLocationState {
     status: PhoneLocationStatus;
@@ -94,17 +103,62 @@ export function locationRequestFailed(error: unknown): PhoneLocationState {
     return { status: 'UNKNOWN_ERROR', location: null };
 }
 
-/** True while a request is running, so the screen can refuse a second one. */
+/**
+ * The reading is on its way to the backend.
+ *
+ * The position stays on screen throughout — it was really obtained, and only
+ * the sharing of it is still in doubt.
+ */
+export function locationPublishStarted(state: PhoneLocationState): PhoneLocationState {
+    return { status: 'PUBLISHING', location: state.location };
+}
+
+/** The backend confirmed it stored the reading. */
+export function locationPublished(state: PhoneLocationState): PhoneLocationState {
+    return { status: 'PUBLISHED', location: state.location };
+}
+
+/**
+ * The reading could not be sent.
+ *
+ * A signed-out phone is separated from every other failure, because retrying
+ * will never fix it — the driver has to sign the bus in again. Everything else
+ * is worth another attempt.
+ */
+export function locationPublishFailed(
+    state: PhoneLocationState,
+    error: unknown
+): PhoneLocationState {
+    if (error instanceof PublishLocationError && error.reason === 'NOT_AUTHENTICATED') {
+        return { status: 'NOT_SIGNED_IN', location: state.location };
+    }
+
+    return { status: 'PUBLISH_FAILED', location: state.location };
+}
+
+/** No bus session on this device, so nothing can be published. */
+export function busNotSignedIn(state: PhoneLocationState): PhoneLocationState {
+    return { status: 'NOT_SIGNED_IN', location: state.location };
+}
+
+/**
+ * True while anything is running, so the screen can refuse a second attempt.
+ *
+ * Covers publishing as well as the GPS read: a driver pressing twice must not
+ * start two requests, whichever half of the flow is still going.
+ */
 export function isLocationRequestInFlight(state: PhoneLocationState): boolean {
-    return state.status === 'REQUESTING';
+    return state.status === 'REQUESTING' || state.status === 'PUBLISHING';
 }
 
 /** What pressing a button should do. */
 export type PhoneLocationActionKind =
-    /** Ask the location service again. */
+    /** Ask the location service again, then publish what it returns. */
     | 'REQUEST'
     /** Send the driver to the system settings screen. */
-    | 'OPEN_SETTINGS';
+    | 'OPEN_SETTINGS'
+    /** Send the driver back to bus sign in. */
+    | 'SIGN_IN';
 
 export interface PhoneLocationAction {
     kind: PhoneLocationActionKind;
@@ -159,6 +213,50 @@ export function describePhoneLocationState(state: PhoneLocationState): PhoneLoca
                 title: 'Location available',
                 description: 'This phone can share where the bus is.',
                 primaryAction: { kind: 'REQUEST', label: 'Update location' },
+                isBusy: false,
+            };
+
+        case 'PUBLISHING':
+            return {
+                tone: 'neutral',
+                icon: 'locate-outline',
+                title: 'Sharing your location…',
+                description: 'Sending this bus position so passengers can see it.',
+                isBusy: true,
+            };
+
+        case 'PUBLISHED':
+            return {
+                tone: 'success',
+                icon: 'navigate',
+                title: 'Location shared',
+                description: 'Passengers can now see where this bus is.',
+                primaryAction: { kind: 'REQUEST', label: 'Update location' },
+                isBusy: false,
+            };
+
+        case 'PUBLISH_FAILED':
+            // The position was obtained; only sending it failed, so the same
+            // action that got it will try the whole thing again.
+            return {
+                tone: 'warning',
+                icon: 'alert-circle-outline',
+                title: 'Location not shared',
+                description:
+                    'The bus position could not be sent just now. Passengers will not see it until it goes through.',
+                primaryAction: { kind: 'REQUEST', label: 'Try again' },
+                isBusy: false,
+            };
+
+        case 'NOT_SIGNED_IN':
+            // Retrying cannot fix this one, so no retry is offered.
+            return {
+                tone: 'warning',
+                icon: 'lock-closed-outline',
+                title: 'This bus is signed out',
+                description:
+                    'Sign in with the bus number plate and password to start sharing its location again.',
+                primaryAction: { kind: 'SIGN_IN', label: 'Go to bus sign in' },
                 isBusy: false,
             };
 
