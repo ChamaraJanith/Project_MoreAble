@@ -142,7 +142,7 @@ export default function ReportAccessibilityIssueScreen() {
           </View>
 
           <View style={styles.formCard}>
-            {error && (
+            {!!error && (
               <View style={styles.errorContainer} accessibilityRole="alert">
                 <Ionicons name="alert-circle" size={20} color="#DC2626" />
                 <Text style={styles.errorText}>{error}</Text>
