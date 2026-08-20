@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -12,20 +12,31 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { Bus } from '../../../entities/bus/model/types';
 import {
     ReportIssueCategory,
     ReportPhotoDraft,
 } from '../../../entities/report/model/types';
+import { Route } from '../../../entities/route/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSelectModal, AdminSelectOption } from '../../admin/ui/AdminSelectModal';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
+import { loadReportReferenceData } from '../api/reportReferenceData';
 import { PhotoEvidencePicker } from './PhotoEvidencePicker';
 import { REPORT_CATEGORY_OPTIONS } from './reportCategories';
-import { ReportSelectField, ReportTextArea, ReportTextField } from './ReportFormFields';
+import { ReportSelectField, ReportTextArea } from './ReportFormFields';
 
 const DESCRIPTION_MAX_LENGTH = 600;
+
+const DIRECTION_LABELS: Record<string, string> = {
+    OUTBOUND: 'Outbound',
+    RETURN: 'Return',
+};
+
+/** Which picker sheet is open; only one can be at a time. */
+type ActivePicker = 'category' | 'bus' | 'route' | null;
 
 export const ReportIssueScreen = () => {
     const { token, isAuthenticated } = useAuthStore();
@@ -34,16 +45,42 @@ export const ReportIssueScreen = () => {
     const [issueCategory, setIssueCategory] = useState<ReportIssueCategory | null>(null);
     const [description, setDescription] = useState('');
 
-    // ---- Collected in the UI only (MOV-140) ----------------------------
+    // ---- Collected in the UI only (MOV-141) ----------------------------
     // The current POST /api/reports contract accepts issueCategory and
     // description only, so these stay local until the backend stores them.
-    const [busNumber, setBusNumber] = useState('');
-    const [routeNumber, setRouteNumber] = useState('');
+    // Both hold the canonical document id, never the display text.
+    const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
+    const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
     const [photos, setPhotos] = useState<ReportPhotoDraft[]>([]);
 
+    // ---- Bus / route reference data ------------------------------------
+    const [buses, setBuses] = useState<Bus[]>([]);
+    const [routes, setRoutes] = useState<Route[]>([]);
+    const [isLoadingReferenceData, setIsLoadingReferenceData] = useState(true);
+    const [busError, setBusError] = useState<string | null>(null);
+    const [routeError, setRouteError] = useState<string | null>(null);
+
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [activePicker, setActivePicker] = useState<ActivePicker>(null);
     const [error, setError] = useState<string | null>(null);
+
+    const loadReferenceData = useCallback(async () => {
+        setIsLoadingReferenceData(true);
+
+        const data = await loadReportReferenceData();
+
+        setBuses(data.buses);
+        setRoutes(data.routes);
+        setBusError(data.busError);
+        setRouteError(data.routeError);
+        setIsLoadingReferenceData(false);
+    }, []);
+
+    // Loaded once on mount. The issue category and description do not depend on
+    // it, so they stay usable throughout.
+    useEffect(() => {
+        loadReferenceData();
+    }, [loadReferenceData]);
 
     const selectedCategoryOption = REPORT_CATEGORY_OPTIONS.find(
         (option) => option.value === issueCategory
@@ -52,6 +89,47 @@ export const ReportIssueScreen = () => {
     const categoryOptions = useMemo<AdminSelectOption[]>(
         () => REPORT_CATEGORY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
         []
+    );
+
+    const selectedBus = useMemo(
+        () => buses.find((bus) => bus.busId === selectedBusId) ?? null,
+        [buses, selectedBusId]
+    );
+
+    const selectedRoute = useMemo(
+        () => routes.find((route) => route.routeId === selectedRouteId) ?? null,
+        [routes, selectedRouteId]
+    );
+
+    // Every bus is offered, whatever its status: a passenger may well be
+    // reporting the very fault that put the vehicle into maintenance.
+    const busOptions = useMemo<AdminSelectOption[]>(
+        () =>
+            buses.map((bus) => ({
+                value: bus.busId,
+                label: bus.numberPlate,
+                description: [bus.busModel, bus.manufacturer].filter(Boolean).join(' · '),
+                status: bus.status,
+            })),
+        [buses]
+    );
+
+    // A route number exists once per direction, so the label has to carry the
+    // direction too — "138" alone would be ambiguous.
+    const routeOptions = useMemo<AdminSelectOption[]>(
+        () =>
+            routes.map((route) => ({
+                value: route.routeId,
+                label: `${route.routeNumber} · ${route.routeName}`,
+                description: [
+                    `${route.startLocation} → ${route.endLocation}`,
+                    route.direction ? DIRECTION_LABELS[route.direction] ?? route.direction : null,
+                ]
+                    .filter(Boolean)
+                    .join(' · '),
+                status: route.status,
+            })),
+        [routes]
     );
 
     const canSubmit = !!issueCategory && !!description.trim() && !isSubmitting;
@@ -157,7 +235,7 @@ export const ReportIssueScreen = () => {
                         value={selectedCategoryOption?.label ?? null}
                         placeholder="Select a category"
                         icon={selectedCategoryOption?.icon ?? 'list-outline'}
-                        onPress={() => setIsCategoryModalOpen(true)}
+                        onPress={() => setActivePicker('category')}
                     />
 
                     <ReportTextArea
@@ -174,26 +252,103 @@ export const ReportIssueScreen = () => {
                 <Text style={styles.sectionTitle}>Bus / Vehicle Details</Text>
 
                 <View style={styles.card}>
-                    <ReportTextField
-                        label="Bus / Vehicle Number"
-                        value={busNumber}
-                        onChangeText={setBusNumber}
-                        placeholder="Enter bus or vehicle number"
-                        icon="bus-outline"
-                        optional
-                        maxLength={20}
-                    />
+                    {isLoadingReferenceData ? (
+                        <View style={styles.referenceLoadingRow} accessibilityLiveRegion="polite">
+                            <ActivityIndicator size="small" color={adminColors.primary} />
+                            <Text style={styles.referenceLoadingText}>
+                                Loading buses and routes...
+                            </Text>
+                        </View>
+                    ) : (
+                        <>
+                            {(!!busError || !!routeError) && (
+                                <View style={styles.referenceErrorBanner} accessibilityRole="alert">
+                                    <Ionicons
+                                        name="cloud-offline-outline"
+                                        size={18}
+                                        color={adminColors.danger}
+                                    />
+                                    <Text style={styles.referenceErrorText}>
+                                        {[busError, routeError].filter(Boolean).join(' ')}
+                                    </Text>
+                                    <TouchableOpacity
+                                        onPress={loadReferenceData}
+                                        style={styles.referenceRetryButton}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Retry loading buses and routes"
+                                    >
+                                        <Text style={styles.referenceRetryText}>Retry</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
 
-                    <ReportTextField
-                        label="Route Number"
-                        value={routeNumber}
-                        onChangeText={setRouteNumber}
-                        placeholder="Enter route number"
-                        icon="git-branch-outline"
-                        optional
-                        maxLength={20}
-                        helper="Adding the vehicle and route helps us trace the exact bus involved."
-                    />
+                            <ReportSelectField
+                                label="Bus / Vehicle"
+                                value={selectedBus?.numberPlate ?? null}
+                                secondary={[selectedBus?.busModel, selectedBus?.manufacturer]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                placeholder={
+                                    buses.length === 0 ? 'No buses available' : 'Select Bus'
+                                }
+                                icon="bus-outline"
+                                optional
+                                showSelectedTick
+                                disabled={buses.length === 0}
+                                onPress={() => setActivePicker('bus')}
+                            />
+
+                            <ReportSelectField
+                                label="Route"
+                                value={
+                                    selectedRoute
+                                        ? `${selectedRoute.routeNumber} · ${selectedRoute.routeName}`
+                                        : null
+                                }
+                                secondary={
+                                    selectedRoute
+                                        ? [
+                                              `${selectedRoute.startLocation} → ${selectedRoute.endLocation}`,
+                                              selectedRoute.direction
+                                                  ? DIRECTION_LABELS[selectedRoute.direction] ??
+                                                    selectedRoute.direction
+                                                  : null,
+                                          ]
+                                              .filter(Boolean)
+                                              .join(' · ')
+                                        : undefined
+                                }
+                                placeholder={
+                                    routes.length === 0 ? 'No routes available' : 'Select Route'
+                                }
+                                icon="git-branch-outline"
+                                optional
+                                showSelectedTick
+                                disabled={routes.length === 0}
+                                onPress={() => setActivePicker('route')}
+                                helper="Choosing the vehicle and route helps us trace the exact bus involved."
+                            />
+
+                            {(!!selectedBusId || !!selectedRouteId) && (
+                                <TouchableOpacity
+                                    style={styles.clearSelectionButton}
+                                    onPress={() => {
+                                        setSelectedBusId(null);
+                                        setSelectedRouteId(null);
+                                    }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Clear bus and route selection"
+                                >
+                                    <Ionicons
+                                        name="close-circle-outline"
+                                        size={16}
+                                        color={adminColors.textSecondary}
+                                    />
+                                    <Text style={styles.clearSelectionText}>Clear selection</Text>
+                                </TouchableOpacity>
+                            )}
+                        </>
+                    )}
                 </View>
 
                 {/* ---------------- Photo Evidence ---------------- */}
@@ -243,15 +398,41 @@ export const ReportIssueScreen = () => {
             </ScrollView>
 
             <AdminSelectModal
-                visible={isCategoryModalOpen}
+                visible={activePicker === 'category'}
                 title="Select Category"
                 options={categoryOptions}
                 selectedValue={issueCategory}
                 emptyMessage="No issue categories are available."
-                onClose={() => setIsCategoryModalOpen(false)}
+                onClose={() => setActivePicker(null)}
                 onSelect={(value) => {
                     setIssueCategory(value as ReportIssueCategory);
-                    setIsCategoryModalOpen(false);
+                    setActivePicker(null);
+                }}
+            />
+
+            <AdminSelectModal
+                visible={activePicker === 'bus'}
+                title="Select Bus"
+                options={busOptions}
+                selectedValue={selectedBusId}
+                emptyMessage="No buses are available to select."
+                onClose={() => setActivePicker(null)}
+                onSelect={(value) => {
+                    setSelectedBusId(value);
+                    setActivePicker(null);
+                }}
+            />
+
+            <AdminSelectModal
+                visible={activePicker === 'route'}
+                title="Select Route"
+                options={routeOptions}
+                selectedValue={selectedRouteId}
+                emptyMessage="No routes are available to select."
+                onClose={() => setActivePicker(null)}
+                onSelect={(value) => {
+                    setSelectedRouteId(value);
+                    setActivePicker(null);
                 }}
             />
         </KeyboardAvoidingView>
@@ -312,6 +493,59 @@ const styles = StyleSheet.create({
         padding: 16,
         marginBottom: 12,
         ...adminShadow.card,
+    },
+
+    referenceLoadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+    },
+    referenceLoadingText: {
+        fontSize: 14,
+        color: adminColors.textSecondary,
+        marginLeft: 10,
+    },
+    referenceErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.dangerSoft,
+        borderWidth: 1,
+        borderColor: adminColors.dangerBorder,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 16,
+    },
+    referenceErrorText: {
+        flex: 1,
+        fontSize: 12,
+        fontWeight: '600',
+        color: adminColors.danger,
+        marginLeft: 8,
+        lineHeight: 17,
+    },
+    referenceRetryButton: {
+        minHeight: 32,
+        justifyContent: 'center',
+        paddingHorizontal: 10,
+    },
+    referenceRetryText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.danger,
+    },
+
+    clearSelectionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        minHeight: 40,
+        paddingRight: 8,
+    },
+    clearSelectionText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.textSecondary,
+        marginLeft: 6,
     },
 
     primaryButton: {

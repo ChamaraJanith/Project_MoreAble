@@ -32,11 +32,32 @@ export interface AccessibilityReport {
     // Details the report form already collects but the current backend does
     // not persist yet. Optional so the cards start showing them the moment
     // the API returns them, without another UI change.
+    //
+    // The references follow the shape a booking already uses: the canonical
+    // document ids, plus a snapshot of what to display. A report is a
+    // historical record, so it has to keep reading correctly after the bus is
+    // retired or the route is edited.
     // ------------------------------------------------------------------
-    busNumber?: string;
-    routeNumber?: string;
+    busId?: string;
+    routeId?: string;
+    vehicle?: ReportVehicleSnapshot;
+    route?: ReportRouteSnapshot;
     photoUrls?: string[];
     photoCount?: number;
+}
+
+/** What the bus looked like when the report was filed. */
+export interface ReportVehicleSnapshot {
+    numberPlate: string;
+    busModel?: string;
+    manufacturer?: string;
+}
+
+/** What the route looked like when the report was filed. */
+export interface ReportRouteSnapshot {
+    routeNumber: string;
+    routeName?: string;
+    direction?: string;
 }
 
 /**
