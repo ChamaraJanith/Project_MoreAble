@@ -86,6 +86,32 @@ describe('the bus session survives a save and a read', () => {
         await clearBusSession();
         expect(await getBusSession()).toBeNull();
     });
+
+    it('removes only the vehicle keys, leaving a person signed in', async () => {
+        // The dashboard's exit action calls this. A driver signing a bus out
+        // must not sign the passenger or admin using the phone out with it —
+        // tokenStorage owns those keys and is a separate identity. MOV-265.
+        backedByMemory();
+
+        await saveBusSession(session());
+        await clearBusSession();
+
+        const removed = mockDeleteItem.mock.calls.map(([key]) => key);
+        expect(removed).not.toContain('moreable_access_token');
+        expect(removed).not.toContain('moreable_user_data');
+        expect(removed.every((key) => key.includes('bus'))).toBe(true);
+        // And it really did remove both of its own.
+        expect(removed).toHaveLength(2);
+    });
+
+    it('lets a failed clear reach the caller', async () => {
+        // The dashboard decides whether to navigate away from this. Navigating
+        // after a failed clear would leave a working bus session on the device
+        // for whoever picks the phone up next.
+        mockDeleteItem.mockRejectedValue(new Error('keychain unavailable'));
+
+        await expect(clearBusSession()).rejects.toThrow();
+    });
 });
 
 // ==================================================================
