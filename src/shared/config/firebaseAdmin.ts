@@ -57,5 +57,11 @@ export function getAdminAuth() {
 export function getAdminDb() {
     const app = getFirebaseAdminApp();
     const { getFirestore } = require('firebase-admin/firestore');
-    return getFirestore(app);
+    const db = getFirestore(app);
+    try {
+        db.settings({ ignoreUndefinedProperties: true });
+    } catch (e) {
+        // Settings can only be set once on initialized Firestore instance
+    }
+    return db;
 }

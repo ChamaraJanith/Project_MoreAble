@@ -37,7 +37,7 @@ export interface AccessibilityProfile {
   passengerId: string;             // Auto-generated Passenger ID (e.g. PAS-2026-00001)
   hasAccessibilityNeeds: boolean;
   accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment', 'walking_difficulty', 'other']
-  otherDescription?: string;
+  otherDescription?: string | null;
   requestedServices?: AccessibilityRequestedServices;
   createdAt: string;
   updatedAt: string;
@@ -64,7 +64,7 @@ export interface User {
   isHearingImpaired?: boolean;
   isWalkingDifficultyPerson?: boolean;
   isOtherAccessibilityPerson?: boolean;
-  otherDescription?: string;
+  otherDescription?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,7 +105,7 @@ export interface UserRegistrationDTO {
   isElderPerson?: boolean;
   hasAccessibilityNeeds?: boolean;
   accessibilityNeeds?: string[];
-  otherDescription?: string;
+  otherDescription?: string | null;
   guardianDetails?: {
     fullName: string;
     email: string;

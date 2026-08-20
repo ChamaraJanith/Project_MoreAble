@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
         const selectedNeeds = Array.isArray(data.accessibilityNeeds) ? data.accessibilityNeeds : [];
         const hasNeeds = !!data.hasAccessibilityNeeds || selectedNeeds.length > 0;
-        const otherDesc = data.otherDescription ? data.otherDescription.trim() : undefined;
+        const otherDesc = data.otherDescription ? data.otherDescription.trim() : null;
 
         if (hasNeeds) {
             accessibilityProfileId = `ACC-${currentYear}-${formattedSequence}`;
