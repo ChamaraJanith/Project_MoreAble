@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     const isHearingImpaired = selectedNeeds.includes('hearing_impairment');
     const isWalkingDifficultyPerson = selectedNeeds.includes('walking_difficulty');
     const isOtherAccessibilityPerson = selectedNeeds.includes('other');
-    const otherDesc = otherDescription ? otherDescription.trim() : undefined;
+    const otherDesc = otherDescription ? otherDescription.trim() : null;
     const hasNeeds = selectedNeeds.length > 0;
 
     const profileRecord: AccessibilityProfile = {
