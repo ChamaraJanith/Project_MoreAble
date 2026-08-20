@@ -20,6 +20,9 @@ interface Props {
     /** Passenger's age if known — used to visually flag elderly-reserved seats. Pass null for guests / unknown age. */
     passengerAge: number | null;
 
+    /** Whether passenger has registered low_vision, hearing_impairment, or other accessibility needs. */
+    isPriorityEligible?: boolean;
+
     onSelectSeat: (seat: Seat) => void;
 }
 
@@ -31,12 +34,17 @@ const SIDE_WIDTH = UNIT * 2 + SEAT_GAP;
 function isSeatLocked(
     seat: Seat,
     passengerAge: number | null,
+    isPriorityEligible: boolean = false,
 ): boolean {
-    if (seat.category !== 'ELDERLY' || seat.minAge == null) {
-        return false;
+    if (seat.category === 'ELDERLY' && seat.minAge != null) {
+        return passengerAge == null || passengerAge < seat.minAge;
     }
 
-    return passengerAge == null || passengerAge < seat.minAge;
+    if (seat.category === 'PRIORITY') {
+        return !isPriorityEligible;
+    }
+
+    return false;
 }
 
 function seatVisualStyle(
@@ -112,16 +120,19 @@ function StandardSeatButton({
     seat,
     isSelected,
     passengerAge,
+    isPriorityEligible = false,
     onPress,
 }: {
     seat: Seat;
     isSelected: boolean;
     passengerAge: number | null;
+    isPriorityEligible?: boolean;
     onPress: () => void;
 }) {
     const isLocked = isSeatLocked(
         seat,
         passengerAge,
+        isPriorityEligible,
     );
 
     const isDisabled = seat.status !== 'AVAILABLE';
@@ -136,6 +147,11 @@ function StandardSeatButton({
                     ? ', guardian seat'
                     : '';
 
+    const lockDescription =
+        seat.category === 'PRIORITY'
+            ? 'restricted to passengers with low vision, hearing impairment, or other accessibility needs'
+            : 'restricted to 60 and above';
+
     return (
         <TouchableOpacity
             style={seatVisualStyle(
@@ -148,7 +164,7 @@ function StandardSeatButton({
             accessibilityRole="button"
             accessibilityLabel={`Seat ${seat.seatNumber}${categoryLabel}, ${
                 isLocked
-                    ? 'restricted to 60 and above'
+                    ? lockDescription
                     : seat.status.toLowerCase()
             }`}
             accessibilityState={{
@@ -311,11 +327,13 @@ function SeatRow({
     row,
     selectedSeatNumber,
     passengerAge,
+    isPriorityEligible = false,
     onSelectSeat,
 }: {
     row: SeatMapRow;
     selectedSeatNumber: string | null;
     passengerAge: number | null;
+    isPriorityEligible?: boolean;
     onSelectSeat: (seat: Seat) => void;
 }) {
     if (row.kind === 'WHEELCHAIR_PAIR') {
@@ -363,6 +381,7 @@ function SeatRow({
                     selectedSeatNumber
                 }
                 passengerAge={passengerAge}
+                isPriorityEligible={isPriorityEligible}
                 onPress={() =>
                     onSelectSeat(slot.seat!)
                 }
@@ -401,6 +420,7 @@ export function SeatMap({
     layout,
     selectedSeatNumber,
     passengerAge,
+    isPriorityEligible = false,
     onSelectSeat,
 }: Props) {
     return (
@@ -475,6 +495,7 @@ export function SeatMap({
                             selectedSeatNumber
                         }
                         passengerAge={passengerAge}
+                        isPriorityEligible={isPriorityEligible}
                         onSelectSeat={onSelectSeat}
                     />
                 ))}

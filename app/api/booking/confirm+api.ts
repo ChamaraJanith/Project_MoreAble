@@ -3,6 +3,7 @@ import { computeRouteSegmentDistance } from '../../../src/shared/server/routeDis
 import { generateBookingId } from '../../../src/shared/utils/bookingId';
 import { calculateFare } from '../../../src/shared/utils/fare';
 import { normalizeLocation } from '../../../src/shared/utils/location';
+import { buildSeatLayout, findSeat } from '../../../src/shared/utils/seatLayout';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -50,6 +51,89 @@ export async function POST(request: Request) {
             );
         }
         const bus = busDoc.data();
+
+        // ---- Authoritative priority seat validation ----
+        const layout = buildSeatLayout(bus);
+        const targetSeat = findSeat(layout, seatNumber);
+        const isPriorityRequest = !!isPrioritySeat || targetSeat?.category === 'PRIORITY';
+
+        if (isPriorityRequest) {
+            let isEligible = false;
+
+            if (passengerId && passengerId !== 'GUEST') {
+                const userDoc = await adminDb.collection('users').doc(passengerId).get();
+                if (userDoc.exists) {
+                    const uData = userDoc.data();
+                    if (
+                        uData?.isLowVisionPerson ||
+                        uData?.isHearingImpaired ||
+                        uData?.isOtherAccessibilityPerson
+                    ) {
+                        isEligible = true;
+                    } else if (Array.isArray(uData?.accessibilityNeeds)) {
+                        const QUALIFYING = ['low_vision', 'hearing_impairment', 'other'];
+                        isEligible = uData.accessibilityNeeds.some((n: string) =>
+                            typeof n === 'string' && QUALIFYING.includes(n.toLowerCase().trim())
+                        );
+                    }
+
+                    if (!isEligible && uData?.accessibilityProfileId) {
+                        const accDoc = await adminDb
+                            .collection('accessibility_needs_persons')
+                            .doc(uData.accessibilityProfileId)
+                            .get();
+
+                        if (accDoc.exists) {
+                            const accData = accDoc.data();
+                            const accNeeds = Array.isArray(accData?.accessibilityNeeds) ? accData.accessibilityNeeds : [];
+                            const QUALIFYING = ['low_vision', 'hearing_impairment', 'other'];
+                            isEligible = accNeeds.some((n: string) =>
+                                typeof n === 'string' && QUALIFYING.includes(n.toLowerCase().trim())
+                            );
+                        }
+                    }
+                }
+            }
+
+            if (!isEligible) {
+                return Response.json(
+                    {
+                        success: false,
+                        message: 'Priority seats are strictly locked to normal commuters and reserved only for passengers with registered accessibility needs (Low Vision, Hearing Impairment, or Other).',
+                    },
+                    { status: 403, headers: corsHeaders }
+                );
+            }
+        }
+
+        // ---- Authoritative elderly seat validation (60+) ----
+        const isElderlyRequest = targetSeat?.category === 'ELDERLY';
+
+        if (isElderlyRequest) {
+            let isElderlyEligible = false;
+
+            if (passengerId && passengerId !== 'GUEST') {
+                const userDoc = await adminDb.collection('users').doc(passengerId).get();
+                if (userDoc.exists) {
+                    const uData = userDoc.data();
+                    const age = typeof uData?.calculatedAge === 'number' ? uData.calculatedAge : null;
+                    const minAge = targetSeat?.minAge ?? 60;
+                    if (uData?.isElderPerson || (age != null && age >= minAge)) {
+                        isElderlyEligible = true;
+                    }
+                }
+            }
+
+            if (!isElderlyEligible) {
+                return Response.json(
+                    {
+                        success: false,
+                        message: 'Elderly seats are strictly reserved for passengers aged 60 and above.',
+                    },
+                    { status: 403, headers: corsHeaders }
+                );
+            }
+        }
 
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
