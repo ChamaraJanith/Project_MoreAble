@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
@@ -8,13 +9,19 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { getBusSession } from '../../../shared/utils/busSession';
 import { getCurrentPhoneLocation } from '../../../shared/utils/phoneLocation';
+import { publishBusLocation } from '../api/busLocationApi';
 import {
     PhoneLocationAction,
     PhoneLocationState,
+    busNotSignedIn,
     describePhoneLocationState,
     initialPhoneLocationState,
     isLocationRequestInFlight,
+    locationPublishFailed,
+    locationPublishStarted,
+    locationPublished,
     locationReceived,
     locationRequestFailed,
     locationRequestStarted,
@@ -37,18 +44,45 @@ export function LocationStatusCard() {
     const [state, setState] = useState<PhoneLocationState>(initialPhoneLocationState);
 
     const requestLocation = useCallback(async () => {
-        // One request at a time. Without this a second tap would start another
-        // permission prompt on top of the first.
+        // One attempt at a time, covering both halves. Without this a second tap
+        // would start another permission prompt on top of the first, or send the
+        // same position twice.
         if (isLocationRequestInFlight(state)) return;
 
         setState(locationRequestStarted);
 
+        let reading;
+
         try {
-            setState(locationReceived(await getCurrentPhoneLocation()));
+            reading = await getCurrentPhoneLocation();
         } catch (error) {
             // Every failure is classified into a driver-facing state. The
-            // native error itself is never rendered.
+            // native error itself is never rendered. Nothing is published when
+            // there is no position to publish.
             setState(locationRequestFailed(error));
+            return;
+        }
+
+        setState(locationReceived(reading));
+
+        // The bus this phone signed in as. Both values come from that session —
+        // neither the id nor the token is assumed or constructed here.
+        const session = await getBusSession();
+
+        if (!session) {
+            setState(busNotSignedIn);
+            return;
+        }
+
+        setState(locationPublishStarted);
+
+        try {
+            await publishBusLocation(session.busId, reading, session.token);
+            setState(locationPublished);
+        } catch (error) {
+            // The server's own wording is never shown; the state carries a
+            // message written for a driver.
+            setState((current) => locationPublishFailed(current, error));
         }
     }, [state]);
 
@@ -66,6 +100,10 @@ export function LocationStatusCard() {
         (action: PhoneLocationAction) => {
             if (action.kind === 'OPEN_SETTINGS') {
                 openSettings();
+                return;
+            }
+            if (action.kind === 'SIGN_IN') {
+                router.replace('/(auth)/device-login' as any);
                 return;
             }
             requestLocation();
@@ -95,7 +133,7 @@ export function LocationStatusCard() {
 
             {/* The coordinates are shown so the driver can see the phone really
                 did get a fix. Nothing is sent anywhere yet. */}
-            {state.status === 'AVAILABLE' && state.location && (
+            {(state.status === 'AVAILABLE' || state.status === 'PUBLISHED') && state.location && (
                 <View
                     style={styles.readingRow}
                     accessible

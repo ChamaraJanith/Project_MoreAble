@@ -4,6 +4,7 @@ import {
   unauthorizedResponse,
 } from '../../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,32 +82,6 @@ function extractBusId(request: Request, context: any): string {
 // retrieval layer that reads this data.
 export async function PUT(request: Request, context?: any) {
   try {
-    // ----------------------------------------------------------
-    // Authenticate
-    //
-    // Without this, anyone could place any bus anywhere. The project has no
-    // device identity of its own yet, so the operator role is the narrowest
-    // existing boundary that keeps passengers out — see the MOV-121 report.
-    // ----------------------------------------------------------
-    const account = await authenticateRequest(request);
-
-    if (!account) {
-      return unauthorizedResponse('Authentication required.', corsHeaders);
-    }
-
-    if (account.role !== 'ADMIN') {
-      return Response.json(
-        {
-          success: false,
-          message: 'Only an operator account may report a vehicle location.',
-        },
-        {
-          status: 403,
-          headers: corsHeaders,
-        }
-      );
-    }
-
     const busId = extractBusId(request, context);
 
     if (!busId) {
@@ -117,6 +92,35 @@ export async function PUT(request: Request, context?: any) {
         },
         {
           status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // ----------------------------------------------------------
+    // Authenticate, then authorise the caller for THIS bus.
+    //
+    // The id above names the resource being addressed; it is not evidence that
+    // the caller owns it. Whether a token may write to it is decided in
+    // vehicleLocationAuthorization, apart from the validation and storage
+    // below, so the rule can tighten as Bus Login lands without disturbing
+    // anything else in this handler.
+    // ----------------------------------------------------------
+    const account = await authenticateRequest(request);
+    const authorization = authoriseLocationReport(account, busId);
+
+    if (!authorization.allowed) {
+      if (authorization.status === 401) {
+        return unauthorizedResponse(authorization.message, corsHeaders);
+      }
+
+      return Response.json(
+        {
+          success: false,
+          message: authorization.message,
+        },
+        {
+          status: authorization.status,
           headers: corsHeaders,
         }
       );
@@ -190,7 +194,11 @@ export async function PUT(request: Request, context?: any) {
     // The position must belong to a bus that actually exists, so an unknown id
     // cannot create an orphan location record.
     // ----------------------------------------------------------
-    const busDoc = await adminDb.collection('buses').doc(busId).get();
+    // The id authorisation passed, rather than the one parsed from the URL, so
+    // a position can only ever be filed against a bus the caller was cleared for.
+    const authorisedBusId = authorization.busId;
+
+    const busDoc = await adminDb.collection('buses').doc(authorisedBusId).get();
 
     if (!busDoc.exists) {
       return Response.json(
@@ -207,7 +215,7 @@ export async function PUT(request: Request, context?: any) {
 
     // Only the position is stored — never a copy of the bus's own details.
     const location: VehicleLocation = {
-      busId,
+      busId: authorisedBusId,
       latitude,
       longitude,
       recordedAt: normalisedRecordedAt,
@@ -215,7 +223,7 @@ export async function PUT(request: Request, context?: any) {
 
     await adminDb
       .collection(VEHICLE_LOCATIONS_COLLECTION)
-      .doc(busId)
+      .doc(authorisedBusId)
       .set(location);
 
     return Response.json(

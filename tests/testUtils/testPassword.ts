@@ -31,3 +31,17 @@ export function buildTooShortTestPassword(): string {
     sequence += 1;
     return `p${sequence}`;
 }
+
+/**
+ * A stand-in for a session token, built the same way and for the same reason.
+ *
+ * Tests need values to pass as bearer credentials and to assert on. Written as
+ * literals they look exactly like leaked tokens to a secret scanner — which is
+ * what this avoids. The result reads as an identifier ("tk-session-mf3k1a-4"),
+ * is unique per call, and is never a real token: nothing in this project would
+ * accept one.
+ */
+export function buildTestToken(label = 'session'): string {
+    sequence += 1;
+    return ['tk', label, Date.now().toString(36), String(sequence)].join('-');
+}

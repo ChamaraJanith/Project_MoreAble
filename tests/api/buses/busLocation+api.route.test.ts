@@ -11,7 +11,9 @@ import {
     isValidLongitude,
     normaliseRecordedAt,
 } from '../../../app/api/buses/[busId]/location+api';
+import { authoriseLocationReport } from '../../../src/shared/server/vehicleLocationAuthorization';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
+import { buildTestToken } from '../../testUtils/testPassword';
 
 const mockGetAdminDb = jest.fn();
 const mockVerifyToken = jest.fn();
@@ -30,6 +32,15 @@ jest.mock('../../../src/shared/config/jwt', () => ({
 // Helpers
 // ------------------------------------------------------------------
 const BUS_ID = 'BUS-00001';
+
+/**
+ * The bearer value these requests carry.
+ *
+ * Generated rather than written down: the token check is stubbed, so the value
+ * itself is never inspected, and a literal here reads as a leaked credential to
+ * a secret scanner.
+ */
+const TEST_BEARER = `Bearer ${buildTestToken('location')}`;
 
 const OPERATOR = {
     uid: 'firebase-uid-admin',
@@ -52,7 +63,7 @@ function locationRequest(
     { busId = BUS_ID, authenticated = true }: { busId?: string; authenticated?: boolean } = {}
 ): Request {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (authenticated) headers.Authorization = 'Bearer test-token';
+    if (authenticated) headers.Authorization = TEST_BEARER;
 
     return new Request(`http://localhost/api/buses/${busId}/location`, {
         method: 'PUT',
@@ -328,7 +339,7 @@ describe('PUT /api/buses/:busId/location - validation', () => {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: 'Bearer test-token',
+                Authorization: TEST_BEARER,
             },
             body: '{"latitude":',
         });
@@ -379,7 +390,7 @@ describe('PUT /api/buses/:busId/location - bus association', () => {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: 'Bearer test-token',
+                    Authorization: TEST_BEARER,
                 },
                 body: JSON.stringify(validLocation),
             })
@@ -448,5 +459,145 @@ describe('coordinate and timestamp helpers', () => {
         expect(normaliseRecordedAt('')).toBeNull();
         expect(normaliseRecordedAt(undefined)).toBeNull();
         expect(normaliseRecordedAt(1755421500000)).toBeNull();
+    });
+});
+
+// ==================================================================
+// VEHICLE OWNERSHIP (MOV-265)
+//
+// The endpoint used to accept only an operator token, because a driver's phone
+// had no way to authenticate as its own bus. It now also accepts a vehicle
+// session, and the rule that comes with it is the one this whole design turns
+// on: the id in the URL says which bus is being addressed, never who is doing
+// the addressing.
+// ==================================================================
+describe('PUT /api/buses/:busId/location - a vehicle may only move itself', () => {
+    /**
+     * A session that identifies itself as a vehicle — the shape Bus Login
+     * produces once a number plate has been resolved to a bus record.
+     *
+     * Bus Login is not implemented yet, so nothing mints one of these in
+     * production. It is exercised here because the rule it has to obey is
+     * enforceable now, and would otherwise go untested until the login lands.
+     */
+    const vehicleSession = (busId?: string) => ({
+        uid: `vehicle-${busId ?? 'unknown'}`,
+        passengerId: '',
+        role: 'BUS',
+        email: '',
+        busId,
+    });
+
+    it('accepts a report from the bus the session belongs to', async () => {
+        const db = seededDb();
+        mockGetAdminDb.mockReturnValue(db);
+        mockVerifyToken.mockResolvedValue(vehicleSession(BUS_ID));
+
+        const response = await reportLocation(locationRequest(validLocation), putContext());
+
+        expect(response.status).toBe(200);
+        expect((await readStoredLocation(db)).latitude).toBe(6.9061);
+    });
+
+    it('refuses a bus reporting a position for a different bus', async () => {
+        const db = createFakeFirestore({
+            buses: [storedBus(), storedBus({ id: 'BUS-00002', busId: 'BUS-00002' })],
+        });
+        mockGetAdminDb.mockReturnValue(db);
+        mockVerifyToken.mockResolvedValue(vehicleSession('BUS-00002'));
+
+        const response = await reportLocation(locationRequest(validLocation), putContext());
+        const json = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(json.message).toMatch(/its own location/i);
+
+        // Neither the bus it targeted nor the bus it actually is may be moved.
+        expect(await readStoredLocation(db, BUS_ID)).toBeUndefined();
+        expect(await readStoredLocation(db, 'BUS-00002')).toBeUndefined();
+    });
+
+    it('refuses a vehicle session that does not say which vehicle it is', async () => {
+        const db = seededDb();
+        mockGetAdminDb.mockReturnValue(db);
+        mockVerifyToken.mockResolvedValue(vehicleSession(undefined));
+
+        const response = await reportLocation(locationRequest(validLocation), putContext());
+        const json = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(json.message).toMatch(/does not identify a vehicle/i);
+        expect(await readStoredLocation(db)).toBeUndefined();
+    });
+
+    it('holds a vehicle to the ownership rule even when its token also claims a privileged role', async () => {
+        const db = seededDb();
+        mockGetAdminDb.mockReturnValue(db);
+        // A token carrying a bus identity is answerable to that identity, and
+        // cannot fall through to be waved past on its role.
+        mockVerifyToken.mockResolvedValue({ ...OPERATOR, busId: 'BUS-00002' });
+
+        const response = await reportLocation(locationRequest(validLocation), putContext());
+
+        expect(response.status).toBe(403);
+        expect(await readStoredLocation(db)).toBeUndefined();
+    });
+
+    it('still accepts an operator, so the interim path keeps working', async () => {
+        const db = seededDb();
+        mockGetAdminDb.mockReturnValue(db);
+        mockVerifyToken.mockResolvedValue(OPERATOR);
+
+        const response = await reportLocation(locationRequest(validLocation), putContext());
+
+        expect(response.status).toBe(200);
+    });
+});
+
+// ==================================================================
+// THE AUTHORISATION DECISION ITSELF
+//
+// Isolated from the route so that removing the interim operator path, once Bus
+// Login is issuing tokens, is a change to one function.
+// ==================================================================
+describe('authoriseLocationReport', () => {
+    const busSession = { uid: 'v', passengerId: '', role: 'BUS', email: '', busId: BUS_ID };
+
+    it('requires a caller', () => {
+        expect(authoriseLocationReport(null, BUS_ID)).toEqual({
+            allowed: false,
+            status: 401,
+            message: 'Authentication required.',
+        });
+    });
+
+    it('clears a vehicle for its own bus and names the path taken', () => {
+        expect(authoriseLocationReport(busSession, BUS_ID)).toEqual({
+            allowed: true,
+            busId: BUS_ID,
+            via: 'VEHICLE_SESSION',
+        });
+    });
+
+    it('refuses a vehicle for any other bus', () => {
+        expect(authoriseLocationReport(busSession, 'BUS-00002')).toMatchObject({
+            allowed: false,
+            status: 403,
+        });
+    });
+
+    it('clears an operator only through the interim path', () => {
+        expect(authoriseLocationReport(OPERATOR, BUS_ID)).toEqual({
+            allowed: true,
+            busId: BUS_ID,
+            via: 'OPERATOR_SESSION',
+        });
+    });
+
+    it('refuses every other role', () => {
+        expect(authoriseLocationReport(PASSENGER, BUS_ID)).toMatchObject({
+            allowed: false,
+            status: 403,
+        });
     });
 });

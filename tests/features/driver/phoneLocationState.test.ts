@@ -14,11 +14,16 @@
 //
 // Coordinates below are ordinary geographic test data, not credentials.
 
+import { PublishLocationError } from '../../../src/features/driver/api/busLocationApi';
 import {
     PhoneLocationState,
+    busNotSignedIn,
     describePhoneLocationState,
     initialPhoneLocationState,
     isLocationRequestInFlight,
+    locationPublishFailed,
+    locationPublishStarted,
+    locationPublished,
     locationReceived,
     locationRequestFailed,
     locationRequestStarted,
@@ -29,6 +34,11 @@ import { PhoneLocation, PhoneLocationError } from '../../../src/shared/utils/pho
 // to tell a classified failure from anything else — and importing it pulls in
 // expo-location, which is native ESM that Jest cannot load. Stubbed at the same
 // module boundary the MOV-263 suite uses. Nothing in this file calls it.
+// PublishLocationError is a real class here — the publish transition uses
+// `instanceof` — and its module reads API_BASE_URL, which imports
+// expo-constants. Stubbed the same way the busLocationApi suite does.
+jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: '' }));
+
 jest.mock('expo-location', () => ({
     requestForegroundPermissionsAsync: jest.fn(),
     hasServicesEnabledAsync: jest.fn(),
@@ -62,7 +72,83 @@ const EVERY_STATE: PhoneLocationState[] = [
     locationRequestFailed(new PhoneLocationError('LOCATION_SERVICES_DISABLED')),
     locationRequestFailed(new PhoneLocationError('POSITION_UNAVAILABLE')),
     locationRequestFailed(new Error('something else entirely')),
+    locationPublishStarted(locationReceived(READING)),
+    locationPublished(locationReceived(READING)),
+    locationPublishFailed(locationReceived(READING), new PublishLocationError('PUBLISH_FAILED')),
+    busNotSignedIn(locationReceived(READING)),
 ];
+
+// ==================================================================
+// PUBLISHING (MOV-265)
+// ==================================================================
+describe('publishing the reading', () => {
+    const withReading = locationReceived(READING);
+
+    it('keeps the position on screen while it is being sent', () => {
+        const state = locationPublishStarted(withReading);
+
+        // The position was really obtained; only the sharing of it is still in
+        // doubt, so it stays visible.
+        expect(state.status).toBe('PUBLISHING');
+        expect(state.location).toEqual(READING);
+        expect(isLocationRequestInFlight(state)).toBe(true);
+    });
+
+    it('refuses a second attempt while one is already publishing', () => {
+        // The in-flight guard has to cover this half of the flow too, or a
+        // second tap sends the same position twice.
+        expect(isLocationRequestInFlight(locationPublishStarted(withReading))).toBe(true);
+        expect(describePhoneLocationState(locationPublishStarted(withReading)).primaryAction)
+            .toBeUndefined();
+    });
+
+    it('confirms to the driver when passengers can see the bus', () => {
+        const view = describePhoneLocationState(locationPublished(withReading));
+
+        expect(view.tone).toBe('success');
+        expect(view.title).toMatch(/shared/i);
+        expect(view.primaryAction?.kind).toBe('REQUEST');
+    });
+
+    it('offers a retry when sending failed', () => {
+        const state = locationPublishFailed(withReading, new PublishLocationError('PUBLISH_FAILED'));
+        const view = describePhoneLocationState(state);
+
+        expect(state.status).toBe('PUBLISH_FAILED');
+        expect(view.primaryAction?.kind).toBe('REQUEST');
+        // Said plainly, so a driver does not assume the bus is being tracked.
+        expect(view.description).toMatch(/not see it|could not be sent/i);
+    });
+
+    it('sends the driver back to sign in when the session has gone, not to a retry', () => {
+        const state = locationPublishFailed(
+            withReading,
+            new PublishLocationError('NOT_AUTHENTICATED')
+        );
+        const view = describePhoneLocationState(state);
+
+        // Retrying can never fix a signed-out bus, so no retry is offered.
+        expect(state.status).toBe('NOT_SIGNED_IN');
+        expect(view.primaryAction?.kind).toBe('SIGN_IN');
+    });
+
+    it('treats a phone with no bus session the same way', () => {
+        expect(busNotSignedIn(withReading).status).toBe('NOT_SIGNED_IN');
+        expect(
+            describePhoneLocationState(busNotSignedIn(withReading)).primaryAction?.kind
+        ).toBe('SIGN_IN');
+    });
+
+    it('never reports a location problem when publishing was what failed', () => {
+        const view = describePhoneLocationState(
+            locationPublishFailed(withReading, new PublishLocationError('NETWORK_UNAVAILABLE'))
+        );
+
+        // The GPS worked. Blaming permissions or the signal would send the
+        // driver to fix something that is not broken.
+        expect(view.description).not.toMatch(/permission|gps signal|location services/i);
+    });
+});
 
 // ==================================================================
 // TRANSITIONS
