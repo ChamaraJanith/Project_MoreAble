@@ -15,6 +15,8 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { saveBusSession } from '../../../shared/utils/busSession';
+import { loginBus } from '../api/busAuthApi';
 
 export const BusDeviceLoginForm = () => {
     const [numberPlate, setNumberPlate] = useState('');
@@ -22,6 +24,7 @@ export const BusDeviceLoginForm = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState<{ numberPlate?: string; password?: string }>({});
+    const [signInError, setSignInError] = useState('');
 
     const validateForm = () => {
         const newErrors: { numberPlate?: string; password?: string } = {};
@@ -37,17 +40,37 @@ export const BusDeviceLoginForm = () => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleBusLogin = () => {
+    const handleBusLogin = async () => {
+        // One sign in at a time. The button is disabled while loading, and this
+        // guards the case where a second press lands before that takes effect.
+        if (isLoading) return;
+
+        setSignInError('');
         if (!validateForm()) return;
 
         setIsLoading(true);
-        setTimeout(() => {
-            setIsLoading(false);
-            if (Platform.OS === 'web') {
-                window.alert(`Bus Device Login Successful for ${numberPlate.toUpperCase()}`);
-            }
+
+        try {
+            // The bus is identified by the backend from these credentials. The
+            // busId and token come back from there and are never derived here.
+            const session = await loginBus(numberPlate, password);
+
+            // Persisted before navigating: a driver sent to the dashboard with
+            // no stored session would be stranded there with no way to act.
+            await saveBusSession(session);
+
+            // Cleared as soon as it has been exchanged for a token, so it is
+            // not left sitting in component state.
+            setPassword('');
+
             router.replace('/vehicle-dashboard' as any);
-        }, 600);
+        } catch (error: any) {
+            // The message is one the backend or the client wrote for a driver.
+            // Nothing internal, and neither credential, is shown or logged.
+            setSignInError(error?.message || 'Unable to sign in right now. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -149,6 +172,13 @@ export const BusDeviceLoginForm = () => {
                             </View>
                         ) : null}
                     </View>
+
+                    {!!signInError && (
+                        <View style={styles.errorContainer} accessibilityLiveRegion="polite">
+                            <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                            <Text style={styles.errorText}>{signInError}</Text>
+                        </View>
+                    )}
 
                     {/* Login to Vehicle Button */}
                     <TouchableOpacity
