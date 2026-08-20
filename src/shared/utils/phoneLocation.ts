@@ -69,12 +69,29 @@ export class PhoneLocationError extends Error {
      */
     readonly cause?: unknown;
 
-    constructor(reason: PhoneLocationErrorReason, options?: { cause?: unknown }) {
+    /**
+     * Whether the operating system will still show a permission prompt.
+     *
+     * Passed straight through from the platform's permission response, and set
+     * only on `PERMISSION_DENIED`. It is the difference between an app that can
+     * ask the driver again and one that can not, which decides whether the only
+     * way forward is the system settings screen. Never assumed — `undefined`
+     * means the platform did not say.
+     */
+    readonly canAskAgain?: boolean;
+
+    constructor(
+        reason: PhoneLocationErrorReason,
+        options?: { cause?: unknown; canAskAgain?: boolean }
+    ) {
         super(MESSAGES[reason]);
         this.name = 'PhoneLocationError';
         this.reason = reason;
         if (options?.cause !== undefined) {
             this.cause = options.cause;
+        }
+        if (options?.canAskAgain !== undefined) {
+            this.canAskAgain = options.canAskAgain;
         }
     }
 }
@@ -148,7 +165,11 @@ export async function getCurrentPhoneLocation(): Promise<PhoneLocation> {
     }
 
     if (!permission?.granted) {
-        throw new PhoneLocationError('PERMISSION_DENIED');
+        // Carried forward exactly as the platform reported it, so the screen
+        // can offer the action that will actually work.
+        throw new PhoneLocationError('PERMISSION_DENIED', {
+            canAskAgain: permission?.canAskAgain,
+        });
     }
 
     // Checked separately because granting the app permission does nothing while

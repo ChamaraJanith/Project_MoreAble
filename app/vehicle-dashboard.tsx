@@ -2,7 +2,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LocationStatusCard } from '../src/features/driver/ui/LocationStatusCard';
 
 export default function VehicleDashboardScreen() {
     return (
@@ -20,13 +21,21 @@ export default function VehicleDashboardScreen() {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.container}>
+            <ScrollView
+                contentContainerStyle={styles.container}
+                showsVerticalScrollIndicator={false}
+            >
                 <View style={styles.iconContainer}>
                     <Ionicons name="bus-outline" size={64} color="#0066CC" />
                 </View>
                 <Text style={styles.title}>Vehicle Dashboard</Text>
                 <Text style={styles.subtitle}>MoreAble Transit Console Active</Text>
-            </View>
+
+                {/* Location sharing status (MOV-264). */}
+                <View style={styles.locationSection}>
+                    <LocationStatusCard />
+                </View>
+            </ScrollView>
         </SafeAreaView>
     );
 }
@@ -59,10 +68,15 @@ const styles = StyleSheet.create({
         marginLeft: 6,
     },
     container: {
-        flex: 1,
+        flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 24,
+        paddingBottom: 32,
+    },
+    locationSection: {
+        alignSelf: 'stretch',
+        marginTop: 28,
     },
     iconContainer: {
         width: 110,

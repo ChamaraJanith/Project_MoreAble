@@ -1,0 +1,237 @@
+// What the driver sees about their phone's location (MOV-264).
+//
+// The location service (MOV-263) answers with a reading or a typed failure.
+// This turns either into something a driver can act on: what happened, and
+// which button will actually fix it.
+//
+// Kept as plain functions with no React and no UI imports, because the project
+// has no React renderer configured for tests — so this is the part that CAN be
+// covered, and the screen above it stays a thin shell around it.
+//
+// It decides nothing about publishing. Sending a reading to the backend is
+// MOV-265, and repeating it on a timer is MOV-262.
+
+import { PhoneLocation, PhoneLocationError } from '../../../shared/utils/phoneLocation';
+
+export type PhoneLocationStatus =
+    /** Nothing asked for yet. The driver has not pressed anything. */
+    | 'IDLE'
+    /** A request is in flight. */
+    | 'REQUESTING'
+    /** A real reading was obtained. */
+    | 'AVAILABLE'
+    /** The app does not have location permission. */
+    | 'PERMISSION_DENIED'
+    /** Location is switched off for the whole device. */
+    | 'LOCATION_SERVICES_DISABLED'
+    /** Permission and services are fine, but no position could be fixed. */
+    | 'POSITION_UNAVAILABLE'
+    /** Something failed that the location service did not classify. */
+    | 'UNKNOWN_ERROR';
+
+export interface PhoneLocationState {
+    status: PhoneLocationStatus;
+    /** The last successful reading, or null. Never a stand-in value. */
+    location: PhoneLocation | null;
+    /**
+     * Whether the system will still prompt for permission. Only meaningful on
+     * `PERMISSION_DENIED`, and only when the platform actually reported it.
+     */
+    canAskAgain?: boolean;
+}
+
+export const initialPhoneLocationState: PhoneLocationState = {
+    status: 'IDLE',
+    location: null,
+};
+
+/**
+ * A request has started.
+ *
+ * The previous reading is kept: it was true when it was taken, and blanking the
+ * screen while a refresh runs would be a worse experience than leaving it up.
+ */
+export function locationRequestStarted(state: PhoneLocationState): PhoneLocationState {
+    return { status: 'REQUESTING', location: state.location };
+}
+
+/** A real reading arrived. */
+export function locationReceived(location: PhoneLocation): PhoneLocationState {
+    return { status: 'AVAILABLE', location };
+}
+
+/**
+ * A request failed.
+ *
+ * The three reasons the service distinguishes stay distinguished here, because
+ * a driver fixes each of them somewhere different. Anything unrecognised
+ * becomes `UNKNOWN_ERROR` rather than being reported as a permission problem
+ * the driver does not actually have.
+ *
+ * The previous reading is dropped: once a request has failed there is no
+ * telling whether the bus has moved since, and a stale position presented as
+ * current is exactly what the live-status feature must not do.
+ */
+export function locationRequestFailed(error: unknown): PhoneLocationState {
+    if (error instanceof PhoneLocationError) {
+        if (error.reason === 'PERMISSION_DENIED') {
+            return {
+                status: 'PERMISSION_DENIED',
+                location: null,
+                canAskAgain: error.canAskAgain,
+            };
+        }
+
+        if (error.reason === 'LOCATION_SERVICES_DISABLED') {
+            return { status: 'LOCATION_SERVICES_DISABLED', location: null };
+        }
+
+        if (error.reason === 'POSITION_UNAVAILABLE') {
+            return { status: 'POSITION_UNAVAILABLE', location: null };
+        }
+    }
+
+    return { status: 'UNKNOWN_ERROR', location: null };
+}
+
+/** True while a request is running, so the screen can refuse a second one. */
+export function isLocationRequestInFlight(state: PhoneLocationState): boolean {
+    return state.status === 'REQUESTING';
+}
+
+/** What pressing a button should do. */
+export type PhoneLocationActionKind =
+    /** Ask the location service again. */
+    | 'REQUEST'
+    /** Send the driver to the system settings screen. */
+    | 'OPEN_SETTINGS';
+
+export interface PhoneLocationAction {
+    kind: PhoneLocationActionKind;
+    label: string;
+}
+
+/**
+ * Everything the screen needs to render one state.
+ *
+ * `icon` and `title` both change with the state, so the difference is never
+ * carried by colour alone — a requirement for this project's users, and one
+ * that a tone value on its own would quietly break.
+ */
+export interface PhoneLocationView {
+    tone: 'neutral' | 'success' | 'warning';
+    icon:
+        | 'locate-outline'
+        | 'navigate'
+        | 'lock-closed-outline'
+        | 'location-outline'
+        | 'alert-circle-outline';
+    title: string;
+    description: string;
+    /** Absent while a request is in flight, so nothing can be pressed twice. */
+    primaryAction?: PhoneLocationAction;
+    secondaryAction?: PhoneLocationAction;
+    isBusy: boolean;
+}
+
+/**
+ * Turns a state into driver-facing words and buttons.
+ *
+ * The wording is deliberately about the phone and what to do next, never about
+ * the internal reason code or the native error underneath it. A driver reading
+ * "POSITION_UNAVAILABLE" learns nothing they can act on.
+ */
+export function describePhoneLocationState(state: PhoneLocationState): PhoneLocationView {
+    switch (state.status) {
+        case 'REQUESTING':
+            return {
+                tone: 'neutral',
+                icon: 'locate-outline',
+                title: 'Getting your location…',
+                description: 'Please keep the app open while the phone finds its position.',
+                isBusy: true,
+            };
+
+        case 'AVAILABLE':
+            return {
+                tone: 'success',
+                icon: 'navigate',
+                title: 'Location available',
+                description: 'This phone can share where the bus is.',
+                primaryAction: { kind: 'REQUEST', label: 'Update location' },
+                isBusy: false,
+            };
+
+        case 'PERMISSION_DENIED':
+            // The one state where the right button depends on the platform:
+            // once the system will not prompt again, an "Allow" button does
+            // nothing at all and settings is the only way through.
+            return state.canAskAgain === false
+                ? {
+                      tone: 'warning',
+                      icon: 'lock-closed-outline',
+                      title: 'Location permission is off',
+                      description:
+                          'MoreAble can no longer ask for location on this phone. Turn on location permission for MoreAble in your phone settings.',
+                      primaryAction: { kind: 'OPEN_SETTINGS', label: 'Open settings' },
+                      isBusy: false,
+                  }
+                : {
+                      tone: 'warning',
+                      icon: 'lock-closed-outline',
+                      title: 'Location permission is needed',
+                      description:
+                          "Allow location access so passengers can see where this bus is. Nothing is shared until you're ready.",
+                      primaryAction: { kind: 'REQUEST', label: 'Allow location' },
+                      secondaryAction: { kind: 'OPEN_SETTINGS', label: 'Open settings' },
+                      isBusy: false,
+                  };
+
+        case 'LOCATION_SERVICES_DISABLED':
+            return {
+                tone: 'warning',
+                icon: 'location-outline',
+                title: 'Location services are turned off',
+                description:
+                    'Turn on location services for this phone, then try again. This is a phone setting, not a MoreAble one.',
+                primaryAction: { kind: 'OPEN_SETTINGS', label: 'Open settings' },
+                secondaryAction: { kind: 'REQUEST', label: 'Try again' },
+                isBusy: false,
+            };
+
+        case 'POSITION_UNAVAILABLE':
+            return {
+                tone: 'warning',
+                icon: 'alert-circle-outline',
+                title: 'Current location unavailable',
+                description:
+                    'The phone could not find its position. Move somewhere with a clearer view of the sky and try again.',
+                primaryAction: { kind: 'REQUEST', label: 'Try again' },
+                isBusy: false,
+            };
+
+        case 'UNKNOWN_ERROR':
+            return {
+                tone: 'warning',
+                icon: 'alert-circle-outline',
+                title: 'Something went wrong',
+                description: 'The location could not be checked just now. Please try again.',
+                primaryAction: { kind: 'REQUEST', label: 'Try again' },
+                isBusy: false,
+            };
+
+        case 'IDLE':
+        default:
+            // Nothing is requested until the driver asks, so opening the screen
+            // never triggers a permission prompt on its own.
+            return {
+                tone: 'neutral',
+                icon: 'locate-outline',
+                title: 'Location sharing is off',
+                description:
+                    'Turn on location to let passengers see where this bus is on their journey.',
+                primaryAction: { kind: 'REQUEST', label: 'Enable location' },
+                isBusy: false,
+            };
+    }
+}

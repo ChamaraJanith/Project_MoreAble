@@ -153,6 +153,46 @@ describe('getCurrentPhoneLocation - failures', () => {
         expect(mockGetCurrentPosition).not.toHaveBeenCalled();
     });
 
+    it.each([true, false])(
+        'passes canAskAgain=%s through from the platform (MOV-264)',
+        async (canAskAgain) => {
+            // The screen decides between an "Allow location" button and a
+            // "Open settings" one from this flag, so it has to be the
+            // platform's answer rather than a guess.
+            mockRequestPermissions.mockResolvedValue({
+                granted: false,
+                status: 'denied',
+                canAskAgain,
+            });
+
+            await expect(getCurrentPhoneLocation()).rejects.toMatchObject({
+                reason: 'PERMISSION_DENIED',
+                canAskAgain,
+            });
+        }
+    );
+
+    it('leaves canAskAgain unset when the platform does not report it', async () => {
+        mockRequestPermissions.mockResolvedValue({ granted: false, status: 'denied' });
+
+        const error = await getCurrentPhoneLocation().catch((caught) => caught);
+
+        // Undefined means "not stated" and must not be flattened into false,
+        // which would send the driver to settings unnecessarily.
+        expect(error.reason).toBe('PERMISSION_DENIED');
+        expect(error.canAskAgain).toBeUndefined();
+    });
+
+    it('does not attach canAskAgain to failures that are not about permission', async () => {
+        mockRequestPermissions.mockResolvedValue({ granted: true, status: 'granted' });
+        mockHasServicesEnabled.mockResolvedValue(false);
+
+        const error = await getCurrentPhoneLocation().catch((caught) => caught);
+
+        expect(error.reason).toBe('LOCATION_SERVICES_DISABLED');
+        expect(error.canAskAgain).toBeUndefined();
+    });
+
     it('reports location services being switched off separately from permission', async () => {
         mockRequestPermissions.mockResolvedValue({ granted: true, status: 'granted' });
         mockHasServicesEnabled.mockResolvedValue(false);
