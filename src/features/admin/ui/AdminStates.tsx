@@ -38,6 +38,8 @@ interface AdminEmptyStateProps {
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     description: string;
+    /** Quieter follow-up line, e.g. when a section is not available yet. */
+    secondaryDescription?: string;
     actionLabel?: string;
     onAction?: () => void;
 }
@@ -46,6 +48,7 @@ export function AdminEmptyState({
     icon,
     title,
     description,
+    secondaryDescription,
     actionLabel,
     onAction,
 }: AdminEmptyStateProps) {
@@ -56,6 +59,10 @@ export function AdminEmptyState({
             </View>
             <Text style={styles.stateTitle}>{title}</Text>
             <Text style={styles.stateDescription}>{description}</Text>
+
+            {!!secondaryDescription && (
+                <Text style={styles.stateSecondaryDescription}>{secondaryDescription}</Text>
+            )}
 
             {!!actionLabel && !!onAction && (
                 <TouchableOpacity
@@ -78,10 +85,17 @@ export function AdminEmptyState({
 interface AdminErrorStateProps {
     title: string;
     message: string;
+    /** Wording for the retry action, where a screen already uses its own. */
+    retryLabel?: string;
     onRetry: () => void;
 }
 
-export function AdminErrorState({ title, message, onRetry }: AdminErrorStateProps) {
+export function AdminErrorState({
+    title,
+    message,
+    retryLabel = 'Retry',
+    onRetry,
+}: AdminErrorStateProps) {
     return (
         <View style={styles.stateCard} accessibilityLiveRegion="assertive">
             <View style={[styles.stateIconCircle, { backgroundColor: adminColors.dangerSoft }]}>
@@ -94,10 +108,10 @@ export function AdminErrorState({ title, message, onRetry }: AdminErrorStateProp
                 style={styles.statePrimaryButton}
                 onPress={onRetry}
                 accessibilityRole="button"
-                accessibilityLabel="Retry"
+                accessibilityLabel={retryLabel}
             >
                 <Ionicons name="refresh" size={18} color="#FFFFFF" />
-                <Text style={styles.statePrimaryButtonText}>Retry</Text>
+                <Text style={styles.statePrimaryButtonText}>{retryLabel}</Text>
             </TouchableOpacity>
         </View>
     );
@@ -262,6 +276,14 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 20,
         maxWidth: 300,
+    },
+    stateSecondaryDescription: {
+        fontSize: 12,
+        color: adminColors.textPlaceholder,
+        textAlign: 'center',
+        lineHeight: 18,
+        maxWidth: 300,
+        marginTop: 8,
     },
     statePrimaryButton: {
         flexDirection: 'row',
