@@ -45,12 +45,15 @@ export const ReportIssueScreen = () => {
     const [issueCategory, setIssueCategory] = useState<ReportIssueCategory | null>(null);
     const [description, setDescription] = useState('');
 
-    // ---- Collected in the UI only (MOV-141) ----------------------------
-    // The current POST /api/reports contract accepts issueCategory and
-    // description only, so these stay local until the backend stores them.
-    // Both hold the canonical document id, never the display text.
+    // Both hold the canonical document id, never the display text: the API
+    // resolves the id itself and snapshots the plate and route number from the
+    // fleet record, so nothing shown on screen is trusted as a reference.
     const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
     const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+
+    // ---- Collected in the UI only --------------------------------------
+    // Photo upload is a separate storage subtask, so these stay in component
+    // state: a local `file://` uri would be meaningless to the backend.
     const [photos, setPhotos] = useState<ReportPhotoDraft[]>([]);
 
     // ---- Bus / route reference data ------------------------------------
@@ -165,6 +168,11 @@ export const ReportIssueScreen = () => {
                 body: JSON.stringify({
                     issueCategory,
                     description: trimmedDescription,
+                    // Sent only when the passenger picked one. Both are
+                    // optional at the API, and an omitted field is the
+                    // difference between "no bus" and "a bus that is null".
+                    ...(selectedBusId ? { busId: selectedBusId } : {}),
+                    ...(selectedRouteId ? { routeId: selectedRouteId } : {}),
                 }),
             });
 
@@ -181,7 +189,7 @@ export const ReportIssueScreen = () => {
                     setError('Authentication required. Please log in again.');
                 } else if (response.status === 403) {
                     setError('Only passengers can submit accessibility reports.');
-                } else if (response.status === 400) {
+                } else if (response.status === 400 || response.status === 404) {
                     setError(result.message || 'Invalid request. Please check your inputs.');
                 } else {
                     setError('Unable to submit the report right now. Please try again.');
