@@ -176,7 +176,12 @@ export const RegistrationForm = () => {
                     ]);
                 }
             } else {
-                Alert.alert('Registration Failed', result.message || 'Something went wrong');
+                const errorMessage = result.message || 'Something went wrong';
+                if (Platform.OS === 'web') {
+                    window.alert(`Registration Failed: ${errorMessage}`);
+                } else {
+                    Alert.alert('Registration Failed', errorMessage);
+                }
             }
         } catch (error) {
             console.error('Registration Error:', error);
@@ -247,7 +252,7 @@ export const RegistrationForm = () => {
                                         accessibilityLabel="Full Name"
                                     />
                                 </View>
-                                {errors.userName && (
+                                {!!errors.userName && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.userName}</Text>
@@ -271,7 +276,7 @@ export const RegistrationForm = () => {
                                         accessibilityLabel="Email Address"
                                     />
                                 </View>
-                                {errors.email && (
+                                {!!errors.email && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.email}</Text>
@@ -293,7 +298,7 @@ export const RegistrationForm = () => {
                                         accessibilityLabel="NIC Number"
                                     />
                                 </View>
-                                {errors.nicNo && (
+                                {!!errors.nicNo && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.nicNo}</Text>
@@ -316,7 +321,7 @@ export const RegistrationForm = () => {
                                         accessibilityLabel="Primary Mobile Number"
                                     />
                                 </View>
-                                {errors.phoneNumber && (
+                                {!!errors.phoneNumber && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.phoneNumber}</Text>
@@ -339,7 +344,7 @@ export const RegistrationForm = () => {
                                         accessibilityLabel="Secondary Mobile Number"
                                     />
                                 </View>
-                                {errors.secondaryPhoneNumber && (
+                                {!!errors.secondaryPhoneNumber && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.secondaryPhoneNumber}</Text>
@@ -374,7 +379,7 @@ export const RegistrationForm = () => {
                                         />
                                     </TouchableOpacity>
                                 </View>
-                                {errors.password && (
+                                {!!errors.password && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.password}</Text>
@@ -409,7 +414,7 @@ export const RegistrationForm = () => {
                                         />
                                     </TouchableOpacity>
                                 </View>
-                                {errors.confirmPassword && (
+                                {!!errors.confirmPassword && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.confirmPassword}</Text>
@@ -485,7 +490,7 @@ export const RegistrationForm = () => {
                                     </TouchableOpacity>
                                 </View>
 
-                                {errors.accessibilityInquiry && (
+                                {!!errors.accessibilityInquiry && (
                                     <View style={styles.errorContainer}>
                                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                         <Text style={styles.errorText}>{errors.accessibilityInquiry}</Text>
@@ -681,7 +686,7 @@ export const RegistrationForm = () => {
                                         </View>
                                     )}
 
-                                    {errors.accessibilityNeeds && (
+                                    {!!errors.accessibilityNeeds && (
                                         <View style={styles.errorContainer}>
                                             <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                             <Text style={styles.errorText}>{errors.accessibilityNeeds}</Text>
@@ -732,7 +737,7 @@ export const RegistrationForm = () => {
                                                 accessibilityLabel="Guardian Name"
                                             />
                                         </View>
-                                        {errors.gFullName && (
+                                        {!!errors.gFullName && (
                                             <View style={styles.errorContainer}>
                                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                                 <Text style={styles.errorText}>{errors.gFullName}</Text>
@@ -753,7 +758,7 @@ export const RegistrationForm = () => {
                                                 accessibilityLabel="Guardian NIC"
                                             />
                                         </View>
-                                        {errors.gNicNo && (
+                                        {!!errors.gNicNo && (
                                             <View style={styles.errorContainer}>
                                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                                 <Text style={styles.errorText}>{errors.gNicNo}</Text>
@@ -775,7 +780,7 @@ export const RegistrationForm = () => {
                                                 accessibilityLabel="Guardian Mobile Number"
                                             />
                                         </View>
-                                        {errors.gMobileNo && (
+                                        {!!errors.gMobileNo && (
                                             <View style={styles.errorContainer}>
                                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                                 <Text style={styles.errorText}>{errors.gMobileNo}</Text>
@@ -818,14 +823,17 @@ export const RegistrationForm = () => {
 
                     {/* Login Link */}
                     <View style={styles.footer}>
-                        <Text style={styles.footerText}>Already have an account? </Text>
-                        <TouchableOpacity
-                            onPress={() => router.replace('/(auth)')}
-                            accessibilityRole="button"
-                            accessibilityLabel="Login Here"
-                        >
-                            <Text style={styles.registerLink}>Login Here</Text>
-                        </TouchableOpacity>
+                        <Text style={styles.footerText}>
+                            Already have an account?{' '}
+                            <Text
+                                style={styles.registerLink}
+                                onPress={() => router.replace('/(auth)')}
+                                accessibilityRole="button"
+                                accessibilityLabel="Login Here"
+                            >
+                                Login Here
+                            </Text>
+                        </Text>
                     </View>
                 </View>
             </ScrollView>
