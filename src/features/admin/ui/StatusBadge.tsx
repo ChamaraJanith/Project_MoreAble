@@ -3,7 +3,18 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { adminColors } from './adminTheme';
 
-type BadgeStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'OUTBOUND' | 'RETURN' | string;
+type BadgeStatus =
+    | 'ACTIVE'
+    | 'INACTIVE'
+    | 'MAINTENANCE'
+    | 'OUTBOUND'
+    | 'RETURN'
+    | 'PENDING'
+    | 'VERIFIED'
+    | 'REVIEWED'
+    | 'RESOLVED'
+    | 'REJECTED'
+    | string;
 
 interface StatusBadgeProps {
     status: BadgeStatus;
@@ -45,6 +56,38 @@ const BADGE_CONFIG: Record<
         color: adminColors.purple,
         background: '#F5EEF8',
         icon: 'arrow-back-circle',
+    },
+
+    // Accessibility report review states.
+    PENDING: {
+        label: 'Pending',
+        color: adminColors.warning,
+        background: adminColors.warningSoft,
+        icon: 'time',
+    },
+    VERIFIED: {
+        label: 'Verified',
+        color: adminColors.primary,
+        background: adminColors.primarySoft,
+        icon: 'shield-checkmark',
+    },
+    REVIEWED: {
+        label: 'Reviewed',
+        color: adminColors.accent,
+        background: adminColors.accentSoft,
+        icon: 'eye',
+    },
+    RESOLVED: {
+        label: 'Resolved',
+        color: adminColors.success,
+        background: adminColors.successSoft,
+        icon: 'checkmark-done-circle',
+    },
+    REJECTED: {
+        label: 'Rejected',
+        color: adminColors.danger,
+        background: adminColors.dangerSoft,
+        icon: 'close-circle',
     },
 };
 
