@@ -173,6 +173,7 @@ export async function POST(request: Request) {
         }
 
         const bookingsRef = adminDb.collection('bookings');
+        const notificationsRef = adminDb.collection('notifications');
 
         const booking = await adminDb.runTransaction(async (transaction: any) => {
             const existingSnapshot = await transaction.get(
@@ -227,7 +228,33 @@ export async function POST(request: Request) {
                 createdAt: now,
             };
 
+            const notificationId = `notif_${bookingId}`;
+            const newNotification = {
+                id: notificationId,
+                notificationId,
+                userId: passengerId || 'GUEST',
+                bookingId,
+                type: 'BOOKING_CONFIRMATION',
+                title: 'Booking Confirmed!',
+                message: `Your reservation ${bookingId} for Route ${route?.routeNumber ?? '—'} (Seat ${seatNumber}) has been confirmed successfully.`,
+                status: 'UNREAD',
+                createdAt: now,
+                readAt: null,
+                details: {
+                    bookingId,
+                    vehicleNumber: bus.numberPlate || '—',
+                    routeNumber: route?.routeNumber || '—',
+                    routeName: route?.routeName || '—',
+                    seatNumber,
+                    journeyDate: trip.departureTime ? trip.departureTime.split('T')[0] : now.split('T')[0],
+                    journeyTime: trip.departureTime || '—',
+                    startLocation: journeyOrigin || '—',
+                    endLocation: journeyDestination || '—',
+                },
+            };
+
             transaction.set(bookingsRef.doc(bookingId), newBooking);
+            transaction.set(notificationsRef.doc(notificationId), newNotification);
             return newBooking;
         });
 
