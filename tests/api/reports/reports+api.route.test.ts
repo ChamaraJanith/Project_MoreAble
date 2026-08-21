@@ -20,7 +20,9 @@ const mockGetAdminDb = jest.fn();
 const mockVerifyToken = jest.fn();
 
 // jest.mock is hoisted above the imports by ts-jest, so the route module
-// resolves these to the mocks before it runs. No real Firestore is touched.
+// resolves this to the mock before it runs. Real Firestore is never touched.
+// Nothing else needs stubbing: the app uploads photos to Cloudinary itself and
+// sends this route only the resulting URLs, so the route makes no upload calls.
 jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
     getAdminDb: () => mockGetAdminDb(),
 }));
@@ -124,6 +126,16 @@ function validPayload(overrides: Record<string, any> = {}) {
         description: 'The wheelchair ramp would not fold down at Pettah station.',
         ...overrides,
     };
+}
+
+const CLOUDINARY_CLOUD = 'moreable';
+
+/** A Cloudinary secure_url in the shape an unsigned upload returns. */
+function cloudinaryUrl(name = 'ramp'): string {
+    return (
+        `https://res.cloudinary.com/${CLOUDINARY_CLOUD}/image/upload/` +
+        `v1755739200/moreable/reports/${name}.jpg`
+    );
 }
 
 /** The report as it was actually written to Firestore. */
@@ -512,38 +524,6 @@ describe('POST /api/reports - bus and route together', () => {
 });
 
 // ==================================================================
-// Photo evidence — not stored yet, and must never be stored as a device path
-// ==================================================================
-describe('POST /api/reports - photo fields', () => {
-    it('submits successfully while ignoring photo fields it cannot store yet', async () => {
-        const firestore = seededFirestore();
-        mockGetAdminDb.mockReturnValue(firestore);
-
-        const response = await createReport(
-            reportRequest(
-                validPayload({
-                    photos: [
-                        { uri: 'file:///data/user/0/photo-1.jpg', fileName: 'photo-1.jpg' },
-                        { uri: 'content://media/external/images/42' },
-                    ],
-                }),
-                SESSION_A
-            )
-        );
-        const json = await response.json();
-
-        expect(response.status).toBe(201);
-
-        // A device uri is meaningless off the device, so none of it reaches
-        // Firestore — not as photoUrls, and not anywhere else on the document.
-        const stored = await storedReport(firestore, json.report.reportId);
-        expect(stored).not.toHaveProperty('photos');
-        expect(stored).not.toHaveProperty('photoUrls');
-        expect(JSON.stringify(stored)).not.toMatch(/file:\/\/|content:\/\//);
-    });
-});
-
-// ==================================================================
 // Report id generation
 // ==================================================================
 describe('POST /api/reports - report ids', () => {
@@ -595,5 +575,317 @@ describe('POST /api/reports - failures', () => {
         expect(response.status).toBe(500);
         expect(json.success).toBe(false);
         expect(json.message).toMatch(/failed to create/i);
+    });
+});
+
+// ==================================================================
+// Photo evidence
+//
+// The rule the whole flow exists to hold: a device uri never reaches
+// Firestore. The app uploads each photo to Cloudinary as it is picked and
+// submits only the secure_url, so what this route has to get right is refusing
+// anything that is not one of those URLs.
+// ==================================================================
+describe('POST /api/reports - photo evidence', () => {
+    it('stores the Cloudinary URLs the app uploaded to', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const urls = [cloudinaryUrl('ramp'), cloudinaryUrl('lift')];
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: urls }), SESSION_A)
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+
+        const stored = await storedReport(firestore, json.report.reportId);
+
+        expect(stored.photoUrls).toEqual(urls);
+
+        // And the same document is what the app receives back.
+        expect(json.report.photoUrls).toEqual(urls);
+    });
+
+    it('omits photoUrls entirely for a report with no photos', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(reportRequest(validPayload(), SESSION_A));
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+
+        // Absent, not an empty array.
+        expect(await storedReport(firestore, json.report.reportId)).not.toHaveProperty(
+            'photoUrls'
+        );
+    });
+
+    it('treats an empty photoUrls list as no photos', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: [] }), SESSION_A)
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+        expect(await storedReport(firestore, json.report.reportId)).not.toHaveProperty(
+            'photoUrls'
+        );
+    });
+
+    it('treats a null photoUrls as no photos', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: null }), SESSION_A)
+        );
+
+        expect(response.status).toBe(201);
+    });
+
+    it('accepts exactly five photo URLs', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({
+                    photoUrls: Array.from({ length: 5 }, (_, i) => cloudinaryUrl(`p${i}`)),
+                }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+        expect((await storedReport(firestore, json.report.reportId)).photoUrls).toHaveLength(5);
+    });
+
+    it('rejects a sixth photo URL', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({
+                    photoUrls: Array.from({ length: 6 }, (_, i) => cloudinaryUrl(`p${i}`)),
+                }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/at most 5 photos/i);
+
+        // Refused before an id was burned or anything was written.
+        expect((await firestore.collection('reports').get()).docs).toHaveLength(0);
+    });
+
+    it('rejects a device file uri instead of storing it', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({ photoUrls: ['file:///data/user/0/photo-1.jpg'] }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/https/i);
+        expect((await firestore.collection('reports').get()).docs).toHaveLength(0);
+    });
+
+    it('rejects a content:// uri too', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({ photoUrls: ['content://media/external/images/42'] }),
+                SESSION_A
+            )
+        );
+
+        expect(response.status).toBe(400);
+    });
+
+    it('rejects a plain http URL', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({
+                    photoUrls: ['http://res.cloudinary.com/moreable/image/upload/a.jpg'],
+                }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/https/i);
+    });
+
+    it('rejects an https URL from somewhere other than Cloudinary', async () => {
+        // Otherwise the field is an open invitation to hang an arbitrary
+        // third-party link off a report that every reviewer then loads.
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({ photoUrls: ['https://example.com/not-a-photo.jpg'] }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/not an uploaded photo url/i);
+    });
+
+    it('rejects a lookalike host that merely contains the Cloudinary name', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({ photoUrls: ['https://res.cloudinary.com.attacker.net/a.jpg'] }),
+                SESSION_A
+            )
+        );
+
+        expect(response.status).toBe(400);
+    });
+
+    it('rejects photoUrls that is not a list', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: cloudinaryUrl() }), SESSION_A)
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/must be provided as a list/i);
+    });
+
+    it('rejects a non-string entry', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: [42] }), SESSION_A)
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.message).toMatch(/not a valid url/i);
+    });
+
+    it('rejects a malformed URL', async () => {
+        mockGetAdminDb.mockReturnValue(seededFirestore());
+
+        const response = await createReport(
+            reportRequest(validPayload({ photoUrls: ['not a url'] }), SESSION_A)
+        );
+
+        expect(response.status).toBe(400);
+    });
+
+    it('ignores image data sent in a legacy `photos` field', async () => {
+        // The route no longer accepts image bytes at all. A stale client is
+        // answered with a report rather than an error, but nothing it sent is
+        // stored — the photo would otherwise be a base64 blob in Firestore.
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({ photos: [{ base64: 'aGVsbG8=', mimeType: 'image/png' }] }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+
+        const stored = await storedReport(firestore, json.report.reportId);
+
+        expect(stored).not.toHaveProperty('photos');
+        expect(stored).not.toHaveProperty('photoUrls');
+    });
+});
+
+// ==================================================================
+// The complete stored report
+//
+// One test pinning the whole document a successful submission produces, so a
+// field cannot quietly stop being written without something failing here.
+// ==================================================================
+describe('POST /api/reports - persisted document', () => {
+    it('stores every field of a full submission, photos included', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                {
+                    issueCategory: 'BUS_OVERCROWDED',
+                    description: 'No room to board with a wheelchair at Kollupitiya.',
+                    busId: BUS_ID,
+                    routeId: ROUTE_ID,
+                    photoUrls: [cloudinaryUrl('overcrowded')],
+                    // Ignored: identity comes from the token, never the body.
+                    passengerId: PASSENGER_B,
+                    status: 'VERIFIED',
+                },
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+
+        const stored = await storedReport(firestore, 'REP-00001');
+
+        expect(stored.reportId).toBe('REP-00001');
+        expect(stored.passengerId).toBe(PASSENGER_A);
+        expect(stored.issueCategory).toBe('BUS_OVERCROWDED');
+        expect(stored.description).toBe(
+            'No room to board with a wheelchair at Kollupitiya.'
+        );
+
+        expect(stored.busId).toBe(BUS_ID);
+        expect(stored.vehicle).toEqual({
+            numberPlate: 'NB-1234',
+            busModel: 'Ashok Leyland Viking',
+            manufacturer: 'Ashok Leyland',
+        });
+
+        expect(stored.routeId).toBe(ROUTE_ID);
+        expect(stored.route).toEqual({
+            routeNumber: '138',
+            routeName: 'Colombo - Kandy',
+            direction: 'OUTBOUND',
+        });
+
+        // A status supplied by the client is ignored; every report starts here.
+        expect(stored.status).toBe('PENDING');
+        expect(stored.createdAt).toBeInstanceOf(Date);
+        expect(stored.updatedAt).toBeInstanceOf(Date);
+
+        // The photo is the Cloudinary secure_url, never a device uri.
+        expect(stored.photoUrls).toEqual([cloudinaryUrl('overcrowded')]);
+        expect(stored.photoUrls[0]).not.toMatch(/file:\/\/|content:\/\//);
+
+        // And the same document is what the app receives back.
+        expect(json.report.photoUrls).toEqual(stored.photoUrls);
     });
 });

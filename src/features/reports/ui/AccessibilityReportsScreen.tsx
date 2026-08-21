@@ -264,9 +264,9 @@ interface ReportCardProps {
 }
 
 function ReportCard({ report, isOwnReport }: ReportCardProps) {
-    // Photo evidence is still UI-only, so a count only appears once the API
-    // starts returning one of these fields.
-    const photoCount = report.photoCount ?? report.photoUrls?.length ?? 0;
+    // The stored URLs are the count: a report with no photos has no photoUrls
+    // at all, so the chip is simply absent rather than reading "0 photos".
+    const photoCount = report.photoUrls?.length ?? 0;
 
     // Prefer the display snapshot taken when the report was filed; fall back to
     // the raw id so a report whose snapshot is missing still identifies its bus.

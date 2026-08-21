@@ -2,7 +2,9 @@ import {
     authenticateRequest,
     unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
+import { isReportIssueCategory } from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,16 +90,15 @@ export async function POST(request: Request) {
     // --------------------------------
     const body = await request.json();
 
-    // Photo evidence is deliberately not read here. The picker holds local
-    // `file://` URIs, which mean nothing off the device that produced them, so
-    // storing one would be a permanently broken photo URL. Uploading them is a
-    // separate storage subtask; until then any photo field on the request is
-    // ignored rather than persisted, which keeps submission working either way.
+    // `photoUrls` are the Cloudinary URLs the app uploaded to before
+    // submitting. No image data reaches this route, and no device uri reaches
+    // Firestore — see normalizeReportPhotoUrls.
     const {
       issueCategory,
       description,
       busId,
       routeId,
+      photoUrls,
     } = body;
 
     // --------------------------------
@@ -118,17 +119,12 @@ export async function POST(request: Request) {
 
     // --------------------------------
     // Validate issue category
+    //
+    // Checked against the entity model's list, which is the same list the
+    // picker is built from — so a category can never be offered on screen and
+    // refused here, or the reverse.
     // --------------------------------
-    const allowedCategories = [
-      'BROKEN_RAMP',
-      'LIFT_NOT_WORKING',
-      'PRIORITY_SEAT_MISUSE',
-      'BUS_OVERCROWDED',
-      'DRIVER_DID_NOT_ASSIST',
-      'AUDIO_ANNOUNCEMENT_NOT_WORKING',
-    ];
-
-    if (!allowedCategories.includes(issueCategory)) {
+    if (!isReportIssueCategory(issueCategory)) {
       return Response.json(
         {
           success: false,
@@ -161,6 +157,29 @@ export async function POST(request: Request) {
     }
 
     const cleanDescription = description.trim();
+
+    // --------------------------------
+    // Validate photo evidence
+    //
+    // Done before anything is generated or written, so a malformed URL costs
+    // nothing but a 400 — no report id burned.
+    // --------------------------------
+    const photoUrlCheck = normalizeReportPhotoUrls(photoUrls);
+
+    if (!photoUrlCheck.ok) {
+      return Response.json(
+        {
+          success: false,
+          message: photoUrlCheck.message,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    const reportPhotoUrls = photoUrlCheck.value;
 
     // --------------------------------
     // Get Firebase Admin DB
@@ -351,6 +370,9 @@ export async function POST(request: Request) {
       ...(vehicleSnapshot ? { vehicle: vehicleSnapshot } : {}),
       ...(resolvedRouteId ? { routeId: resolvedRouteId } : {}),
       ...(routeSnapshot ? { route: routeSnapshot } : {}),
+
+      // Absent rather than an empty array when no photos were attached.
+      ...(reportPhotoUrls.length > 0 ? { photoUrls: reportPhotoUrls } : {}),
 
       status: 'PENDING',
 

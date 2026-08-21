@@ -4,15 +4,41 @@
 
 import { RouteDirection } from '../../route/model/types';
 
-export type ReportIssueCategory =
-    | 'BROKEN_RAMP'
-    | 'LIFT_NOT_WORKING'
-    | 'PRIORITY_SEAT_MISUSE'
-    | 'BUS_OVERCROWDED'
-    | 'DRIVER_DID_NOT_ASSIST'
-    | 'AUDIO_ANNOUNCEMENT_NOT_WORKING';
+/**
+ * Every issue category, in the order the picker offers them.
+ *
+ * The values live here rather than beside their labels because the API has to
+ * validate against the same list, and it cannot import the UI module that holds
+ * the wording and the icons. Adding a category here is what makes it valid;
+ * reportCategories.ts then has to give it a label, or that file stops compiling.
+ *
+ * OTHER is last on purpose — a catch-all reads as a fallback, not a peer of the
+ * specific problems above it.
+ */
+export const REPORT_ISSUE_CATEGORIES = [
+    'BROKEN_RAMP',
+    'LIFT_NOT_WORKING',
+    'PRIORITY_SEAT_MISUSE',
+    'BUS_OVERCROWDED',
+    'DRIVER_DID_NOT_ASSIST',
+    'AUDIO_ANNOUNCEMENT_NOT_WORKING',
+    'OTHER',
+] as const;
+
+export type ReportIssueCategory = (typeof REPORT_ISSUE_CATEGORIES)[number];
+
+/** Whether an arbitrary value is one of the categories a report may carry. */
+export function isReportIssueCategory(value: unknown): value is ReportIssueCategory {
+    return (
+        typeof value === 'string' &&
+        (REPORT_ISSUE_CATEGORIES as readonly string[]).includes(value)
+    );
+}
 
 export type ReportStatus = 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEWED' | 'RESOLVED';
+
+/** Enough evidence to describe an issue without making the form unwieldy. */
+export const MAX_REPORT_PHOTOS = 5;
 
 /** Which slice of the reports collection the list screen is showing. */
 export type ReportScope = 'all' | 'my' | 'verified';
@@ -49,13 +75,11 @@ export interface AccessibilityReport {
     route?: ReportRouteSnapshot;
 
     // ------------------------------------------------------------------
-    // Photo evidence. The form collects photos already, but nothing uploads
-    // them yet — storing them is a separate storage subtask — so these are
-    // still absent from every API response. Optional so the cards start
-    // showing a photo count the moment the API returns one.
+    // Photo evidence, as Cloudinary secure URLs — never the device uris the
+    // picker produced, which mean nothing off the phone that took them.
+    // Absent rather than empty when the report carries no photos.
     // ------------------------------------------------------------------
     photoUrls?: string[];
-    photoCount?: number;
 }
 
 /** What the bus looked like when the report was filed. */
@@ -80,13 +104,31 @@ export interface ReportRouteSnapshot {
     direction?: RouteDirection;
 }
 
+/** Where one picked photo has got to on its way to Cloudinary. */
+export type ReportPhotoUploadStatus = 'uploading' | 'uploaded' | 'failed';
+
 /**
- * A photo the passenger picked on the device. It only ever lives in component
- * state — nothing is uploaded while photo storage is still unimplemented.
+ * A photo the passenger picked on the device, held in form state until submit.
+ *
+ * `uri` is what the thumbnail renders from and is never sent anywhere: it is a
+ * path on this phone, and it doubles as the photo's key in form state. The
+ * image itself goes to Cloudinary the moment it is picked, and `url` — the
+ * `secure_url` that came back — is the only value that travels to the API.
+ *
+ * `base64` is kept after a successful upload as well, so a photo that failed
+ * can be retried without asking the passenger to pick it again.
  */
 export interface ReportPhotoDraft {
-    /** Local file URI returned by the image picker. */
+    /** Local file URI returned by the image picker. Display only. */
     uri: string;
+    /** The image itself, requested from the picker so it can be uploaded. */
+    base64?: string | null;
+    mimeType?: string | null;
     fileName?: string | null;
     fileSize?: number;
+    status: ReportPhotoUploadStatus;
+    /** The Cloudinary secure_url. Present only once `status` is 'uploaded'. */
+    url?: string;
+    /** Why the upload failed, shown on the thumbnail beside a Retry control. */
+    error?: string;
 }
