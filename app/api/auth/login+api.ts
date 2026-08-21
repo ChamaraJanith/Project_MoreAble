@@ -162,6 +162,7 @@ export async function POST(request: Request) {
       sanitizedUser.guardianDetails = guardianDetails;
     }
     sanitizedUser.hasAccessibilityNeeds = hasAccessibilityNeeds;
+    sanitizedUser.isAccessibilityVerified = Boolean(userQueryDoc.isAccessibilityVerified ?? userQueryDoc.isVerified);
     sanitizedUser.accessibilityNeeds = accessibilityNeeds;
     sanitizedUser.isWheelchairUser = isWheelchairUser;
     sanitizedUser.isLowVisionPerson = isLowVisionPerson;

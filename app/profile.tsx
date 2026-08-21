@@ -20,6 +20,7 @@ import {
 import { API_BASE_URL } from '../src/shared/api/config';
 import { useAuthStore } from '../src/shared/store/authStore';
 import { parseSriLankanNic } from '../src/shared/utils/nicUtils';
+import { getProfileCompletionPercentage, isAccessibilityProfileVerified } from '../src/shared/utils/profileUtils';
 
 export default function ProfileScreen() {
   const { user, logout, updateGuardianDetails } = useAuthStore();
@@ -276,10 +277,20 @@ export default function ProfileScreen() {
     fetchGuardianData();
   }, [displayUser.guardianId, displayUser.passengerId, currentGuardian]);
 
-  // Steps Progress Calculation
-  const totalSteps = 1;
-  const completedSteps = isGuardianCompleted ? 1 : 0;
-  const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
+  // Steps & Accessibility Profile Verification Progress Calculation
+  const isAccVerified = isAccessibilityProfileVerified({
+    hasAccessibilityNeeds: hasAccessibility,
+    isAccessibilityVerified: (displayUser as any).isAccessibilityVerified,
+    isVerified: (displayUser as any).isVerified,
+  });
+
+  const profileCompletionPercentage = getProfileCompletionPercentage({
+    hasAccessibilityNeeds: hasAccessibility,
+    isAccessibilityVerified: (displayUser as any).isAccessibilityVerified,
+    isVerified: (displayUser as any).isVerified,
+  });
+
+  const progressPercentage = profileCompletionPercentage;
 
   const handleLogout = async () => {
     const performLogout = async () => {
@@ -485,21 +496,25 @@ export default function ProfileScreen() {
         </View>
 
         {/* ====================================================================== */}
-        {/* ACTION REQUIRED & STEP PROGRESS SECTION (Required for Passengers 60+) */}
+        {/* ACTION REQUIRED & STEP PROGRESS SECTION (Accessibility & Elderly) */}
         {/* ====================================================================== */}
-        {isElderly && (
+        {(isElderly || hasAccessibility) && (
           <View style={styles.stepsCardContainer}>
             <View style={styles.stepsHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.stepsTitle}>Complete These Steps</Text>
-                <Text style={styles.stepsSubtitle}>Required profile actions for passengers aged 60+</Text>
+                <Text style={styles.stepsTitle}>Profile Verification Status</Text>
+                <Text style={styles.stepsSubtitle}>
+                  {hasAccessibility
+                    ? (progressPercentage === 80 ? 'Accessibility verification is pending (80% Complete)' : 'Profile is fully verified (100% Complete)')
+                    : 'Required profile actions for passengers'}
+                </Text>
               </View>
 
               {/* Circular Progress Badge */}
               <View style={styles.progressCircleContainer}>
-                <View style={[styles.progressRingOuter, isGuardianCompleted && styles.progressRingOuterDone]}>
-                  <View style={[styles.progressRingInner, isGuardianCompleted && styles.progressRingInnerDone]}>
-                    <Text style={[styles.progressText, isGuardianCompleted && styles.progressTextDone]}>
+                <View style={[styles.progressRingOuter, progressPercentage === 100 && styles.progressRingOuterDone]}>
+                  <View style={[styles.progressRingInner, progressPercentage === 100 && styles.progressRingInnerDone]}>
+                    <Text style={[styles.progressText, progressPercentage === 100 && styles.progressTextDone]}>
                       {progressPercentage}%
                     </Text>
                   </View>
@@ -507,18 +522,45 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* Mandatory Booking Warning Box (Only shown if Guardian is NOT registered yet) */}
-            {!isGuardianCompleted ? (
+            {/* Accessibility Verification Status Banners */}
+            {hasAccessibility && progressPercentage === 80 && (
               <View style={styles.warningBanner}>
-                <Ionicons name="warning" size={24} color="#D97706" style={{ marginRight: 10 }} />
+                <Ionicons name="alert-circle" size={24} color="#D97706" style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.warningTitle}>Booking Requirement Warning</Text>
+                  <Text style={styles.warningTitle}>Accessibility Needs Unverified (80%)</Text>
                   <Text style={styles.warningText}>
-                    Providing Guardian Details is compulsory for passengers over 60 years old (or disabled passengers) when making bus bookings!
+                    You requested accessibility assistance during registration. Your profile status is 80% until profile verification is completed.
                   </Text>
                 </View>
               </View>
-            ) : (
+            )}
+
+            {hasAccessibility && progressPercentage === 100 && (
+              <View style={styles.successBanner}>
+                <Ionicons name="checkmark-circle" size={24} color="#059669" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.successBannerTitle}>Accessibility Needs Verified (100%)</Text>
+                  <Text style={styles.successBannerText}>
+                    Your accessibility profile details are verified and active for priority transit services.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Mandatory Booking Warning Box (Only shown if Senior Citizen and Guardian is NOT registered yet) */}
+            {isElderly && !isGuardianCompleted && (
+              <View style={styles.warningBanner}>
+                <Ionicons name="warning" size={24} color="#D97706" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.warningTitle}>Guardian Requirement Warning</Text>
+                  <Text style={styles.warningText}>
+                    Providing Guardian Details is compulsory for passengers over 60 years old when making bus bookings!
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {isElderly && isGuardianCompleted && (
               <View style={styles.successBanner}>
                 <Ionicons name="checkmark-circle" size={24} color="#059669" style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
@@ -530,75 +572,77 @@ export default function ProfileScreen() {
               </View>
             )}
 
-            {/* Step Item 1: Guardian Details */}
-            <View style={styles.stepItemCard}>
-              <View style={styles.stepIconColumn}>
-                <View style={[styles.stepCircleIcon, isGuardianCompleted ? styles.stepDoneCircle : styles.stepPendingCircle]}>
-                  <Ionicons
-                    name={isGuardianCompleted ? 'checkmark-sharp' : 'alert'}
-                    size={18}
-                    color="#FFFFFF"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.stepInfoColumn}>
-                <View style={styles.stepHeaderRow}>
-                  <Text style={styles.stepItemTitle}>Step 1: Guardian Details</Text>
-                  <View style={[styles.statusBadge, isGuardianCompleted ? styles.statusBadgeDone : styles.statusBadgePending]}>
-                    <Text style={[styles.statusBadgeText, isGuardianCompleted ? styles.statusTextDone : styles.statusTextPending]}>
-                      {isGuardianCompleted ? 'Completed' : 'Action Required'}
-                    </Text>
-                  </View>
-                </View>
-
-                {isGuardianCompleted && currentGuardian ? (
-                  <View style={styles.guardianSummaryBox}>
-                    <Text style={styles.guardianSummaryName}>{currentGuardian.fullName}</Text>
-                    <Text style={styles.guardianSummaryDetail}>NIC: {currentGuardian.nicNo} • Mobile: {currentGuardian.mobileNo}</Text>
-                    {currentGuardian.relationship && (
-                      <Text style={styles.guardianSummaryDetail}>Relationship: {currentGuardian.relationship}</Text>
-                    )}
-                  </View>
-                ) : (
-                  <Text style={styles.stepItemDescription}>
-                    Please register an emergency contact guardian to enable smooth seat reservations.
-                  </Text>
-                )}
-
-                <View style={styles.stepButtonRow}>
-                  {isGuardianCompleted && (
-                    <TouchableOpacity
-                      style={styles.stepViewButton}
-                      onPress={() => setIsViewModalOpen(true)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="eye-outline" size={18} color="#0066CC" style={{ marginRight: 4 }} />
-                      <Text style={styles.stepViewButtonText}>View Details</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    style={[
-                      styles.stepActionButton,
-                      isGuardianCompleted ? styles.stepActionButtonSecondary : { flex: 1 },
-                    ]}
-                    onPress={openGuardianModal}
-                    activeOpacity={0.8}
-                  >
+            {/* Step Item 1: Guardian Details (Only required for passengers aged 60+) */}
+            {isElderly && (
+              <View style={styles.stepItemCard}>
+                <View style={styles.stepIconColumn}>
+                  <View style={[styles.stepCircleIcon, isGuardianCompleted ? styles.stepDoneCircle : styles.stepPendingCircle]}>
                     <Ionicons
-                      name={isGuardianCompleted ? 'create-outline' : 'person-add-outline'}
+                      name={isGuardianCompleted ? 'checkmark-sharp' : 'alert'}
                       size={18}
                       color="#FFFFFF"
-                      style={{ marginRight: 6 }}
                     />
-                    <Text style={styles.stepActionButtonText}>
-                      {isGuardianCompleted ? 'Edit Details' : 'Add Guardian Details'}
+                  </View>
+                </View>
+
+                <View style={styles.stepInfoColumn}>
+                  <View style={styles.stepHeaderRow}>
+                    <Text style={styles.stepItemTitle}>Step 1: Guardian Details</Text>
+                    <View style={[styles.statusBadge, isGuardianCompleted ? styles.statusBadgeDone : styles.statusBadgePending]}>
+                      <Text style={[styles.statusBadgeText, isGuardianCompleted ? styles.statusTextDone : styles.statusTextPending]}>
+                        {isGuardianCompleted ? 'Completed' : 'Action Required'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {isGuardianCompleted && currentGuardian ? (
+                    <View style={styles.guardianSummaryBox}>
+                      <Text style={styles.guardianSummaryName}>{currentGuardian.fullName}</Text>
+                      <Text style={styles.guardianSummaryDetail}>NIC: {currentGuardian.nicNo} • Mobile: {currentGuardian.mobileNo}</Text>
+                      {currentGuardian.relationship && (
+                        <Text style={styles.guardianSummaryDetail}>Relationship: {currentGuardian.relationship}</Text>
+                      )}
+                    </View>
+                  ) : (
+                    <Text style={styles.stepItemDescription}>
+                      Please register an emergency contact guardian to enable smooth seat reservations.
                     </Text>
-                  </TouchableOpacity>
+                  )}
+
+                  <View style={styles.stepButtonRow}>
+                    {isGuardianCompleted && (
+                      <TouchableOpacity
+                        style={styles.stepViewButton}
+                        onPress={() => setIsViewModalOpen(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="eye-outline" size={18} color="#0066CC" style={{ marginRight: 4 }} />
+                        <Text style={styles.stepViewButtonText}>View Details</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.stepActionButton,
+                        isGuardianCompleted ? styles.stepActionButtonSecondary : { flex: 1 },
+                      ]}
+                      onPress={openGuardianModal}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={isGuardianCompleted ? 'create-outline' : 'person-add-outline'}
+                        size={18}
+                        color="#FFFFFF"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.stepActionButtonText}>
+                        {isGuardianCompleted ? 'Edit Details' : 'Add Guardian Details'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
+            )}
           </View>
         )}
 

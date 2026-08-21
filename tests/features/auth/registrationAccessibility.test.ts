@@ -93,4 +93,41 @@ describe('Registration Accessibility Needs DTO, User model & AccessibilityProfil
         expect(profile.passengerId).toBe('PAS-2026-00001');
         expect(profile.accessibilityNeeds).toEqual(['wheelchair', 'low_vision']);
     });
+
+    describe('getProfileCompletionPercentage & isAccessibilityProfileVerified', () => {
+        const { getProfileCompletionPercentage, isAccessibilityProfileVerified } = require('../../../src/shared/utils/profileUtils');
+
+        it('should indicate 80% completion for users with accessibility needs whose profile is not verified', () => {
+            const userWithNeedsUnverified = {
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: false,
+                isVerified: false,
+            };
+
+            expect(getProfileCompletionPercentage(userWithNeedsUnverified)).toBe(80);
+            expect(isAccessibilityProfileVerified(userWithNeedsUnverified)).toBe(false);
+        });
+
+        it('should indicate 100% completion for users with accessibility needs whose profile is verified', () => {
+            const userWithNeedsVerified = {
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: true,
+                isVerified: true,
+            };
+
+            expect(getProfileCompletionPercentage(userWithNeedsVerified)).toBe(100);
+            expect(isAccessibilityProfileVerified(userWithNeedsVerified)).toBe(true);
+        });
+
+        it('should indicate 100% completion for users without accessibility needs', () => {
+            const standardUser = {
+                hasAccessibilityNeeds: false,
+                isAccessibilityVerified: false,
+                isVerified: false,
+            };
+
+            expect(getProfileCompletionPercentage(standardUser)).toBe(100);
+            expect(isAccessibilityProfileVerified(standardUser)).toBe(true);
+        });
+    });
 });
