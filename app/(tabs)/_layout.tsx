@@ -1,11 +1,11 @@
-//Control layout of tab screen
-//This file is used to control the layout of tab screen
-//Navigation bar of tab screen
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useNotificationStore } from '../../src/shared/store/notificationStore';
 
 export default function TabLayout() {
+  const unreadCount = useNotificationStore((state) => state.unreadCount);
+
   return (
     <Tabs
       screenOptions={{
@@ -49,10 +49,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="compass-outline" size={size} color={color} />
-          ),
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -61,6 +58,17 @@ export default function TabLayout() {
               title: 'Bookings',
               tabBarIcon: ({ color, size }) => (
                   <Ionicons name="ticket-outline" size={size} color={color} />
+              ),
+          }}
+      />
+      <Tabs.Screen
+          name="notifications"
+          options={{
+              title: 'Notifications',
+              tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
+              tabBarBadgeStyle: { backgroundColor: '#EF4444', color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+              tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="notifications-outline" size={size} color={color} />
               ),
           }}
       />

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useAuthStore } from '../../src/shared/store/authStore';
+import { NotificationHeaderIcon } from '../../src/features/notifications/ui/NotificationHeaderIcon';
 
 export default function HomeScreen() {
   const { user } = useAuthStore();
@@ -52,20 +53,25 @@ export default function HomeScreen() {
             <Text style={styles.appTagline}>Accessible Transit Portal</Text>
           </View>
 
-          {/* Profile Header Logo Icon Button */}
-          <TouchableOpacity
-            style={styles.profileLogoButton}
-            onPress={handleOpenProfile}
-            accessibilityRole="button"
-            accessibilityLabel="Open User Profile"
-            accessibilityHint="Navigates to full profile screen"
-            activeOpacity={0.8}
-          >
-            <View style={styles.profileAvatarCircle}>
-              <Text style={styles.profileAvatarText}>{getInitials(displayUser.userName)}</Text>
-            </View>
-            <View style={styles.profileBadgeOnline} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            {/* Notification Bell Icon */}
+            <NotificationHeaderIcon size={24} color="#0F172A" />
+
+            {/* Profile Header Logo Icon Button */}
+            <TouchableOpacity
+              style={styles.profileLogoButton}
+              onPress={handleOpenProfile}
+              accessibilityRole="button"
+              accessibilityLabel="Open User Profile"
+              accessibilityHint="Navigates to full profile screen"
+              activeOpacity={0.8}
+            >
+              <View style={styles.profileAvatarCircle}>
+                <Text style={styles.profileAvatarText}>{getInitials(displayUser.userName)}</Text>
+              </View>
+              <View style={styles.profileBadgeOnline} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Basic Details Profile Card on Home */}

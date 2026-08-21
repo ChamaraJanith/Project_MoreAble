@@ -52,10 +52,19 @@ export interface ConfirmBookingPayload {
     specialRequests?: string;
 }
 
+import { sendLocalBookingNotification } from '../../../shared/utils/localNotifications';
+
 /** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
 export async function confirmBooking(payload: ConfirmBookingPayload): Promise<Booking> {
     const data = await bookingFetch('/api/booking/confirm', { method: 'POST', body: JSON.stringify(payload) });
-    return data.booking as Booking;
+    const booking = data.booking as Booking;
+
+    if (booking) {
+        // Trigger native pop-down notification on device
+        sendLocalBookingNotification(booking).catch(() => {});
+    }
+
+    return booking;
 }
 
 export async function getBooking(bookingId: string): Promise<Booking> {
