@@ -1,17 +1,35 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { ReportPhotoDraft } from '../../../entities/report/model/types';
+import React, { useCallback, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import {
+    MAX_REPORT_PHOTOS,
+    ReportPhotoDraft,
+} from '../../../entities/report/model/types';
 import { adminColors } from '../../admin/ui/adminTheme';
+import { uploadReportPhoto } from '../api/reportPhotoUpload';
 import { formatPhotoCount } from '../utils/reportFormat';
 
-/** Enough evidence to describe an issue without making the form unwieldy. */
-export const MAX_REPORT_PHOTOS = 5;
+// Defined once in the entity model and re-exported here so existing importers
+// are unaffected — the picker cannot offer a slot the upload would refuse.
+export { MAX_REPORT_PHOTOS };
 
 interface PhotoEvidencePickerProps {
     photos: ReportPhotoDraft[];
-    onChange: (photos: ReportPhotoDraft[]) => void;
+    /**
+     * A state setter rather than a plain callback, because uploads settle after
+     * the pick that started them: applying each result functionally is what
+     * stops two photos finishing at once from overwriting each other.
+     */
+    onChange: React.Dispatch<React.SetStateAction<ReportPhotoDraft[]>>;
     /** Locks the controls while the report is being submitted. */
     disabled?: boolean;
 }
@@ -23,7 +41,38 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
     const isFull = remaining <= 0;
     const controlsDisabled = disabled || isPicking || isFull;
 
-    /** Appends new assets, skipping duplicates and anything over the cap. */
+    /**
+     * Uploads one photo and writes the outcome back onto its draft.
+     *
+     * Matched by uri, so a photo the passenger removed while it was in flight
+     * simply finds nothing to update rather than reappearing in the grid.
+     */
+    const uploadPhoto = useCallback(
+        async (photo: ReportPhotoDraft) => {
+            const result = await uploadReportPhoto(photo);
+
+            onChange((current) =>
+                current.map((entry) =>
+                    entry.uri !== photo.uri
+                        ? entry
+                        : result.ok
+                          ? { ...entry, status: 'uploaded', url: result.url, error: undefined }
+                          : { ...entry, status: 'failed', url: undefined, error: result.message }
+                )
+            );
+        },
+        [onChange]
+    );
+
+    /**
+     * Appends new assets, skipping duplicates and anything over the cap, then
+     * starts each upload.
+     *
+     * Uploading as the photo is picked rather than at submit time is what keeps
+     * a `file://` uri out of the report: by the time Submit is pressed the
+     * photo is already a Cloudinary URL, and the thumbnail says so while it is
+     * not.
+     */
     const appendAssets = (assets: ImagePicker.ImagePickerAsset[]) => {
         const existingUris = new Set(photos.map((photo) => photo.uri));
 
@@ -32,11 +81,32 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
             .slice(0, remaining)
             .map<ReportPhotoDraft>((asset) => ({
                 uri: asset.uri,
+                base64: asset.base64,
+                mimeType: asset.mimeType ?? 'image/jpeg',
                 fileName: asset.fileName,
                 fileSize: asset.fileSize,
+                status: 'uploading',
             }));
 
-        if (added.length > 0) onChange([...photos, ...added]);
+        if (added.length === 0) return;
+
+        onChange((current) => [...current, ...added]);
+        added.forEach((photo) => uploadPhoto(photo));
+    };
+
+    /** Re-runs a failed upload for one photo, leaving the others alone. */
+    const retryPhoto = (photo: ReportPhotoDraft) => {
+        if (disabled) return;
+
+        onChange((current) =>
+            current.map((entry) =>
+                entry.uri === photo.uri
+                    ? { ...entry, status: 'uploading', error: undefined }
+                    : entry
+            )
+        );
+
+        uploadPhoto(photo);
     };
 
     const pickFromLibrary = async () => {
@@ -59,6 +129,7 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
                 allowsMultipleSelection: true,
                 selectionLimit: remaining,
                 quality: 0.7,
+                base64: true,
             });
 
             if (result.canceled) return;
@@ -89,6 +160,7 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
             const result = await ImagePicker.launchCameraAsync({
                 mediaTypes: ['images'],
                 quality: 0.7,
+                base64: true,
             });
 
             if (result.canceled) return;
@@ -102,8 +174,11 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
     };
 
     const removePhoto = (uri: string) => {
-        onChange(photos.filter((photo) => photo.uri !== uri));
+        onChange((current) => current.filter((photo) => photo.uri !== uri));
     };
+
+    const uploadingCount = photos.filter((photo) => photo.status === 'uploading').length;
+    const failedCount = photos.filter((photo) => photo.status === 'failed').length;
 
     return (
         <View style={styles.card}>
@@ -154,6 +229,33 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
                                     style={styles.thumbnail}
                                     accessibilityLabel={`Selected photo ${index + 1}`}
                                 />
+
+                                {photo.status === 'uploading' && (
+                                    <View style={styles.thumbnailOverlay}>
+                                        <ActivityIndicator size="small" color="#FFFFFF" />
+                                    </View>
+                                )}
+
+                                {/* A failed photo keeps its slot and offers the
+                                    retry rather than being dropped: Submit
+                                    stays blocked until it succeeds or the
+                                    passenger removes it. */}
+                                {photo.status === 'failed' && (
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.thumbnailOverlay,
+                                            styles.thumbnailOverlayFailed,
+                                        ]}
+                                        onPress={() => retryPhoto(photo)}
+                                        disabled={disabled}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Retry uploading photo ${index + 1}`}
+                                    >
+                                        <Ionicons name="refresh" size={18} color="#FFFFFF" />
+                                        <Text style={styles.retryText}>Retry</Text>
+                                    </TouchableOpacity>
+                                )}
+
                                 <TouchableOpacity
                                     style={styles.removeButton}
                                     onPress={() => removePhoto(photo.uri)}
@@ -170,7 +272,16 @@ export function PhotoEvidencePicker({ photos, onChange, disabled = false }: Phot
                     <Text style={styles.countText} accessibilityLiveRegion="polite">
                         {formatPhotoCount(photos.length)} selected
                         {isFull ? '' : ` · ${remaining} more allowed`}
+                        {uploadingCount > 0 ? ` · uploading ${uploadingCount}…` : ''}
                     </Text>
+
+                    {failedCount > 0 && (
+                        <Text style={styles.failedText} accessibilityRole="alert">
+                            {failedCount === 1
+                                ? 'A photo failed to upload. Tap Retry on it, or remove it.'
+                                : `${failedCount} photos failed to upload. Retry them, or remove them.`}
+                        </Text>
+                    )}
                 </>
             )}
         </View>
@@ -268,6 +379,27 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         backgroundColor: adminColors.borderSubtle,
     },
+    thumbnailOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    },
+    thumbnailOverlayFailed: {
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    },
+    retryText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        marginTop: 3,
+    },
+
     removeButton: {
         position: 'absolute',
         top: -6,
@@ -287,5 +419,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: adminColors.textSecondary,
         marginTop: 12,
+    },
+    failedText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: adminColors.danger,
+        marginTop: 6,
+        lineHeight: 18,
     },
 });

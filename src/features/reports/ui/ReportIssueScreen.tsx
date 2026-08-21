@@ -24,6 +24,13 @@ import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSelectModal, AdminSelectOption } from '../../admin/ui/AdminSelectModal';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { loadReportReferenceData } from '../api/reportReferenceData';
+import {
+    canSubmitReport,
+    firstMissingReportField,
+    isBusSelectionUnlocked,
+    photoUploadIssue,
+    uploadedPhotoUrls,
+} from '../utils/reportFormValidation';
 import { PhotoEvidencePicker } from './PhotoEvidencePicker';
 import { REPORT_CATEGORY_OPTIONS } from './reportCategories';
 import { ReportSelectField, ReportTextArea } from './ReportFormFields';
@@ -48,13 +55,23 @@ export const ReportIssueScreen = () => {
     // Both hold the canonical document id, never the display text: the API
     // resolves the id itself and snapshots the plate and route number from the
     // fleet record, so nothing shown on screen is trusted as a reference.
-    const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
     const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+    const [selectedBusId, setSelectedBusId] = useState<string | null>(null);
 
-    // ---- Collected in the UI only --------------------------------------
-    // Photo upload is a separate storage subtask, so these stay in component
-    // state: a local `file://` uri would be meaningless to the backend.
+    // Each photo is uploaded to Cloudinary by the picker as soon as it is
+    // chosen, so a draft carries the secure URL that will be submitted. The
+    // `file://` uris behind the thumbnails are never sent anywhere.
     const [photos, setPhotos] = useState<ReportPhotoDraft[]>([]);
+
+    // Whether a bus may be chosen yet. The route is asked for first, so
+    // changing it drops a bus picked under the previous one rather than
+    // leaving a stale selection behind.
+    const isBusUnlocked = isBusSelectionUnlocked(selectedRouteId);
+
+    const handleRouteSelected = (routeId: string) => {
+        if (routeId !== selectedRouteId) setSelectedBusId(null);
+        setSelectedRouteId(routeId);
+    };
 
     // ---- Bus / route reference data ------------------------------------
     const [buses, setBuses] = useState<Bus[]>([]);
@@ -135,7 +152,14 @@ export const ReportIssueScreen = () => {
         [routes]
     );
 
-    const canSubmit = !!issueCategory && !!description.trim() && !isSubmitting;
+    const formState = {
+        issueCategory,
+        description,
+        routeId: selectedRouteId,
+        busId: selectedBusId,
+    };
+
+    const canSubmit = canSubmitReport(formState, isSubmitting, photos);
 
     const handleSubmit = async () => {
         setError(null);
@@ -145,16 +169,29 @@ export const ReportIssueScreen = () => {
             return;
         }
 
-        if (!issueCategory) {
-            setError('Please select an issue category.');
+        // The same rules the Submit button is gated on, so a report can never
+        // be sent by a route the button would have refused.
+        const missingField = firstMissingReportField(formState);
+
+        if (missingField) {
+            setError(missingField);
             return;
         }
 
         const trimmedDescription = description.trim();
-        if (!trimmedDescription) {
-            setError('Please provide a description of the issue.');
+
+        // Every attached photo has to have reached Cloudinary. Submitting while
+        // one is still uploading — or after one failed — would file a report
+        // missing evidence the passenger believes they attached, and there is
+        // no way to add it afterwards, so the report waits instead.
+        const photoIssue = photoUploadIssue(photos);
+
+        if (photoIssue) {
+            setError(photoIssue);
             return;
         }
+
+        const photoUrls = uploadedPhotoUrls(photos);
 
         setIsSubmitting(true);
 
@@ -168,11 +205,13 @@ export const ReportIssueScreen = () => {
                 body: JSON.stringify({
                     issueCategory,
                     description: trimmedDescription,
-                    // Sent only when the passenger picked one. Both are
-                    // optional at the API, and an omitted field is the
-                    // difference between "no bus" and "a bus that is null".
-                    ...(selectedBusId ? { busId: selectedBusId } : {}),
-                    ...(selectedRouteId ? { routeId: selectedRouteId } : {}),
+                    routeId: selectedRouteId,
+                    busId: selectedBusId,
+                    // The Cloudinary URLs the picker already uploaded to, never
+                    // the thumbnails' device uris. Omitted entirely when no
+                    // photo was attached. passengerId is deliberately absent —
+                    // it comes from the token.
+                    ...(photoUrls.length > 0 ? { photoUrls } : {}),
                 }),
             });
 
@@ -290,22 +329,9 @@ export const ReportIssueScreen = () => {
                                 </View>
                             )}
 
-                            <ReportSelectField
-                                label="Bus / Vehicle"
-                                value={selectedBus?.numberPlate ?? null}
-                                secondary={[selectedBus?.busModel, selectedBus?.manufacturer]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                placeholder={
-                                    buses.length === 0 ? 'No buses available' : 'Select Bus'
-                                }
-                                icon="bus-outline"
-                                optional
-                                showSelectedTick
-                                disabled={buses.length === 0}
-                                onPress={() => setActivePicker('bus')}
-                            />
-
+                            {/* Route first: the bus field stays locked until a
+                                route is chosen, so the journey is established
+                                before the vehicle that ran it. */}
                             <ReportSelectField
                                 label="Route"
                                 value={
@@ -330,11 +356,33 @@ export const ReportIssueScreen = () => {
                                     routes.length === 0 ? 'No routes available' : 'Select Route'
                                 }
                                 icon="git-branch-outline"
-                                optional
                                 showSelectedTick
                                 disabled={routes.length === 0}
                                 onPress={() => setActivePicker('route')}
-                                helper="Choosing the vehicle and route helps us trace the exact bus involved."
+                            />
+
+                            <ReportSelectField
+                                label="Bus / Vehicle"
+                                value={selectedBus?.numberPlate ?? null}
+                                secondary={[selectedBus?.busModel, selectedBus?.manufacturer]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                placeholder={
+                                    !isBusUnlocked
+                                        ? 'Select Route first'
+                                        : buses.length === 0
+                                          ? 'No buses available'
+                                          : 'Select Bus'
+                                }
+                                icon="bus-outline"
+                                showSelectedTick
+                                disabled={!isBusUnlocked || buses.length === 0}
+                                onPress={() => setActivePicker('bus')}
+                                helper={
+                                    isBusUnlocked
+                                        ? 'The route and vehicle together let us trace the exact bus involved.'
+                                        : 'Choose the route you travelled on to pick the bus.'
+                                }
                             />
 
                             {(!!selectedBusId || !!selectedRouteId) && (
@@ -419,6 +467,19 @@ export const ReportIssueScreen = () => {
             />
 
             <AdminSelectModal
+                visible={activePicker === 'route'}
+                title="Select Route"
+                options={routeOptions}
+                selectedValue={selectedRouteId}
+                emptyMessage="No routes are available to select."
+                onClose={() => setActivePicker(null)}
+                onSelect={(value) => {
+                    handleRouteSelected(value);
+                    setActivePicker(null);
+                }}
+            />
+
+            <AdminSelectModal
                 visible={activePicker === 'bus'}
                 title="Select Bus"
                 options={busOptions}
@@ -427,19 +488,6 @@ export const ReportIssueScreen = () => {
                 onClose={() => setActivePicker(null)}
                 onSelect={(value) => {
                     setSelectedBusId(value);
-                    setActivePicker(null);
-                }}
-            />
-
-            <AdminSelectModal
-                visible={activePicker === 'route'}
-                title="Select Route"
-                options={routeOptions}
-                selectedValue={selectedRouteId}
-                emptyMessage="No routes are available to select."
-                onClose={() => setActivePicker(null)}
-                onSelect={(value) => {
-                    setSelectedRouteId(value);
                     setActivePicker(null);
                 }}
             />
