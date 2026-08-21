@@ -285,6 +285,8 @@ export default function ProfileScreen() {
   });
 
   const profileCompletionPercentage = getProfileCompletionPercentage({
+    isElderly,
+    isGuardianCompleted,
     hasAccessibilityNeeds: hasAccessibility,
     isAccessibilityVerified: (displayUser as any).isAccessibilityVerified,
     isVerified: (displayUser as any).isVerified,
@@ -504,9 +506,7 @@ export default function ProfileScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.stepsTitle}>Profile Verification Status</Text>
                 <Text style={styles.stepsSubtitle}>
-                  {hasAccessibility
-                    ? (progressPercentage === 80 ? 'Accessibility verification is pending (80% Complete)' : 'Profile is fully verified (100% Complete)')
-                    : 'Required profile actions for passengers'}
+                  Profile completion status ({progressPercentage}% Complete)
                 </Text>
               </View>
 
