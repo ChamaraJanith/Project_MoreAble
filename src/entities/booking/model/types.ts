@@ -109,6 +109,8 @@ export interface Booking {
   specialRequests: string;
   isPriorityAutoEligible: boolean;
   priorityAccessReason: string | null;
+  reminderSent?: boolean;
+  reminderSentAt?: string;
   createdAt: string;
 }
 

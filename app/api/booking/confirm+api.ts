@@ -224,6 +224,7 @@ export async function POST(request: Request) {
                     prioritySeatAssistance: !!assistanceRequested?.prioritySeatAssistance,
                 },
                 specialRequests: typeof specialRequests === 'string' ? specialRequests.trim() : '',
+                reminderSent: false,
                 qrPayload,
                 createdAt: now,
             };

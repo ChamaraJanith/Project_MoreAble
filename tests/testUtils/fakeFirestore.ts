@@ -41,7 +41,13 @@ function buildQuery(docs: DocData[]): FakeQuery {
 
 export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
     const collections = new Map<string, DocData[]>(
-        Object.entries(seed).map(([name, docs]) => [name, docs.map((doc) => ({ ...doc }))])
+        Object.entries(seed).map(([name, docs]) => [
+            name,
+            docs.map((doc) => ({
+                id: doc.id || doc.bookingId || doc.tripId || doc.busId || doc.routeId || doc.userId || doc.stopId,
+                ...doc,
+            })),
+        ])
     );
 
     function getCollectionDocs(name: string): DocData[] {
@@ -58,7 +64,7 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
         return {
             ...query,
             doc: jest.fn((id: string) => {
-                const found = docs.find((d) => d.id === id);
+                const found = docs.find((d) => d.id === id || d.bookingId === id);
 
                 return {
                     id,
@@ -94,6 +100,7 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
             const transaction = {
                 get: jest.fn((ref: any) => ref.get()),
                 set: jest.fn((ref: any, data: DocData) => ref.set(data)),
+                update: jest.fn((ref: any, data: DocData) => ref.update(data)),
             };
             return callback(transaction);
         }),

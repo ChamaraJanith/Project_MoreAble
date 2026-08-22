@@ -1,6 +1,6 @@
 // Notification Entity Models and Types
 
-export type NotificationType = 'BOOKING_CONFIRMATION';
+export type NotificationType = 'BOOKING_CONFIRMATION' | 'BOARDING_REMINDER';
 export type NotificationStatus = 'UNREAD' | 'READ';
 
 export interface BookingNotificationDetails {
