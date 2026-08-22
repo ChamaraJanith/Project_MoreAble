@@ -16,6 +16,7 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
 }) => {
     const router = useRouter();
     const isUnread = notification.status === 'UNREAD';
+    const isBoardingReminder = notification.type === 'BOARDING_REMINDER';
     const { details } = notification;
 
     const handlePress = async () => {
@@ -54,7 +55,14 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
 
     return (
         <TouchableOpacity
-            style={[styles.card, isUnread ? styles.cardUnread : styles.cardRead]}
+            style={[
+                styles.card,
+                isUnread
+                    ? isBoardingReminder
+                        ? styles.cardReminderUnread
+                        : styles.cardUnread
+                    : styles.cardRead,
+            ]}
             onPress={handlePress}
             activeOpacity={0.8}
             accessibilityRole="button"
@@ -62,15 +70,37 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
         >
             <View style={styles.headerRow}>
                 <View style={styles.titleContainer}>
-                    <View style={[styles.iconBadge, isUnread ? styles.iconBadgeUnread : styles.iconBadgeRead]}>
+                    <View
+                        style={[
+                            styles.iconBadge,
+                            isUnread
+                                ? isBoardingReminder
+                                    ? styles.iconBadgeReminderUnread
+                                    : styles.iconBadgeUnread
+                                : styles.iconBadgeRead,
+                        ]}
+                    >
                         <Ionicons
-                            name="checkmark-circle-outline"
+                            name={isBoardingReminder ? 'alarm-outline' : 'checkmark-circle-outline'}
                             size={20}
-                            color={isUnread ? '#0066CC' : '#64748B'}
+                            color={
+                                isBoardingReminder
+                                    ? isUnread
+                                        ? '#D97706'
+                                        : '#92400E'
+                                    : isUnread
+                                    ? '#0066CC'
+                                    : '#64748B'
+                            }
                         />
                     </View>
                     <View style={styles.titleTextContainer}>
-                        <Text style={[styles.title, isUnread && styles.textBold]}>
+                        <Text
+                            style={[
+                                styles.title,
+                                isUnread && (isBoardingReminder ? styles.textReminderBold : styles.textBold),
+                            ]}
+                        >
                             {notification.title}
                         </Text>
                         <Text style={styles.timestamp}>{formatDate(notification.createdAt)}</Text>
@@ -78,7 +108,12 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                 </View>
 
                 {isUnread && (
-                    <View style={styles.unreadIndicatorContainer}>
+                    <View
+                        style={[
+                            styles.unreadIndicatorContainer,
+                            isBoardingReminder && styles.unreadIndicatorReminder,
+                        ]}
+                    >
                         <View style={styles.unreadDot} />
                         <Text style={styles.unreadTag}>NEW</Text>
                     </View>
@@ -92,13 +127,13 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                 <View style={styles.snapshotContainer}>
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="ticket-outline" size={13} color="#0066CC" />
+                            <Ionicons name="ticket-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
                             <Text style={styles.chipLabel}>ID:</Text>
                             <Text style={styles.chipValue}>{details.bookingId || notification.bookingId}</Text>
                         </View>
 
                         <View style={styles.chip}>
-                            <Ionicons name="bus-outline" size={13} color="#0066CC" />
+                            <Ionicons name="bus-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
                             <Text style={styles.chipLabel}>Vehicle:</Text>
                             <Text style={styles.chipValue}>{details.vehicleNumber}</Text>
                         </View>
@@ -106,7 +141,7 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
 
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="navigate-outline" size={13} color="#0066CC" />
+                            <Ionicons name="navigate-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
                             <Text style={styles.chipLabel}>Route:</Text>
                             <Text style={styles.chipValue}>
                                 {details.routeNumber} ({details.routeName})
@@ -116,14 +151,22 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
 
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="accessibility-outline" size={13} color="#0066CC" />
-                            <Text style={styles.chipLabel}>Seat:</Text>
-                            <Text style={styles.chipValue}>{details.seatNumber}</Text>
+                            <Ionicons name="location-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Text style={styles.chipLabel}>Boarding:</Text>
+                            <Text style={styles.chipValue}>{details.startLocation}</Text>
                         </View>
 
                         <View style={styles.chip}>
-                            <Ionicons name="time-outline" size={13} color="#0066CC" />
-                            <Text style={styles.chipLabel}>Date/Time:</Text>
+                            <Ionicons name="accessibility-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Text style={styles.chipLabel}>Seat:</Text>
+                            <Text style={styles.chipValue}>{details.seatNumber}</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.chipRow}>
+                        <View style={styles.chip}>
+                            <Ionicons name="time-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Text style={styles.chipLabel}>Departure Time:</Text>
                             <Text style={styles.chipValue}>
                                 {details.journeyDate} ({details.journeyTime})
                             </Text>
@@ -133,8 +176,14 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
             )}
 
             <View style={styles.footerRow}>
-                <Text style={styles.tapPrompt}>Tap to view reservation ticket</Text>
-                <Ionicons name="chevron-forward" size={16} color="#0066CC" />
+                <Text style={[styles.tapPrompt, isBoardingReminder && styles.tapPromptReminder]}>
+                    Tap to view reservation ticket
+                </Text>
+                <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={isBoardingReminder ? '#D97706' : '#0066CC'}
+                />
             </View>
         </TouchableOpacity>
     );
@@ -156,6 +205,10 @@ const styles = StyleSheet.create({
     cardUnread: {
         backgroundColor: '#F0F7FF',
         borderColor: '#BAE6FD',
+    },
+    cardReminderUnread: {
+        backgroundColor: '#FFFBEB',
+        borderColor: '#FDE68A',
     },
     cardRead: {
         backgroundColor: '#FFFFFF',
@@ -183,6 +236,9 @@ const styles = StyleSheet.create({
     iconBadgeUnread: {
         backgroundColor: '#E0F2FE',
     },
+    iconBadgeReminderUnread: {
+        backgroundColor: '#FEF3C7',
+    },
     iconBadgeRead: {
         backgroundColor: '#F1F5F9',
     },
@@ -198,6 +254,10 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#0369A1',
     },
+    textReminderBold: {
+        fontWeight: '700',
+        color: '#B45309',
+    },
     timestamp: {
         fontSize: 12,
         color: '#64748B',
@@ -210,6 +270,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 12,
+    },
+    unreadIndicatorReminder: {
+        backgroundColor: '#D97706',
     },
     unreadDot: {
         width: 6,
@@ -275,5 +338,8 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#0066CC',
         fontWeight: '600',
+    },
+    tapPromptReminder: {
+        color: '#D97706',
     },
 });

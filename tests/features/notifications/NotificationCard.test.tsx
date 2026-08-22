@@ -73,4 +73,43 @@ describe('NotificationCard Component', () => {
         expect(onStatusChange).toHaveBeenCalledWith('notif_BK-9999');
         expect(mockPush).toHaveBeenCalledWith('/(tabs)/booking/ticket/BK-9999');
     });
+
+    it('renders BOARDING_REMINDER notification title, message, vehicle number, boarding location, departure time, and seat number', () => {
+        const reminderNotification: Notification = {
+            id: 'notif_rem_BK-8888',
+            notificationId: 'notif_rem_BK-8888',
+            userId: 'PA-2026-1024',
+            bookingId: 'BK-8888',
+            type: 'BOARDING_REMINDER',
+            title: 'Boarding Reminder 🚌',
+            message: 'Bus ND-5421 for Route 138 will depart in 15 minutes. Please proceed to Maharagama (Seat S05).',
+            status: 'UNREAD',
+            createdAt: '2026-08-22T07:15:00.000Z',
+            readAt: null,
+            details: {
+                bookingId: 'BK-8888',
+                vehicleNumber: 'ND-5421',
+                routeNumber: '138',
+                routeName: 'Maharagama - Pettah',
+                seatNumber: 'S05',
+                journeyDate: '2026-08-22',
+                journeyTime: '07:30 AM',
+                startLocation: 'Maharagama',
+                endLocation: 'Pettah',
+            },
+        };
+
+        const { getByText } = render(
+            <NotificationCard notification={reminderNotification} />
+        );
+
+        expect(getByText('Boarding Reminder 🚌')).toBeTruthy();
+        expect(getByText('NEW')).toBeTruthy();
+        expect(getByText('BK-8888')).toBeTruthy();
+        expect(getByText('ND-5421')).toBeTruthy();
+        expect(getByText('Maharagama')).toBeTruthy();
+        expect(getByText('S05')).toBeTruthy();
+        expect(getByText('2026-08-22 (07:30 AM)')).toBeTruthy();
+    });
 });
+

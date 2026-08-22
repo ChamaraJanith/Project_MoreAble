@@ -52,7 +52,7 @@ export interface ConfirmBookingPayload {
     specialRequests?: string;
 }
 
-import { sendLocalBookingNotification } from '../../../shared/utils/localNotifications';
+import { scheduleLocalBoardingReminder, sendLocalBookingNotification } from '../../../shared/utils/localNotifications';
 
 /** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
 export async function confirmBooking(payload: ConfirmBookingPayload): Promise<Booking> {
@@ -60,8 +60,10 @@ export async function confirmBooking(payload: ConfirmBookingPayload): Promise<Bo
     const booking = data.booking as Booking;
 
     if (booking) {
-        // Trigger native pop-down notification on device
+        // Trigger native pop-down confirmation notification on device
         sendLocalBookingNotification(booking).catch(() => {});
+        // Schedule native OS push boarding reminder 15 minutes before departure
+        scheduleLocalBoardingReminder(booking).catch(() => {});
     }
 
     return booking;

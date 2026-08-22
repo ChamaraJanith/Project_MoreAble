@@ -6,6 +6,13 @@ export async function fetchUserNotifications(userId: string): Promise<{
     unreadCount: number;
 }> {
     try {
+        // Trigger server-side reminder evaluator for upcoming departures
+        await fetch(`${API_BASE_URL}/api/notifications/reminders/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        }).catch(() => {});
+
         const response = await fetch(
             `${API_BASE_URL}/api/notifications?userId=${encodeURIComponent(userId)}`
         );
