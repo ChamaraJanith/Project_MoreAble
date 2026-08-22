@@ -22,8 +22,8 @@ describe('NotificationCard Component', () => {
         userId: 'PA-2026-1024',
         bookingId: 'BK-9999',
         type: 'BOOKING_CONFIRMATION',
-        title: 'Booking Confirmed!',
-        message: 'Your reservation BK-9999 for Route 138 (Seat S12) has been confirmed.',
+        title: 'Booking Confirmed • Route 138 🎟️',
+        message: 'Your reservation BK-9999 for Route 138 (Maharagama - Pettah) [Seat S12] has been confirmed.',
         status: 'UNREAD',
         createdAt: '2026-08-21T12:00:00.000Z',
         readAt: null,
@@ -49,7 +49,7 @@ describe('NotificationCard Component', () => {
             <NotificationCard notification={sampleNotification} />
         );
 
-        expect(getByText('Booking Confirmed!')).toBeTruthy();
+        expect(getByText('Booking Confirmed • Route 138 🎟️')).toBeTruthy();
         expect(getByText('NEW')).toBeTruthy();
         expect(getByText('BK-9999')).toBeTruthy();
         expect(getByText('NC-4589')).toBeTruthy();
@@ -81,8 +81,8 @@ describe('NotificationCard Component', () => {
             userId: 'PA-2026-1024',
             bookingId: 'BK-8888',
             type: 'BOARDING_REMINDER',
-            title: 'Boarding Reminder 🚌',
-            message: 'Bus ND-5421 for Route 138 will depart in 15 minutes. Please proceed to Maharagama (Seat S05).',
+            title: 'Boarding Reminder • Route 138 🚌',
+            message: 'Bus ND-5421 for Route 138 (Maharagama - Pettah) will depart in 15 minutes. Please proceed to Maharagama to board your bus (Seat S05).',
             status: 'UNREAD',
             createdAt: '2026-08-22T07:15:00.000Z',
             readAt: null,
@@ -103,7 +103,7 @@ describe('NotificationCard Component', () => {
             <NotificationCard notification={reminderNotification} />
         );
 
-        expect(getByText('Boarding Reminder 🚌')).toBeTruthy();
+        expect(getByText('Boarding Reminder • Route 138 🚌')).toBeTruthy();
         expect(getByText('NEW')).toBeTruthy();
         expect(getByText('BK-8888')).toBeTruthy();
         expect(getByText('ND-5421')).toBeTruthy();
