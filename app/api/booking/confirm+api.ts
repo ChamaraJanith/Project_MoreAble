@@ -230,14 +230,17 @@ export async function POST(request: Request) {
             };
 
             const notificationId = `notif_${bookingId}`;
+            const routeNameSuffix = route?.routeName && route.routeName !== '—' ? ` (${route.routeName})` : '';
+            const title = `Booking Confirmed • Route ${route?.routeNumber ?? '—'} 🎟️`;
+            const message = `Your reservation ${bookingId} for Route ${route?.routeNumber ?? '—'}${routeNameSuffix} (Seat ${seatNumber}) has been confirmed successfully.`;
             const newNotification = {
                 id: notificationId,
                 notificationId,
                 userId: passengerId || 'GUEST',
                 bookingId,
                 type: 'BOOKING_CONFIRMATION',
-                title: 'Booking Confirmed!',
-                message: `Your reservation ${bookingId} for Route ${route?.routeNumber ?? '—'} (Seat ${seatNumber}) has been confirmed successfully.`,
+                title,
+                message,
                 status: 'UNREAD',
                 createdAt: now,
                 readAt: null,

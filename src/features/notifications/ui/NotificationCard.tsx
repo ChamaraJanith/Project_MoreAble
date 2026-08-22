@@ -53,6 +53,22 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
         }
     };
 
+    const formatCleanTime = (timeStr?: string): string => {
+        if (!timeStr || timeStr === '—') return '—';
+        if (timeStr.includes('T')) {
+            try {
+                const date = new Date(timeStr);
+                const hh = String(date.getHours()).padStart(2, '0');
+                const mm = String(date.getMinutes()).padStart(2, '0');
+                return `${hh}:${mm}`;
+            } catch {
+                // fallback
+            }
+        }
+        const timeMatch = timeStr.match(/(\d{1,2}:\d{2}(\s*(AM|PM))?)/i);
+        return timeMatch ? timeMatch[1] : timeStr;
+    };
+
     return (
         <TouchableOpacity
             style={[
@@ -168,7 +184,7 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                             <Ionicons name="time-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
                             <Text style={styles.chipLabel}>Departure Time:</Text>
                             <Text style={styles.chipValue}>
-                                {details.journeyDate} ({details.journeyTime})
+                                {details.journeyDate} ({formatCleanTime(details.journeyTime)})
                             </Text>
                         </View>
                     </View>

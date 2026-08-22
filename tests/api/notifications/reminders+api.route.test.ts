@@ -146,7 +146,7 @@ describe('Boarding Reminder Processing API Endpoint', () => {
             expect(notif).toBeDefined();
             expect(notif.type).toBe('BOARDING_REMINDER');
             expect(notif.title).toContain('Boarding Reminder');
-            expect(notif.message).toContain('Bus ND-5421 for Route 138 will depart in 10 minutes');
+            expect(notif.message).toContain('Bus ND-5421 for Route 138 (Maharagama - Pettah) will depart in 10 minutes');
             expect(notif.details.vehicleNumber).toBe('ND-5421');
             expect(notif.details.startLocation).toBe('Maharagama');
 

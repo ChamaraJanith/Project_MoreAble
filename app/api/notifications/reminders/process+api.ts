@@ -121,9 +121,10 @@ export async function handleProcessReminders(request: Request) {
                 const seatNumber = data.seatNumber || '—';
                 const formattedTime = departureTime || '—';
 
+                const routeDisplay = routeName && routeName !== '—' ? `${routeNumber} (${routeName})` : routeNumber;
                 const notificationId = `notif_rem_${bookingId}`;
-                const title = 'Boarding Reminder 🚌';
-                const message = `Bus ${vehicleNumber} for Route ${routeNumber} will depart in ${roundedMins} minute${roundedMins === 1 ? '' : 's'}. Please proceed to ${startLocation} (Seat ${seatNumber}).`;
+                const title = `Boarding Reminder • Route ${routeNumber} 🚌`;
+                const message = `Bus ${vehicleNumber} for Route ${routeDisplay} will depart in ${roundedMins} minute${roundedMins === 1 ? '' : 's'}. Please proceed to ${startLocation} to board your bus (Seat ${seatNumber}).`;
 
                 const newNotification = {
                     id: notificationId,

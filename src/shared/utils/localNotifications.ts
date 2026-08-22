@@ -41,8 +41,11 @@ export async function sendLocalBookingNotification(booking: {
         if (!hasPermission) return;
 
         const routeNo = booking.journey?.routeNumber || '—';
-        const title = 'Booking Confirmed! 🎟️';
-        const body = `Your reservation ${booking.bookingId} for Route ${routeNo} (Seat ${booking.seatNumber}) has been confirmed successfully.`;
+        const routeName = booking.journey?.routeName;
+        const routeDisplay = routeName && routeName !== '—' ? `${routeNo} (${routeName})` : routeNo;
+
+        const title = `Booking Confirmed • Route ${routeNo} 🎟️`;
+        const body = `Your reservation ${booking.bookingId} for Route ${routeDisplay} (Seat ${booking.seatNumber}) has been confirmed successfully.`;
 
         await Notifications.scheduleNotificationAsync({
             content: {
@@ -65,6 +68,7 @@ export async function sendLocalBoardingReminderNotification(reminder: {
     departureTime: string;
     seatNumber: string;
     routeNumber?: string;
+    routeName?: string;
     minutesRemaining?: number;
 }) {
     if (Platform.OS === 'web') return;
@@ -74,8 +78,12 @@ export async function sendLocalBoardingReminderNotification(reminder: {
 
         const mins = reminder.minutesRemaining || 15;
         const vehicle = reminder.vehicleNumber || 'Bus';
-        const title = 'Boarding Reminder 🚌';
-        const body = `Bus ${vehicle} for Route ${reminder.routeNumber || '—'} will depart in ${mins} minutes. Please proceed to ${reminder.startLocation} (Seat ${reminder.seatNumber}).`;
+        const routeNo = reminder.routeNumber || '—';
+        const routeName = reminder.routeName;
+        const routeDisplay = routeName && routeName !== '—' ? `${routeNo} (${routeName})` : routeNo;
+
+        const title = `Boarding Reminder • Route ${routeNo} 🚌`;
+        const body = `Bus ${vehicle} for Route ${routeDisplay} will depart in ${mins} minute${mins === 1 ? '' : 's'}. Please proceed to ${reminder.startLocation} to board your bus (Seat ${reminder.seatNumber}).`;
 
         await Notifications.scheduleNotificationAsync({
             content: {
@@ -150,14 +158,17 @@ export async function scheduleLocalBoardingReminder(booking: {
         const diffMsFromNow = reminderTime.getTime() - now.getTime();
 
         const routeNo = booking.journey?.routeNumber || '—';
+        const routeName = booking.journey?.routeName;
+        const routeDisplay = routeName && routeName !== '—' ? `${routeNo} (${routeName})` : routeNo;
         const vehicle = booking.vehicle?.numberPlate || 'Bus';
         const startLoc = booking.journey?.startLocation || 'Boarding Point';
         const seatNo = booking.seatNumber || '—';
-        const title = 'Boarding Reminder 🚌';
+
+        const title = `Boarding Reminder • Route ${routeNo} 🚌`;
 
         if (diffMsFromNow > 0) {
             const secondsFromNow = Math.max(1, Math.floor(diffMsFromNow / 1000));
-            const body = `Bus ${vehicle} for Route ${routeNo} will depart in 15 minutes. Please proceed to ${startLoc} (Seat ${seatNo}).`;
+            const body = `Bus ${vehicle} for Route ${routeDisplay} will depart in 15 minutes. Please proceed to ${startLoc} to board your bus (Seat ${seatNo}).`;
 
             await Notifications.scheduleNotificationAsync({
                 content: {
@@ -174,7 +185,7 @@ export async function scheduleLocalBoardingReminder(booking: {
         } else {
             const minutesRemaining = Math.max(1, Math.round((depDate.getTime() - now.getTime()) / (1000 * 60)));
             if (minutesRemaining > 0 && minutesRemaining <= 15) {
-                const body = `Bus ${vehicle} for Route ${routeNo} will depart in ${minutesRemaining} minutes. Please proceed to ${startLoc} (Seat ${seatNo}).`;
+                const body = `Bus ${vehicle} for Route ${routeDisplay} will depart in ${minutesRemaining} minute${minutesRemaining === 1 ? '' : 's'}. Please proceed to ${startLoc} to board your bus (Seat ${seatNo}).`;
                 await Notifications.scheduleNotificationAsync({
                     content: {
                         title,
