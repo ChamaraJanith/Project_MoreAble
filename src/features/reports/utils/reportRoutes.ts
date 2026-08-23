@@ -1,0 +1,28 @@
+/**
+ * Where a report lives — in the app, and on the API.
+ *
+ * The report id is what every one of these paths is built from, and it is the
+ * only place it is used: it identifies the report for navigation, update and
+ * delete, and is never shown to the passenger. Keeping the paths here rather
+ * than interpolating them at each call site is what makes that claim checkable.
+ */
+
+/** The details screen for one report, e.g. `/reports/REP-00007`. */
+export function reportDetailsPath(reportId: string): string {
+    return `/reports/${encodeURIComponent(reportId)}`;
+}
+
+/** The edit form for one report, e.g. `/reports/REP-00007/edit`. */
+export function reportEditPath(reportId: string): string {
+    return `${reportDetailsPath(reportId)}/edit`;
+}
+
+/**
+ * The API route for one report, relative to the API base URL.
+ *
+ * GET, PUT and DELETE all address the same route — the owner-only rules live on
+ * the two that change something, not in a separate endpoint per action.
+ */
+export function reportApiPath(reportId: string): string {
+    return `/api/reports/${encodeURIComponent(reportId)}`;
+}

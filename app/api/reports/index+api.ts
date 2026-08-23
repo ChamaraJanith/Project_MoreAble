@@ -5,6 +5,10 @@ import {
 import { isReportIssueCategory } from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
+import {
+  resolveBusReference,
+  resolveRouteReference,
+} from '../../../src/shared/server/reportReferences';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,36 +26,23 @@ export async function OPTIONS() {
 // --------------------------------
 // Optional bus / route references
 //
-// A report stores two things about the vehicle and the route: the canonical
-// document id, which is what links it back to the fleet, and a snapshot of how
-// that bus or route read on the day the report was filed.
-//
-// The snapshot is not redundancy. A report is a historical record — a bus can
-// be retired and a route renamed long before anyone reviews the report — so
-// without it the card would eventually describe the wrong thing, or nothing.
-// The same arrangement a booking already uses.
+// Resolving each one and snapshotting how it read lives in
+// shared/server/reportReferences, so that editing a report through
+// PUT /api/reports/[reportId] applies exactly the rules that created it here.
 // --------------------------------
 
 /**
- * A Firestore document id cannot contain a slash, so a value carrying one is
- * malformed rather than merely missing: `.doc(id)` would throw on it instead of
- * answering "not found".
+ * A report's createdAt as a sortable number.
+ *
+ * By the time this sees the value a Firestore Timestamp has already been
+ * unwrapped to a Date, but a record written by an older path may carry a string
+ * or nothing at all — and one that cannot be read sorts last rather than
+ * reordering everything around it.
  */
-function isValidReferenceId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    !!value.trim() &&
-    !value.includes('/')
-  );
-}
+function sortableTime(value: unknown): number {
+  const time = new Date(value as any).getTime();
 
-/** Whether the caller supplied this optional reference at all. */
-function isReferenceSupplied(value: unknown): boolean {
-  return value !== undefined && value !== null && value !== '';
-}
-
-function trimmedOrUndefined(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  return Number.isNaN(time) ? -Infinity : time;
 }
 
 // POST /api/reports
@@ -187,122 +178,36 @@ export async function POST(request: Request) {
     const adminDb = getAdminDb();
 
     // --------------------------------
-    // Resolve the bus reference
-    //
-    // Both references stay optional: a passenger who does not know which bus
-    // they were on must still be able to report the issue. But a reference that
-    // IS supplied has to point at something — an id that does not resolve is
-    // refused rather than stored, so a report never carries a dangling
-    // reference that reads as a bus nobody can look up.
+    // Resolve the bus and route references
     // --------------------------------
-    let resolvedBusId: string | undefined;
-    let vehicleSnapshot: Record<string, any> | undefined;
+    const busReference = await resolveBusReference(adminDb, busId);
 
-    if (isReferenceSupplied(busId)) {
-      if (!isValidReferenceId(busId)) {
-        return Response.json(
-          {
-            success: false,
-            message: 'Invalid bus reference.',
-          },
-          {
-            status: 400,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      const busDoc = await adminDb
-        .collection('buses')
-        .doc(busId.trim())
-        .get();
-
-      if (!busDoc.exists) {
-        return Response.json(
-          {
-            success: false,
-            message: 'Selected bus was not found.',
-          },
-          {
-            status: 404,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      const bus = busDoc.data() ?? {};
-      const numberPlate = trimmedOrUndefined(bus.numberPlate);
-      const busModel = trimmedOrUndefined(bus.busModel);
-      const manufacturer = trimmedOrUndefined(bus.manufacturer);
-
-      resolvedBusId = busId.trim();
-
-      // Only the fields the fleet record actually holds are written, so the
-      // snapshot never carries empty keys.
-      vehicleSnapshot = {
-        // Falls back to the id so the snapshot always identifies something,
-        // even against an incomplete fleet record.
-        numberPlate: numberPlate ?? resolvedBusId,
-        ...(busModel ? { busModel } : {}),
-        ...(manufacturer ? { manufacturer } : {}),
-      };
+    if (!busReference.ok) {
+      return Response.json(
+        {
+          success: false,
+          message: busReference.message,
+        },
+        {
+          status: busReference.status,
+          headers: corsHeaders,
+        }
+      );
     }
 
-    // --------------------------------
-    // Resolve the route reference
-    // --------------------------------
-    let resolvedRouteId: string | undefined;
-    let routeSnapshot: Record<string, any> | undefined;
+    const routeReference = await resolveRouteReference(adminDb, routeId);
 
-    if (isReferenceSupplied(routeId)) {
-      if (!isValidReferenceId(routeId)) {
-        return Response.json(
-          {
-            success: false,
-            message: 'Invalid route reference.',
-          },
-          {
-            status: 400,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      const routeDoc = await adminDb
-        .collection('routes')
-        .doc(routeId.trim())
-        .get();
-
-      if (!routeDoc.exists) {
-        return Response.json(
-          {
-            success: false,
-            message: 'Selected route was not found.',
-          },
-          {
-            status: 404,
-            headers: corsHeaders,
-          }
-        );
-      }
-
-      const route = routeDoc.data() ?? {};
-      const routeNumber = trimmedOrUndefined(route.routeNumber);
-      const routeName = trimmedOrUndefined(route.routeName);
-      const direction = trimmedOrUndefined(route.direction);
-
-      resolvedRouteId = routeId.trim();
-
-      routeSnapshot = {
-        routeNumber: routeNumber ?? resolvedRouteId,
-        ...(routeName ? { routeName } : {}),
-        // Every route created through /api/routes carries a direction, but an
-        // older record without one is snapshotted without it rather than being
-        // given a direction it never had.
-        ...(direction === 'OUTBOUND' || direction === 'RETURN'
-          ? { direction }
-          : {}),
-      };
+    if (!routeReference.ok) {
+      return Response.json(
+        {
+          success: false,
+          message: routeReference.message,
+        },
+        {
+          status: routeReference.status,
+          headers: corsHeaders,
+        }
+      );
     }
 
     // --------------------------------
@@ -365,11 +270,10 @@ export async function POST(request: Request) {
       description: cleanDescription,
 
       // Present only when the passenger actually selected one, so a report
-      // filed without a bus or route carries no empty keys at all.
-      ...(resolvedBusId ? { busId: resolvedBusId } : {}),
-      ...(vehicleSnapshot ? { vehicle: vehicleSnapshot } : {}),
-      ...(resolvedRouteId ? { routeId: resolvedRouteId } : {}),
-      ...(routeSnapshot ? { route: routeSnapshot } : {}),
+      // filed without a bus or route carries no empty keys at all — each
+      // resolver returns an empty object when its reference was not supplied.
+      ...busReference.value,
+      ...routeReference.value,
 
       // Absent rather than an empty array when no photos were attached.
       ...(reportPhotoUrls.length > 0 ? { photoUrls: reportPhotoUrls } : {}),
@@ -442,21 +346,42 @@ export async function GET(request: Request) {
 
     // --------------------------------
     // Retrieve reports
+    //
+    // A filtered scope deliberately does not ask Firestore to order the result.
+    // An equality filter combined with orderBy on a different field is the one
+    // pair Firestore cannot answer from its automatic single-field indexes: it
+    // needs a composite index, and without one the query does not come back
+    // unordered, it fails outright with FAILED_PRECONDITION.
+    //
+    // So a filtered scope asks the database for the filter alone — already
+    // covered by a single-field index — and the ordering is applied below to
+    // what comes back. Only the ordering moves. The filter stays in the query,
+    // so `scope=my` still reads nothing but the caller's own reports, which is
+    // the part that must not be done after the fact.
+    //
+    // `scope=all` has no filter, so orderBy on its own needs no composite index
+    // either: it keeps ordering in the query, exactly as before.
     // --------------------------------
     let reportsQuery: any = adminDb.collection('reports');
 
     const url = new URL(request.url);
     const scope = url.searchParams.get('scope');
 
+    let isFiltered = false;
+
     if (scope === 'my') {
       reportsQuery = reportsQuery.where('passengerId', '==', user.passengerId);
+      isFiltered = true;
     } else if (scope === 'verified') {
       reportsQuery = reportsQuery.where('status', '==', 'VERIFIED');
+      isFiltered = true;
     }
 
-    const snapshot = await reportsQuery
-      .orderBy('createdAt', 'desc')
-      .get();
+    if (!isFiltered) {
+      reportsQuery = reportsQuery.orderBy('createdAt', 'desc');
+    }
+
+    const snapshot = await reportsQuery.get();
 
     const reports = snapshot.docs.map((doc: any) => ({
       ...doc.data(),
@@ -465,6 +390,15 @@ export async function GET(request: Request) {
       createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : doc.data().createdAt,
       updatedAt: doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : doc.data().updatedAt,
     }));
+
+    if (isFiltered) {
+      // The order the query would have returned had an index existed: newest
+      // report first, matching what `scope=all` gets from Firestore.
+      reports.sort(
+        (first: any, second: any) =>
+          sortableTime(second.createdAt) - sortableTime(first.createdAt)
+      );
+    }
 
     // --------------------------------
     // Success response

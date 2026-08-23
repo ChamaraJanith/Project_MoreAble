@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import { Href, router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    Alert,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -13,11 +14,26 @@ import { AccessibilityReport, ReportScope } from '../../../entities/report/model
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
-import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
+import {
+    AdminEmptyState,
+    AdminErrorState,
+    AdminListSkeleton,
+    ConfirmDialog,
+} from '../../admin/ui/AdminStates';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { formatPhotoCount, formatReportDateTime } from '../utils/reportFormat';
-import { reportCategoryIcon, reportCategoryLabel } from './reportCategories';
+import {
+    canDeleteReport,
+    canEditReport,
+    isReportOwnedBy,
+} from '../utils/reportOwnership';
+import { reportApiPath, reportDetailsPath, reportEditPath } from '../utils/reportRoutes';
+import {
+    FetchableReportScope,
+    isFetchableReportScope,
+    reportsRequestPath,
+} from '../utils/reportScopes';
+import { reportCardSummary } from '../utils/reportSummary';
 
 const SCOPE_TABS: { value: ReportScope; label: string }[] = [
     { value: 'all', label: 'All Reports' },
@@ -25,18 +41,33 @@ const SCOPE_TABS: { value: ReportScope; label: string }[] = [
     { value: 'verified', label: 'Verified Reports' },
 ];
 
-const ALL_REPORTS_EMPTY_STATE = {
-    icon: 'documents-outline' as keyof typeof Ionicons.glyphMap,
-    title: 'No accessibility reports yet',
-    description: 'Reports submitted by passengers will appear here.',
+/**
+ * What each API-backed tab shows when it comes back with nothing. Both offer
+ * the same way out — file a report — because on either tab an empty list means
+ * there is nothing to read, not that something went wrong.
+ */
+const EMPTY_STATES: Record<
+    FetchableReportScope,
+    { icon: keyof typeof Ionicons.glyphMap; title: string; description: string }
+> = {
+    all: {
+        icon: 'documents-outline',
+        title: 'No accessibility reports yet',
+        description: 'Reports submitted by passengers will appear here.',
+    },
+    my: {
+        icon: 'document-text-outline',
+        title: 'You have not submitted any reports yet',
+        description: 'Accessibility issues you report will appear here.',
+    },
 };
 
 /**
- * "My Reports" and "Verified Reports" are presentation-only for now: their
- * backend scopes are not implemented yet, so these tabs deliberately render a
- * placeholder instead of querying `/api/reports`.
+ * "Verified Reports" is presentation-only for now: its backend scope is not
+ * wired up yet, so the tab deliberately renders a placeholder instead of
+ * querying `/api/reports`.
  */
-type PlaceholderScope = Exclude<ReportScope, 'all'>;
+type PlaceholderScope = Extract<ReportScope, 'verified'>;
 
 const PLACEHOLDER_SECTIONS: Record<
     PlaceholderScope,
@@ -47,12 +78,6 @@ const PLACEHOLDER_SECTIONS: Record<
         secondaryDescription: string;
     }
 > = {
-    my: {
-        icon: 'document-text-outline',
-        title: 'My Reports',
-        description: 'Your submitted reports will appear here.',
-        secondaryDescription: 'Report history will be available in a later update.',
-    },
     verified: {
         icon: 'checkmark-circle-outline',
         title: 'Verified Reports',
@@ -62,32 +87,82 @@ const PLACEHOLDER_SECTIONS: Record<
     },
 };
 
+/**
+ * One tab's worth of state.
+ *
+ * Each API-backed scope keeps its own, so switching tabs never shows another
+ * tab's reports, its skeleton, or an error it had no part in — and so a tab
+ * that already has data can be returned to without refetching it.
+ */
+interface ReportFeed {
+    reports: AccessibilityReport[];
+    isLoading: boolean;
+    isRefreshing: boolean;
+    error: string | null;
+}
+
+const INITIAL_FEED: ReportFeed = {
+    reports: [],
+    isLoading: true,
+    isRefreshing: false,
+    error: null,
+};
+
 export const AccessibilityReportsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
 
-    const [reports, setReports] = useState<AccessibilityReport[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [feeds, setFeeds] = useState<Record<FetchableReportScope, ReportFeed>>({
+        all: INITIAL_FEED,
+        my: INITIAL_FEED,
+    });
     const [scope, setScope] = useState<ReportScope>('all');
 
+    // Which scopes have had a request fired for them. A ref rather than state
+    // because it is read to decide whether to start a fetch, and has to be
+    // already updated by the time the next effect runs in the same commit.
+    const requestedScopes = useRef(new Set<FetchableReportScope>());
+
+    // Lets the focus refresh below read the visible tab without re-subscribing
+    // every time the passenger switches tab. Only ever read on a focus event,
+    // which is always well after the commit that last updated it.
+    const scopeRef = useRef(scope);
+
+    useEffect(() => {
+        scopeRef.current = scope;
+    }, [scope]);
+
+    const updateFeed = useCallback((target: FetchableReportScope, patch: Partial<ReportFeed>) => {
+        setFeeds((current) => ({ ...current, [target]: { ...current[target], ...patch } }));
+    }, []);
+
     const fetchReports = useCallback(
-        async (mode: 'initial' | 'refresh' = 'initial') => {
+        async (target: FetchableReportScope, mode: 'initial' | 'refresh' = 'initial') => {
             if (!isAuthenticated || !token) {
-                setError('Authentication required.');
-                setIsLoading(false);
-                setIsRefreshing(false);
+                // Left out of `requestedScopes` on purpose: nothing was asked
+                // of the API, so opening the tab again once there is a session
+                // should still try.
+                updateFeed(target, {
+                    error: 'Authentication required.',
+                    isLoading: false,
+                    isRefreshing: false,
+                });
                 return;
             }
 
-            if (mode === 'refresh') setIsRefreshing(true);
-            else setIsLoading(true);
-            setError(null);
+            requestedScopes.current.add(target);
+
+            updateFeed(
+                target,
+                mode === 'refresh'
+                    ? { isRefreshing: true, error: null }
+                    : { isLoading: true, error: null }
+            );
 
             try {
-                // Always the `all` scope — the `my` and `verified` scopes are not
-                // fetched at all while their tabs are placeholders.
-                const response = await fetch(`${API_BASE_URL}/api/reports?scope=all`, {
+                // `all` and `my` differ only by this parameter. The `my` filter
+                // is applied by the API against the passengerId on the verified
+                // token — never by this screen against a wider list.
+                const response = await fetch(`${API_BASE_URL}${reportsRequestPath(target)}`, {
                     method: 'GET',
                     headers: {
                         Authorization: `Bearer ${token}`,
@@ -97,56 +172,128 @@ export const AccessibilityReportsScreen = () => {
                 const result = await response.json().catch(() => ({}));
 
                 if (response.ok && result.success) {
-                    setReports(result.reports || []);
+                    updateFeed(target, { reports: result.reports || [], error: null });
                 } else {
-                    setError(result.message || 'Failed to retrieve accessibility reports.');
+                    updateFeed(target, {
+                        error: result.message || 'Failed to retrieve accessibility reports.',
+                    });
                 }
             } catch (err) {
                 console.error('Fetch Reports Error:', err);
-                setError('Failed to retrieve accessibility reports.');
+                updateFeed(target, { error: 'Failed to retrieve accessibility reports.' });
             } finally {
-                setIsLoading(false);
-                setIsRefreshing(false);
+                updateFeed(target, { isLoading: false, isRefreshing: false });
             }
         },
-        [isAuthenticated, token]
+        [isAuthenticated, token, updateFeed]
     );
 
-    // Reload on focus so a report submitted on the form screen shows immediately.
-    // `scope` is intentionally not a dependency: switching tabs must never fire a
-    // request, and returning to All Reports reuses the data already loaded.
+    // Reload the visible tab on focus, so a report submitted on the form screen
+    // is already there when the passenger comes back to My Reports.
     useFocusEffect(
         useCallback(() => {
-            fetchReports();
+            const active = scopeRef.current;
+
+            if (isFetchableReportScope(active)) fetchReports(active);
         }, [fetchReports])
     );
+
+    // Load a tab the first time it is opened. Switching back to one that has
+    // already been fetched costs no request — the focus refresh above is what
+    // keeps it current.
+    useEffect(() => {
+        if (!isFetchableReportScope(scope)) return;
+        if (requestedScopes.current.has(scope)) return;
+
+        fetchReports(scope);
+    }, [scope, fetchReports]);
+
+    // The report the passenger has asked to delete, held until they confirm.
+    // The report itself is the state rather than a boolean, because null is
+    // what closes the dialog and there is never more than one in flight.
+    const [reportPendingDelete, setReportPendingDelete] =
+        useState<AccessibilityReport | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const confirmDelete = async () => {
+        if (!reportPendingDelete || !token) return;
+
+        setIsDeleting(true);
+
+        try {
+            // Ownership is not decided here. The API compares the report
+            // against the passengerId on this token and refuses anybody else,
+            // whatever the app chose to render.
+            const response = await fetch(
+                `${API_BASE_URL}${reportApiPath(reportPendingDelete.reportId)}`,
+                {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` },
+                }
+            );
+
+            const result = await response.json().catch(() => ({}));
+
+            if (response.ok && result.success) {
+                setReportPendingDelete(null);
+
+                // The other tab still holds the deleted report in its cached
+                // list, so it is dropped from the "already fetched" set and
+                // reloads the next time it is opened.
+                requestedScopes.current = new Set(
+                    isFetchableReportScope(scope) ? [scope] : []
+                );
+
+                if (isFetchableReportScope(scope)) await fetchReports(scope, 'refresh');
+
+                Alert.alert('Report Deleted', 'Your accessibility report has been deleted.');
+            } else {
+                Alert.alert(
+                    'Unable to delete report',
+                    result.message || 'Please check your connection and try again.'
+                );
+            }
+        } catch (err) {
+            console.error('Delete Report Error:', err);
+            Alert.alert(
+                'Unable to delete report',
+                'Please check your connection and try again.'
+            );
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     const goToReportForm = () => router.push('/reports');
 
     const renderBody = () => {
-        // Checked first so a placeholder tab never shows the All Reports loading
-        // skeleton or a backend error it had no part in.
-        if (scope !== 'all') return <ComingSoonSection scope={scope} />;
+        // Checked first so the placeholder tab never shows a loading skeleton
+        // or a backend error it had no part in.
+        if (!isFetchableReportScope(scope)) return <ComingSoonSection scope={scope} />;
 
-        if (isLoading) return <AdminListSkeleton count={3} />;
+        const feed = feeds[scope];
 
-        if (error) {
+        if (feed.isLoading) return <AdminListSkeleton count={3} />;
+
+        if (feed.error) {
             return (
                 <AdminErrorState
                     title="Unable to load reports"
-                    message={`${error} Please check your connection and try again.`}
+                    message={`${feed.error} Please check your connection and try again.`}
                     retryLabel="Try Again"
-                    onRetry={() => fetchReports()}
+                    onRetry={() => fetchReports(scope)}
                 />
             );
         }
 
-        if (reports.length === 0) {
+        if (feed.reports.length === 0) {
+            const emptyState = EMPTY_STATES[scope];
+
             return (
                 <AdminEmptyState
-                    icon={ALL_REPORTS_EMPTY_STATE.icon}
-                    title={ALL_REPORTS_EMPTY_STATE.title}
-                    description={ALL_REPORTS_EMPTY_STATE.description}
+                    icon={emptyState.icon}
+                    title={emptyState.title}
+                    description={emptyState.description}
                     actionLabel="Report Accessibility Issue"
                     onAction={goToReportForm}
                 />
@@ -156,14 +303,27 @@ export const AccessibilityReportsScreen = () => {
         return (
             <>
                 <Text style={styles.resultCount}>
-                    {reports.length} report{reports.length === 1 ? '' : 's'}
+                    {feed.reports.length} report{feed.reports.length === 1 ? '' : 's'}
                 </Text>
 
-                {reports.map((report) => (
+                {feed.reports.map((report) => (
                     <ReportCard
                         key={report.reportId}
                         report={report}
-                        isOwnReport={!!user?.passengerId && report.passengerId === user.passengerId}
+                        // Only worth pointing out among other people's reports.
+                        // On My Reports every card would carry the chip, which
+                        // tells the passenger nothing.
+                        isOwnReport={
+                            scope === 'all' && isReportOwnedBy(report, user?.passengerId)
+                        }
+                        canEdit={canEditReport(report, user?.passengerId)}
+                        canDelete={canDeleteReport(report, user?.passengerId)}
+                        // The id travels in the path and nowhere else — it is
+                        // how the report is addressed, not something the
+                        // passenger is asked to read.
+                        onView={() => router.push(reportDetailsPath(report.reportId) as Href)}
+                        onEdit={() => router.push(reportEditPath(report.reportId) as Href)}
+                        onDelete={() => setReportPendingDelete(report)}
                     />
                 ))}
             </>
@@ -181,11 +341,11 @@ export const AccessibilityReportsScreen = () => {
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
-                    // Pull-to-refresh belongs only to the tab backed by the API.
-                    scope === 'all' ? (
+                    // Pull-to-refresh belongs only to the tabs backed by the API.
+                    isFetchableReportScope(scope) ? (
                         <RefreshControl
-                            refreshing={isRefreshing}
-                            onRefresh={() => fetchReports('refresh')}
+                            refreshing={feeds[scope].isRefreshing}
+                            onRefresh={() => fetchReports(scope, 'refresh')}
                         />
                     ) : undefined
                 }
@@ -228,6 +388,17 @@ export const AccessibilityReportsScreen = () => {
 
                 {renderBody()}
             </ScrollView>
+
+            <ConfirmDialog
+                visible={!!reportPendingDelete}
+                title="Delete Report"
+                message="Are you sure you want to delete this report?"
+                confirmLabel="Delete Report"
+                destructive
+                isBusy={isDeleting}
+                onCancel={() => setReportPendingDelete(null)}
+                onConfirm={confirmDelete}
+            />
         </View>
     );
 };
@@ -261,37 +432,37 @@ function ComingSoonSection({ scope }: { scope: PlaceholderScope }) {
 interface ReportCardProps {
     report: AccessibilityReport;
     isOwnReport: boolean;
+    /** Owner-only controls. The API enforces the same rule; see reportOwnership. */
+    canEdit: boolean;
+    canDelete: boolean;
+    onView: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
 }
 
-function ReportCard({ report, isOwnReport }: ReportCardProps) {
-    // The stored URLs are the count: a report with no photos has no photoUrls
-    // at all, so the chip is simply absent rather than reading "0 photos".
-    const photoCount = report.photoUrls?.length ?? 0;
-
-    // Prefer the display snapshot taken when the report was filed; fall back to
-    // the raw id so a report whose snapshot is missing still identifies its bus.
-    const busLabel = report.vehicle?.numberPlate ?? report.busId;
-    const routeLabel = report.route?.routeNumber
-        ? `Route ${report.route.routeNumber}`
-        : report.routeId;
+function ReportCard({
+    report,
+    isOwnReport,
+    canEdit,
+    canDelete,
+    onView,
+    onEdit,
+    onDelete,
+}: ReportCardProps) {
+    // Everything the card puts on screen, derived in one place — including the
+    // fact that the report id is not part of it.
+    const summary = reportCardSummary(report, { isOwnReport });
 
     return (
         <View style={styles.card}>
             <View style={styles.cardTop}>
                 <View style={styles.categoryIconCircle}>
-                    <Ionicons
-                        name={reportCategoryIcon(report.issueCategory)}
-                        size={22}
-                        color={adminColors.primary}
-                    />
+                    <Ionicons name={summary.icon} size={22} color={adminColors.primary} />
                 </View>
 
                 <View style={styles.cardHeadings}>
                     <Text style={styles.categoryText} numberOfLines={2}>
-                        {reportCategoryLabel(report.issueCategory)}
-                    </Text>
-                    <Text style={styles.reportIdText} numberOfLines={1}>
-                        {report.reportId}
+                        {summary.title}
                     </Text>
                 </View>
 
@@ -299,27 +470,66 @@ function ReportCard({ report, isOwnReport }: ReportCardProps) {
             </View>
 
             <Text style={styles.descriptionText} numberOfLines={3}>
-                {report.description}
+                {summary.description}
             </Text>
 
-            {(!!busLabel || !!routeLabel || photoCount > 0 || isOwnReport) && (
+            {summary.chips.length > 0 && (
                 <View style={styles.chipWrap}>
-                    {!!busLabel && <MetaChip icon="bus-outline" label={busLabel} />}
-                    {!!routeLabel && <MetaChip icon="git-branch-outline" label={routeLabel} />}
-                    {photoCount > 0 && (
-                        <MetaChip icon="images-outline" label={formatPhotoCount(photoCount)} />
-                    )}
-                    {isOwnReport && (
-                        <MetaChip icon="person-circle-outline" label="Your report" highlighted />
-                    )}
+                    {summary.chips.map((chip) => (
+                        <MetaChip
+                            key={chip.label}
+                            icon={chip.icon}
+                            label={chip.label}
+                            highlighted={chip.highlighted}
+                        />
+                    ))}
                 </View>
             )}
 
             <View style={styles.cardFooter}>
                 <Ionicons name="calendar-outline" size={14} color={adminColors.textMuted} />
-                <Text style={styles.footerText}>
-                    Submitted {formatReportDateTime(report.createdAt)}
-                </Text>
+                <Text style={styles.footerText}>{summary.submittedLabel}</Text>
+            </View>
+
+            {/* The card is opened, not quoted, so the id it is addressed by
+                stays in the navigation path. Edit and Delete appear only on the
+                passenger's own reports. */}
+            <View style={styles.cardActions}>
+                <TouchableOpacity
+                    style={[styles.actionButton, styles.actionButtonPrimary]}
+                    onPress={onView}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View details of the ${summary.title} report`}
+                >
+                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                    <Text style={[styles.actionText, styles.actionTextPrimary]}>
+                        View Details
+                    </Text>
+                </TouchableOpacity>
+
+                {canEdit && (
+                    <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={onEdit}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Edit the ${summary.title} report`}
+                    >
+                        <Ionicons name="create-outline" size={16} color={adminColors.primary} />
+                        <Text style={styles.actionText}>Edit</Text>
+                    </TouchableOpacity>
+                )}
+
+                {canDelete && (
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.actionButtonDanger]}
+                        onPress={onDelete}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete the ${summary.title} report`}
+                    >
+                        <Ionicons name="trash-outline" size={16} color={adminColors.danger} />
+                        <Text style={[styles.actionText, styles.actionTextDanger]}>Delete</Text>
+                    </TouchableOpacity>
+                )}
             </View>
         </View>
     );
@@ -445,13 +655,6 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: adminColors.textPrimary,
     },
-    reportIdText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: adminColors.textMuted,
-        marginTop: 3,
-        letterSpacing: 0.3,
-    },
 
     descriptionText: {
         fontSize: 13,
@@ -502,4 +705,40 @@ const styles = StyleSheet.create({
         color: adminColors.textMuted,
         marginLeft: 6,
     },
+
+    cardActions: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 12,
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        // Comfortably past the 44pt minimum touch target.
+        minHeight: 46,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surface,
+    },
+    actionButtonPrimary: {
+        flexGrow: 1,
+        backgroundColor: adminColors.primary,
+        borderColor: adminColors.primary,
+    },
+    actionButtonDanger: {
+        borderColor: adminColors.dangerBorder,
+        backgroundColor: adminColors.dangerSoft,
+    },
+    actionText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.primary,
+        marginLeft: 6,
+    },
+    actionTextPrimary: { color: '#FFFFFF' },
+    actionTextDanger: { color: adminColors.danger },
 });
