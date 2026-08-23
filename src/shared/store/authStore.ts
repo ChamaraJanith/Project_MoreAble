@@ -60,6 +60,7 @@ interface AuthState {
     logout: () => Promise<void>;
     hydrate: () => Promise<void>;
     updateGuardianDetails: (details: GuardianDetails) => void;
+    updateUser: (updates: Partial<AuthUser>) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -192,6 +193,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             };
             set({ user: updatedUser });
             saveTokens(get().token || '', updatedUser).catch(err => console.error('Failed saving guardian update', err));
+        }
+    },
+
+    /**
+     * Update generic User fields for current user
+     */
+    updateUser: (updates: Partial<AuthUser>) => {
+        const currentUser = get().user;
+        if (currentUser) {
+            const updatedUser: AuthUser = {
+                ...currentUser,
+                ...updates,
+            };
+            set({ user: updatedUser });
+            saveTokens(get().token || '', updatedUser).catch(err => console.error('Failed saving user update', err));
         }
     },
 }));

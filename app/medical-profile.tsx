@@ -18,7 +18,7 @@ import { API_BASE_URL } from '../src/shared/api/config';
 
 export default function MedicalProfileScreen() {
   const router = useRouter();
-  const { user, token, setUser } = useAuthStore();
+  const { user, token, updateUser } = useAuthStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -46,7 +46,15 @@ export default function MedicalProfileScreen() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const textRes = await res.text();
+        let data;
+        try {
+          data = JSON.parse(textRes);
+        } catch (e) {
+          console.error('Non-JSON response:', textRes);
+          return;
+        }
+        
         if (data.success && data.profile) {
           setMedicalProfileId(data.profile.medicalProfileId);
           setBloodType(data.profile.bloodType || '');
@@ -92,13 +100,21 @@ export default function MedicalProfileScreen() {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const textRes = await response.text();
+      let data;
+      try {
+        data = JSON.parse(textRes);
+      } catch (e) {
+        console.error('Non-JSON response:', textRes);
+        Alert.alert('Error', `Server returned an invalid response: ${textRes.substring(0, 50)}`);
+        return;
+      }
 
       if (response.ok && data.success) {
         setMedicalProfileId(data.profileId);
         
         // Update local auth store to reflect having medical information
-        setUser({ ...user, hasMedicalInformation: true });
+        updateUser({ hasMedicalInformation: true });
         
         Alert.alert(
           "Medical Information Saved",
@@ -144,7 +160,7 @@ export default function MedicalProfileScreen() {
                 setEmergencyNotes('');
                 
                 // Update local auth store
-                setUser({ ...user, hasMedicalInformation: false });
+                updateUser({ hasMedicalInformation: false });
                 
                 Alert.alert("Deleted", "Your medical information has been removed.");
               }
