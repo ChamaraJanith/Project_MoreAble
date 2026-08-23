@@ -42,3 +42,27 @@ export function reportVoteApiPath(reportId: string): string {
 export function reportCommentsApiPath(reportId: string): string {
     return `${reportApiPath(reportId)}/comments`;
 }
+
+/**
+ * This report's admin review: `/api/reports/REP-00007/review`.
+ *
+ * GET reads everything an admin needs to decide the report — the report, the
+ * vote tallies, the thread and any review already recorded; POST records the
+ * decision. Admin only on both, enforced by the route rather than by which
+ * screen happens to call it.
+ */
+export function reportReviewApiPath(reportId: string): string {
+    return `${reportApiPath(reportId)}/review`;
+}
+
+/** The admin review queue, relative to the API base URL. */
+export function adminReportsRequestPath(
+    options: { status?: string; flaggedOnly?: boolean } = {}
+): string {
+    const params = new URLSearchParams({ scope: 'review' });
+
+    if (options.status) params.set('status', options.status);
+    if (options.flaggedOnly) params.set('flagged', 'true');
+
+    return `/api/reports?${params.toString()}`;
+}

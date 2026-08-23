@@ -2,8 +2,16 @@ import {
     authenticateRequest,
     unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
-import { isReportIssueCategory } from '../../../src/entities/report/model/types';
+import {
+  isReportIssueCategory,
+  isReportStatus,
+} from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import {
+  ADMIN_ROLE,
+  reviewErrorResponse,
+  toAdminReviewReport,
+} from '../../../src/shared/server/reportAdminReview';
 import { countCommentsByReport } from '../../../src/shared/server/reportFeedback';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
@@ -340,6 +348,43 @@ export async function GET(request: Request) {
       );
     }
 
+    const url = new URL(request.url);
+    const scope = url.searchParams.get('scope');
+
+    // --------------------------------
+    // The admin review queue (MOV-161)
+    //
+    // `scope=review` is the one slice of this endpoint that is not a
+    // passenger's. It is answered by the same handler because it is the same
+    // question - which reports are there - asked by somebody allowed to decide
+    // them, and duplicating the query, the comment tally and the serialisation
+    // into a second listing route would give the review page a subtly
+    // different report than every other screen reads.
+    //
+    // What is NOT shared is who may ask. A non-admin session is refused here,
+    // before any query runs, whatever the app happens to render.
+    // --------------------------------
+    const isReviewScope = scope === 'review';
+
+    if (isReviewScope && user.role !== ADMIN_ROLE) {
+      return reviewErrorResponse(
+        403,
+        'Only an administrator can review accessibility reports.',
+        corsHeaders
+      );
+    }
+
+    // The review queue may be narrowed to one status. Validated against the
+    // stored vocabulary rather than passed through, so an unknown status is a
+    // 400 and not an empty queue that reads like "nothing to review".
+    const statusFilter = url.searchParams.get('status');
+
+    if (isReviewScope && statusFilter !== null && !isReportStatus(statusFilter)) {
+      return reviewErrorResponse(400, 'Invalid report status.', corsHeaders);
+    }
+
+    const flaggedOnly = isReviewScope && url.searchParams.get('flagged') === 'true';
+
     // --------------------------------
     // Get Firebase Admin DB
     // --------------------------------
@@ -364,9 +409,6 @@ export async function GET(request: Request) {
     // either: it keeps ordering in the query, exactly as before.
     // --------------------------------
     let reportsQuery: any = adminDb.collection('reports');
-
-    const url = new URL(request.url);
-    const scope = url.searchParams.get('scope');
 
     let isFiltered = false;
 
@@ -395,17 +437,34 @@ export async function GET(request: Request) {
     // --------------------------------
     const commentCounts = await countCommentsByReport(adminDb);
 
-    const reports = snapshot.docs.map((doc: any) => ({
-      ...doc.data(),
-      documentId: doc.id,
-      // Firestore timestamps need to be converted to ISO strings or serialized
-      createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : doc.data().createdAt,
-      updatedAt: doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : doc.data().updatedAt,
-      // Always a number: a report nobody has commented on has no entry in the
-      // map, and that is a zero rather than a missing field the card has to
-      // guard against.
-      commentCount: commentCounts.get(doc.data().reportId ?? doc.id) ?? 0,
-    }));
+    // The review queue carries the same reports with the things a reviewer needs
+    // and a passenger card does not: the counts as numbers, whether the report
+    // is flagged for review, and any decision already recorded against it.
+    // Serialising it in shared/server/reportAdminReview is what makes the queue
+    // and GET /api/reports/:id/review describe a report identically.
+    const reports = isReviewScope
+      ? snapshot.docs.map((doc: any) =>
+          toAdminReviewReport(
+            doc.data() ?? {},
+            doc.id,
+            commentCounts.get(doc.data()?.reportId ?? doc.id) ?? 0
+          )
+        )
+      : snapshot.docs.map((doc: any) => ({
+          ...doc.data(),
+          documentId: doc.id,
+          // Firestore timestamps need to be converted to ISO strings or serialized
+          createdAt: doc.data().createdAt?.toDate
+            ? doc.data().createdAt.toDate()
+            : doc.data().createdAt,
+          updatedAt: doc.data().updatedAt?.toDate
+            ? doc.data().updatedAt.toDate()
+            : doc.data().updatedAt,
+          // Always a number: a report nobody has commented on has no entry in the
+          // map, and that is a zero rather than a missing field the card has to
+          // guard against.
+          commentCount: commentCounts.get(doc.data().reportId ?? doc.id) ?? 0,
+        }));
 
     if (isFiltered) {
       // The order the query would have returned had an index existed: newest
@@ -416,15 +475,38 @@ export async function GET(request: Request) {
       );
     }
 
+    // Narrowing happens after the read for the same reason the sort does: an
+    // equality filter on `status` combined with the orderBy above needs a
+    // composite index, and the queue is a screen's worth of reports either way.
+    const visibleReports = isReviewScope
+      ? reports.filter(
+          (report: any) =>
+            (statusFilter === null || report.status === statusFilter) &&
+            (!flaggedOnly || report.flagged === true)
+        )
+      : reports;
+
     // --------------------------------
     // Success response
     // --------------------------------
     return Response.json(
       {
         success: true,
-        message: 'Accessibility reports retrieved successfully.',
-        count: reports.length,
-        reports,
+        message: isReviewScope
+          ? 'Reports retrieved for review.'
+          : 'Accessibility reports retrieved successfully.',
+        count: visibleReports.length,
+        // How many of the returned reports the community has pushed over the
+        // review threshold - the number the queue leads with, so the page does
+        // not have to re-derive a rule the backend already owns.
+        ...(isReviewScope
+          ? {
+              flaggedCount: visibleReports.filter(
+                (report: any) => report.flagged === true
+              ).length,
+            }
+          : {}),
+        reports: visibleReports,
       },
       {
         status: 200,

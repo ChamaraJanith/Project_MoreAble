@@ -63,10 +63,12 @@ export type FeedbackValidation<T> = { ok: true; value: T } | { ok: false; messag
  * id is the second-to-last segment, which is how /api/buses/:busId/location
  * reads its own.
  */
+export type ReportSubrouteSegment = 'vote' | 'comments' | 'review';
+
 export function extractFeedbackReportId(
     request: Request,
     context: any,
-    segment: 'vote' | 'comments'
+    segment: ReportSubrouteSegment
 ): string {
     if (context?.params?.reportId) return String(context.params.reportId).trim();
     if (context?.reportId) return String(context.reportId).trim();
@@ -123,7 +125,7 @@ export interface FeedbackContext {
 export async function loadFeedbackContext(
     request: Request,
     context: any,
-    segment: 'vote' | 'comments'
+    segment: ReportSubrouteSegment
 ): Promise<{ ok: true; value: FeedbackContext } | { ok: false; response: Response }> {
     const user = await authenticateRequest(request);
 
@@ -351,6 +353,43 @@ export function serializeReportComment(
         text: data.text,
         createdAt: toIsoString(data.createdAt),
     };
+}
+
+/** A comment's createdAt as a sortable number; an unreadable one sorts last. */
+function commentSortableTime(value: unknown): number {
+    const time = new Date(toIsoString(value)).getTime();
+
+    return Number.isNaN(time) ? -Infinity : time;
+}
+
+/**
+ * One report's whole thread, newest first.
+ *
+ * Shared by the passenger thread and by the admin review view, so both read the
+ * same comments in the same order — an admin deciding a report sees exactly
+ * what the passengers arguing about it see.
+ *
+ * The filter alone goes to Firestore. An equality filter combined with orderBy
+ * on a different field needs a composite index, and without one the query fails
+ * outright rather than coming back unordered — the same reason GET /api/reports
+ * sorts a filtered scope after the fact. The filter stays in the query, which
+ * is the part that must not be done here.
+ */
+export async function readReportComments(
+    adminDb: any,
+    reportId: string
+): Promise<ReportCommentRecord[]> {
+    const snapshot = await adminDb
+        .collection(REPORT_COMMENTS_COLLECTION)
+        .where('reportId', '==', reportId)
+        .get();
+
+    return snapshot.docs
+        .map((doc: any) => serializeReportComment(doc.data() ?? {}, doc.id))
+        .sort(
+            (first: ReportCommentRecord, second: ReportCommentRecord) =>
+                commentSortableTime(second.createdAt) - commentSortableTime(first.createdAt)
+        );
 }
 
 /**
