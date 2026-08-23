@@ -135,7 +135,7 @@ describe('what a screen reader announces for a card', () => {
         // The whole card is one control, so it gets one label rather than a
         // scattering of separately readable fragments.
         expect(reportCardSummary(report()).accessibilityLabel).toBe(
-            'View accessibility report: Broken Wheelchair Ramp'
+            'View accessibility report: Broken Wheelchair Ramp, 0 comments, 0 agree, 0 disagree'
         );
     });
 
@@ -147,6 +147,85 @@ describe('what a screen reader announces for a card', () => {
 
     it('does not read out the report id', () => {
         expect(reportCardSummary(report()).accessibilityLabel).not.toContain('REP-');
+    });
+
+    it('announces all three tallies the card draws', () => {
+        // The numbers are drawn beside the icons, and an icon row is hidden
+        // from screen readers — so the card's one label is where they have to
+        // be said, or they are said to nobody.
+        expect(
+            reportCardSummary(report({ commentCount: 2, agreeCount: 18, disagreeCount: 1 }))
+                .accessibilityLabel
+        ).toBe(
+            'View accessibility report: Broken Wheelchair Ramp, 2 comments, 18 agree, 1 disagree'
+        );
+    });
+
+    it('pluralises a single comment', () => {
+        expect(
+            reportCardSummary(report({ commentCount: 1 })).accessibilityLabel
+        ).toContain('1 comment,');
+    });
+});
+
+// ==================================================================
+// Community feedback on a card
+// ==================================================================
+describe('the feedback tallies on a card', () => {
+    it('takes all three counts from the report data', () => {
+        // The votes are written onto the report by POST
+        // /api/reports/:reportId/vote and the comment count is attached by
+        // GET /api/reports — so a list of thirty cards still costs the one
+        // request it always did.
+        expect(
+            reportCardSummary(report({ commentCount: 2, agreeCount: 18, disagreeCount: 1 }))
+                .feedbackCounts
+        ).toEqual({ commentCount: 2, agreeCount: 18, disagreeCount: 1 });
+    });
+
+    it('reads a report nobody has answered as three zeroes', () => {
+        expect(reportCardSummary(report()).feedbackCounts).toEqual({
+            commentCount: 0,
+            agreeCount: 0,
+            disagreeCount: 0,
+        });
+    });
+
+    it('shows a real zero on a side nobody took', () => {
+        expect(reportCardSummary(report({ agreeCount: 3 })).feedbackCounts).toEqual({
+            commentCount: 0,
+            agreeCount: 3,
+            disagreeCount: 0,
+        });
+    });
+
+    it('reads a comment count of zero as zero rather than as missing', () => {
+        expect(
+            reportCardSummary(report({ commentCount: 0, agreeCount: 4 })).feedbackCounts
+                .commentCount
+        ).toBe(0);
+    });
+
+    it('falls back to zero rather than breaking on a value it cannot use', () => {
+        const counts = reportCardSummary(
+            report({
+                commentCount: undefined,
+                agreeCount: 'many' as unknown as number,
+                disagreeCount: -3,
+            })
+        ).feedbackCounts;
+
+        expect(counts).toEqual({ commentCount: 0, agreeCount: 0, disagreeCount: 0 });
+    });
+
+    it('never invents a count of its own', () => {
+        const counts = reportCardSummary(
+            report({ commentCount: 2, agreeCount: 4, disagreeCount: 1 })
+        ).feedbackCounts;
+
+        expect(counts.commentCount).toBe(2);
+        expect(counts.agreeCount).toBe(4);
+        expect(counts.disagreeCount).toBe(1);
     });
 });
 

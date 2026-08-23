@@ -1,17 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { ReportCommentRecord } from '../../../entities/report/model/types';
 import { adminColors } from '../../admin/ui/adminTheme';
 import {
     MAX_FEEDBACK_COMMENT_LENGTH,
-    ReportComment,
     commentInitial,
     formatCommentTimestamp,
     isSubmittableComment,
 } from '../utils/reportFeedback';
 
 interface FeedbackCommentsProps {
-    comments: ReportComment[];
+    /** Stored comments, newest first, exactly as the API returned them. */
+    comments: ReportCommentRecord[];
+    /** The thread has been asked for and has not arrived. */
+    isLoading: boolean;
+    /** Why the thread could not be read, or null. */
+    loadError: string | null;
+    /** A comment is on its way to the API. */
+    isPosting: boolean;
     draft: string;
     onChangeDraft: (text: string) => void;
     onSubmit: () => void;
@@ -23,18 +37,31 @@ interface FeedbackCommentsProps {
  * The composer sits below the list rather than above it so the thread reads in
  * one direction, and a newly written comment lands directly beside the box it
  * was just typed into.
+ *
+ * The box stays usable while the thread is loading and even when it failed to
+ * load: not being able to read what others said is no reason to stop somebody
+ * saying their own piece. What it is not is usable while a comment is in
+ * flight — Send goes busy until the API answers, and the text stays put until
+ * it answers well.
  */
 export function FeedbackComments({
     comments,
+    isLoading,
+    loadError,
+    isPosting,
     draft,
     onChangeDraft,
     onSubmit,
 }: FeedbackCommentsProps) {
-    const canSubmit = isSubmittableComment(draft);
+    const canSubmit = isSubmittableComment(draft) && !isPosting;
 
     return (
         <View>
-            {comments.length > 0 ? (
+            {isLoading ? (
+                <CommentsLoading />
+            ) : loadError ? (
+                <CommentsError message={loadError} />
+            ) : comments.length > 0 ? (
                 comments.map((comment, index) => (
                     <CommentRow key={comment.commentId} comment={comment} isFirst={index === 0} />
                 ))
@@ -51,6 +78,7 @@ export function FeedbackComments({
                     placeholderTextColor={adminColors.textPlaceholder}
                     maxLength={MAX_FEEDBACK_COMMENT_LENGTH}
                     multiline
+                    editable={!isPosting}
                     accessibilityLabel="Add a comment"
                     accessibilityHint="Share what you experienced on this journey"
                 />
@@ -60,22 +88,52 @@ export function FeedbackComments({
                     onPress={onSubmit}
                     disabled={!canSubmit}
                     accessibilityRole="button"
-                    accessibilityLabel="Send comment"
-                    accessibilityState={{ disabled: !canSubmit }}
+                    accessibilityLabel={isPosting ? 'Sending comment' : 'Send comment'}
+                    accessibilityState={{ disabled: !canSubmit, busy: isPosting }}
                 >
-                    <Ionicons
-                        name="send"
-                        size={17}
-                        color={canSubmit ? '#FFFFFF' : adminColors.textPlaceholder}
-                    />
+                    {isPosting ? (
+                        <ActivityIndicator size="small" color={adminColors.textPlaceholder} />
+                    ) : (
+                        <Ionicons
+                            name="send"
+                            size={17}
+                            color={canSubmit ? '#FFFFFF' : adminColors.textPlaceholder}
+                        />
+                    )}
                 </TouchableOpacity>
             </View>
         </View>
     );
 }
 
+/** The thread, still being read. */
+function CommentsLoading() {
+    return (
+        <View style={styles.status} accessibilityLiveRegion="polite">
+            <ActivityIndicator size="small" color={adminColors.primary} />
+            <Text style={styles.statusText}>Loading comments…</Text>
+        </View>
+    );
+}
+
+/**
+ * The thread could not be read.
+ *
+ * Said where the comments would have been, rather than as an empty thread:
+ * "no comments yet" and "we could not fetch the comments" are different facts,
+ * and only one of them is true here.
+ */
+function CommentsError({ message }: { message: string }) {
+    return (
+        <View style={styles.status} accessibilityLiveRegion="polite">
+            <Ionicons name="alert-circle-outline" size={15} color={adminColors.danger} />
+            <Text style={[styles.statusText, styles.statusTextError]}>{message}</Text>
+        </View>
+    );
+}
+
 /** One passenger's comment: who said it, what they said, and when. */
-function CommentRow({ comment, isFirst }: { comment: ReportComment; isFirst: boolean }) {
+function CommentRow({ comment, isFirst }: { comment: ReportCommentRecord; isFirst: boolean }) {
     return (
         <View style={[styles.commentRow, !isFirst && styles.divided]}>
             <View style={styles.avatar}>
@@ -117,6 +175,21 @@ function EmptyComments() {
 }
 
 const styles = StyleSheet.create({
+    // ---- Loading / failed ----
+    status: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+    },
+    statusText: {
+        flex: 1,
+        fontSize: 12,
+        color: adminColors.textMuted,
+        lineHeight: 17,
+    },
+    statusTextError: { color: adminColors.danger },
+
     divided: {
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,

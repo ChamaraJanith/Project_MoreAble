@@ -431,7 +431,7 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
                 <Text style={styles.footerText}>{summary.submittedLabel}</Text>
             </View>
 
-            <ReportFeedbackStats />
+            <ReportFeedbackStats counts={summary.feedbackCounts} />
         </TouchableOpacity>
     );
 }
