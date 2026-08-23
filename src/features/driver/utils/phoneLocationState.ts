@@ -158,12 +158,32 @@ export type PhoneLocationActionKind =
     /** Send the driver to the system settings screen. */
     | 'OPEN_SETTINGS'
     /** Send the driver back to bus sign in. */
-    | 'SIGN_IN';
+    | 'SIGN_IN'
+    /** Turn the periodic tracking loop on (MOV-268). */
+    | 'START_TRACKING'
+    /** Turn the periodic tracking loop off (MOV-268). */
+    | 'STOP_TRACKING';
 
 export interface PhoneLocationAction {
     kind: PhoneLocationActionKind;
     label: string;
 }
+
+/** The three colour treatments the card has styling for. */
+export type PhoneLocationTone = 'neutral' | 'success' | 'warning';
+
+/**
+ * The Ionicons this card may show.
+ *
+ * Named so the tracking view (MOV-268) draws from exactly this set rather than
+ * introducing icons the card has no styling for.
+ */
+export type PhoneLocationIcon =
+    | 'locate-outline'
+    | 'navigate'
+    | 'lock-closed-outline'
+    | 'location-outline'
+    | 'alert-circle-outline';
 
 /**
  * Everything the screen needs to render one state.
@@ -173,13 +193,8 @@ export interface PhoneLocationAction {
  * that a tone value on its own would quietly break.
  */
 export interface PhoneLocationView {
-    tone: 'neutral' | 'success' | 'warning';
-    icon:
-        | 'locate-outline'
-        | 'navigate'
-        | 'lock-closed-outline'
-        | 'location-outline'
-        | 'alert-circle-outline';
+    tone: PhoneLocationTone;
+    icon: PhoneLocationIcon;
     title: string;
     description: string;
     /** Absent while a request is in flight, so nothing can be pressed twice. */
