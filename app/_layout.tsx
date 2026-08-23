@@ -1,8 +1,14 @@
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, LogBox, StyleSheet, View } from 'react-native';
 import { useAuthStore } from '../src/shared/store/authStore';
+
+// Ignore expo-notifications warning about remote notifications removal in Expo Go SDK 53/54 on Android
+LogBox.ignoreLogs([
+  'expo-notifications: Android Push notifications',
+  'Android Push notifications (remote notifications) functionality',
+]);
 
 // Keep native splash screen visible while loading JS
 SplashScreen.preventAutoHideAsync();
