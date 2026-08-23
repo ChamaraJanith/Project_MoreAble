@@ -24,6 +24,7 @@ import {
     reportsRequestPath,
 } from '../utils/reportScopes';
 import { reportCardSummary } from '../utils/reportSummary';
+import { ReportFeedbackStats } from './ReportFeedbackStats';
 
 const SCOPE_TABS: { value: ReportScope; label: string }[] = [
     { value: 'all', label: 'All Reports' },
@@ -429,6 +430,8 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
                 <Ionicons name="calendar-outline" size={14} color={adminColors.textMuted} />
                 <Text style={styles.footerText}>{summary.submittedLabel}</Text>
             </View>
+
+            <ReportFeedbackStats />
         </TouchableOpacity>
     );
 }
