@@ -7,6 +7,7 @@ import {
     JourneyStopPoint,
     RouteGeometry,
 } from '../../../entities/route/model/types';
+import { OSM_MAX_ZOOM, OSM_TILE_URL, VEHICLE_MARKER_COLOR } from '../../../shared/ui/mapTheme';
 
 /**
  * Where the bus reported itself, ready to draw (MOV-119).
@@ -40,11 +41,6 @@ export interface RouteMapProps {
     height: number;
 }
 
-// OpenStreetMap's standard tile server. Its usage policy asks for light,
-// non-bulk use — a single journey map opened on demand is well within that.
-const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const OSM_MAX_ZOOM = 19;
-
 const FIT_EDGE_PADDING = { top: 55, right: 55, bottom: 55, left: 55 };
 
 const ENDPOINT_PIN_SIZE = 38;
@@ -61,7 +57,7 @@ export const STOP_COLOR = '#64748B';
  * only round badge on the map and the only one carrying a vehicle glyph, so it
  * stays distinguishable without relying on colour vision.
  */
-export const VEHICLE_COLOR = '#047857';
+export const VEHICLE_COLOR = VEHICLE_MARKER_COLOR;
 
 const VEHICLE_BADGE_SIZE = 34;
 
