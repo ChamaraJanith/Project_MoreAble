@@ -184,6 +184,26 @@ export async function POST(request: Request) {
                 throw new Error('SEAT_TAKEN');
             }
 
+            const isWheelchairReq = !!assistanceRequested?.wheelchairAssistance || targetSeat?.category === 'WHEELCHAIR';
+            const pairedSeatNumber = targetSeat?.pairedSeatNumber ?? (isWheelchairReq ? 'G1' : null);
+
+            if (pairedSeatNumber) {
+                const pairedSnapshot = await transaction.get(
+                    bookingsRef.where('tripId', '==', tripId).where('seatNumber', '==', pairedSeatNumber).where('status', '==', 'CONFIRMED')
+                );
+
+                if (!pairedSnapshot.empty) {
+                    throw new Error('PAIRED_GUARDIAN_SEAT_TAKEN');
+                }
+            }
+
+            const hasAssistance =
+                isWheelchairReq ||
+                !!assistanceRequested?.boardingAssistance ||
+                !!assistanceRequested?.walkingAssistance ||
+                !!assistanceRequested?.prioritySeatAssistance;
+
+            const assistanceStatus = hasAssistance ? 'PENDING' : 'NOT_REQUIRED';
             const bookingId = await generateBookingId(adminDb);
             const now = new Date().toISOString();
 
@@ -202,7 +222,9 @@ export async function POST(request: Request) {
                 routeId: trip.routeId,
                 busId: trip.busId,
                 seatNumber,
-                isPrioritySeat: !!isPrioritySeat,
+                seatCategory: targetSeat?.category ?? 'STANDARD',
+                pairedSeatNumber,
+                isPrioritySeat: !!isPrioritySeat || targetSeat?.category === 'PRIORITY',
                 status: 'CONFIRMED',
                 journey: {
                     routeNumber: route?.routeNumber ?? '—',
@@ -219,10 +241,13 @@ export async function POST(request: Request) {
                 },
                 fare,
                 assistanceRequested: {
+                    wheelchairAssistance: isWheelchairReq,
                     boardingAssistance: !!assistanceRequested?.boardingAssistance,
                     walkingAssistance: !!assistanceRequested?.walkingAssistance,
                     prioritySeatAssistance: !!assistanceRequested?.prioritySeatAssistance,
                 },
+                assistanceStatus,
+                assistanceUpdatedAt: now,
                 specialRequests: typeof specialRequests === 'string' ? specialRequests.trim() : '',
                 reminderSent: false,
                 qrPayload,
@@ -232,7 +257,7 @@ export async function POST(request: Request) {
             const notificationId = `notif_${bookingId}`;
             const routeNameSuffix = route?.routeName && route.routeName !== '—' ? ` (${route.routeName})` : '';
             const title = `Booking Confirmed • Route ${route?.routeNumber ?? '—'} 🎟️`;
-            const message = `Your reservation ${bookingId} for Route ${route?.routeNumber ?? '—'}${routeNameSuffix} (Seat ${seatNumber}) has been confirmed successfully.`;
+            const message = `Your reservation ${bookingId} for Route ${route?.routeNumber ?? '—'}${routeNameSuffix} (Seat ${seatNumber}${pairedSeatNumber ? ` + Companion Seat ${pairedSeatNumber}` : ''}) has been confirmed successfully.`;
             const newNotification = {
                 id: notificationId,
                 notificationId,
@@ -250,6 +275,7 @@ export async function POST(request: Request) {
                     routeNumber: route?.routeNumber || '—',
                     routeName: route?.routeName || '—',
                     seatNumber,
+                    pairedSeatNumber,
                     journeyDate: trip.departureTime ? trip.departureTime.split('T')[0] : now.split('T')[0],
                     journeyTime: trip.departureTime || '—',
                     startLocation: journeyOrigin || '—',
@@ -270,6 +296,12 @@ export async function POST(request: Request) {
         if (error.message === 'SEAT_TAKEN') {
             return Response.json(
                 { success: false, message: 'This seat was just taken by another passenger. Please choose another seat.' },
+                { status: 409, headers: corsHeaders }
+            );
+        }
+        if (error.message === 'PAIRED_GUARDIAN_SEAT_TAKEN') {
+            return Response.json(
+                { success: false, message: 'The paired guardian seat for this wheelchair position is already taken by another passenger.' },
                 { status: 409, headers: corsHeaders }
             );
         }

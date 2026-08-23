@@ -90,6 +90,14 @@ export interface BookingVehicleDetails {
 
 export type BookingStatus = 'CONFIRMED' | 'CANCELLED';
 
+export type AssistanceStatus =
+  | 'NOT_REQUIRED'
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'DECLINED';
+
 export interface Booking {
   bookingId: string;
   userId: string;
@@ -97,7 +105,7 @@ export interface Booking {
   routeId: string;
   busId: string;
   seatNumber: string;
-  seatCategory: SeatCategory;
+  seatCategory?: SeatCategory;
   isPrioritySeat: boolean;
   pairedSeatNumber: string | null;
   status: BookingStatus;
@@ -106,9 +114,11 @@ export interface Booking {
   qrPayload: string;
   fare: FareBreakdown;
   assistanceRequested: AssistanceRequested;
+  assistanceStatus?: AssistanceStatus;
+  assistanceUpdatedAt?: string;
   specialRequests: string;
-  isPriorityAutoEligible: boolean;
-  priorityAccessReason: string | null;
+  isPriorityAutoEligible?: boolean;
+  priorityAccessReason?: string | null;
   reminderSent?: boolean;
   reminderSentAt?: string;
   createdAt: string;
@@ -125,6 +135,7 @@ export interface FareBreakdown {
 }
 
 export interface AssistanceRequested {
+  wheelchairAssistance?: boolean;
   boardingAssistance: boolean;
   walkingAssistance: boolean;
   prioritySeatAssistance: boolean;

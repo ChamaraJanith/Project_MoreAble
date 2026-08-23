@@ -253,14 +253,21 @@ export async function POST(request: Request) {
   }
 }
 
-// GET /api/trips
-export async function GET() {
+// GET /api/trips?busId=BUS-100
+export async function GET(request?: Request) {
   try {
     const adminDb = getAdminDb();
+    const busId = request?.url ? new URL(request.url).searchParams.get('busId') : null;
 
-    const snapshot = await adminDb.collection('trips').orderBy('createdAt', 'desc').get();
+    let query: any = adminDb.collection('trips');
+    if (busId) {
+      query = query.where('busId', '==', busId);
+    }
 
+    const snapshot = await query.get();
     const trips = snapshot.docs.map((doc: any) => doc.data());
+
+    trips.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
     return Response.json(
       {

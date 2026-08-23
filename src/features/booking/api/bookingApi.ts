@@ -1,4 +1,4 @@
-import { AssistanceRequested, Booking, FareBreakdown, Seat, SeatLayout, SelectedVehicle, TransportOption } from '../../../entities/booking/model/types';
+import { AssistanceRequested, AssistanceStatus, Booking, FareBreakdown, Seat, SeatLayout, SelectedVehicle, TransportOption } from '../../../entities/booking/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 
 
@@ -81,6 +81,17 @@ export async function getBookingHistory(passengerId: string): Promise<Booking[]>
 
 export async function cancelBooking(bookingId: string): Promise<void> {
     await bookingFetch('/api/booking/cancel', { method: 'POST', body: JSON.stringify({ bookingId }) });
+}
+
+export async function updateAssistanceStatus(
+    bookingId: string,
+    status: AssistanceStatus,
+    notes?: string
+): Promise<{ success: boolean; message: string; updatedAt: string }> {
+    return await bookingFetch('/api/booking/assistance/status', {
+        method: 'PUT',
+        body: JSON.stringify({ bookingId, status, notes }),
+    });
 }
 
 export type { SelectedVehicle };

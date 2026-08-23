@@ -91,8 +91,8 @@ export default function BookingTicketScreen() {
 
                 {/* Booking Details */}
                 <TicketRow
-                    label="Seat"
-                    value={`${booking.seatNumber}${booking.pairedSeatNumber ? ` + ${booking.pairedSeatNumber}` : ''}${booking.isPrioritySeat ? ' (Priority)' : ''}`}
+                    label="Seat(s)"
+                    value={`${booking.seatNumber}${booking.pairedSeatNumber ? ` + Companion Seat ${booking.pairedSeatNumber}` : ''}${booking.isPrioritySeat ? ' (Priority)' : ''}`}
                 />
 
                 <TicketRow
@@ -120,20 +120,68 @@ export default function BookingTicketScreen() {
                     value={`${booking.vehicle.numberPlate} · ${booking.vehicle.busModel}`}
                 />
 
-                <TicketRow
-                    label="Seat"
-                    value={`${booking.seatNumber}${
-                        booking.isPrioritySeat ? ' (Priority)' : ''
-                    }`}
-                    isLast
-                />
-
                 <TicketRow 
                     label="Fare Paid" 
                     value={`LKR ${booking.fare?.totalFare ?? '—'}`} 
                     isLast 
                 />
             </View>
+
+            {/* Travel Assistance Details */}
+            {booking.assistanceRequested && (
+                <View style={styles.assistanceCard}>
+                    <View style={styles.assistanceHeader}>
+                        <View style={styles.assistanceTitleRow}>
+                            <Ionicons name="hand-left-outline" size={18} color="#0066CC" />
+                            <Text style={styles.assistanceTitle}>Travel Assistance Request</Text>
+                        </View>
+
+                        <AssistanceBadge status={booking.assistanceStatus ?? 'NOT_REQUIRED'} />
+                    </View>
+
+                    <View style={styles.assistanceDivider} />
+
+                    <View style={styles.assistanceList}>
+                        {booking.assistanceRequested.wheelchairAssistance && (
+                            <View style={styles.assistanceItem}>
+                                <Ionicons name="checkmark-circle" size={16} color="#7C3AED" />
+                                <Text style={styles.assistanceItemText}>Wheelchair Ramp & Companion Seat (G1)</Text>
+                            </View>
+                        )}
+                        {booking.assistanceRequested.boardingAssistance && (
+                            <View style={styles.assistanceItem}>
+                                <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
+                                <Text style={styles.assistanceItemText}>Boarding Support & Vehicle Entry</Text>
+                            </View>
+                        )}
+                        {booking.assistanceRequested.walkingAssistance && (
+                            <View style={styles.assistanceItem}>
+                                <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
+                                <Text style={styles.assistanceItemText}>Walking Assistance & Escort</Text>
+                            </View>
+                        )}
+                        {booking.assistanceRequested.prioritySeatAssistance && (
+                            <View style={styles.assistanceItem}>
+                                <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
+                                <Text style={styles.assistanceItemText}>Priority Seat Support</Text>
+                            </View>
+                        )}
+                        {!booking.assistanceRequested.wheelchairAssistance &&
+                         !booking.assistanceRequested.boardingAssistance &&
+                         !booking.assistanceRequested.walkingAssistance &&
+                         !booking.assistanceRequested.prioritySeatAssistance && (
+                            <Text style={styles.noAssistanceText}>No special travel assistance requested.</Text>
+                        )}
+                    </View>
+
+                    {!!booking.specialRequests && (
+                        <View style={styles.specialNotesBox}>
+                            <Text style={styles.specialNotesLabel}>Passenger Notes:</Text>
+                            <Text style={styles.specialNotesText}>{booking.specialRequests}</Text>
+                        </View>
+                    )}
+                </View>
+            )}
 
             {/* Done Button */}
             <TouchableOpacity
@@ -176,6 +224,25 @@ function TicketRow({
             >
                 {value}
             </Text>
+        </View>
+    );
+}
+
+function AssistanceBadge({ status }: { status: string }) {
+    const config: Record<string, { label: string; bg: string; text: string }> = {
+        PENDING: { label: 'CONDUCTOR NOTIFIED 🚌', bg: '#FEF3C7', text: '#92400E' },
+        CONFIRMED: { label: 'ACKNOWLEDGED BY CREW 👨‍✈️', bg: '#D1FAE5', text: '#065F46' },
+        IN_PROGRESS: { label: 'BOARDING ASSISTANCE ♿', bg: '#DBEAFE', text: '#1E40AF' },
+        COMPLETED: { label: 'ASSISTANCE COMPLETED ✅', bg: '#E0E7FF', text: '#3730A3' },
+        DECLINED: { label: 'UNAVAILABLE ⚠️', bg: '#FEE2E2', text: '#991B1B' },
+        NOT_REQUIRED: { label: 'NOT REQUIRED', bg: '#F1F5F9', text: '#64748B' },
+    };
+
+    const item = config[status] || config.PENDING;
+
+    return (
+        <View style={[styles.badgeContainer, { backgroundColor: item.bg }]}>
+            <Text style={[styles.badgeText, { color: item.text }]}>{item.label}</Text>
         </View>
     );
 }
@@ -268,6 +335,95 @@ const styles = StyleSheet.create({
         flexShrink: 1,
         marginLeft: 12,
         textAlign: 'right',
+    },
+
+    assistanceCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 20,
+        padding: 18,
+        width: '100%',
+        marginTop: 16,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+
+    assistanceHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+
+    assistanceTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+
+    assistanceTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0F172A',
+        marginLeft: 8,
+    },
+
+    badgeContainer: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+
+    badgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        letterSpacing: 0.5,
+    },
+
+    assistanceDivider: {
+        height: 1,
+        backgroundColor: '#F1F5F9',
+        marginVertical: 12,
+    },
+
+    assistanceList: {
+        gap: 8,
+    },
+
+    assistanceItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+
+    assistanceItemText: {
+        fontSize: 13,
+        color: '#334155',
+        marginLeft: 8,
+        fontWeight: '600',
+    },
+
+    noAssistanceText: {
+        fontSize: 13,
+        color: '#94A3B8',
+        fontStyle: 'italic',
+    },
+
+    specialNotesBox: {
+        marginTop: 12,
+        backgroundColor: '#F8FAFC',
+        padding: 10,
+        borderRadius: 8,
+        borderLeftWidth: 3,
+        borderLeftColor: '#0066CC',
+    },
+
+    specialNotesLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748B',
+        marginBottom: 2,
+    },
+
+    specialNotesText: {
+        fontSize: 12,
+        color: '#1E293B',
     },
 
     primaryButton: {

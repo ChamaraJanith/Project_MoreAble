@@ -61,11 +61,18 @@ export default function BookingConfirmScreen() {
     const [fareError, setFareError] =
         useState('');
 
+    const isSeatWheelchair = (seatNumber as string)?.startsWith('W');
+    const isUserWheelchair = Boolean((user as any)?.isWheelchairUser || (user as any)?.accessibilityNeeds?.includes('wheelchair'));
+    const isUserWalking = Boolean((user as any)?.isWalkingDifficultyPerson || (user as any)?.accessibilityNeeds?.includes('walking_difficulty'));
+
+    const [wheelchairAssistance, setWheelchairAssistance] =
+        useState(isSeatWheelchair || isUserWheelchair);
+
     const [boardingAssistance, setBoardingAssistance] =
-        useState(false);
+        useState(isSeatWheelchair || isUserWheelchair);
 
     const [walkingAssistance, setWalkingAssistance] =
-        useState(false);
+        useState(isUserWalking);
 
     const [prioritySeatAssistance, setPrioritySeatAssistance] =
         useState(isPrioritySeat === '1');
@@ -125,7 +132,6 @@ export default function BookingConfirmScreen() {
             const booking = await confirmBooking({
                 tripId: tripId as string,
                 seatNumber: seatNumber as string,
-                //isPrioritySeat: isPrioritySeat === '1',
                 passengerId: user?.passengerId,
                 origin:
                     journeyOrigin !== '—'
@@ -136,6 +142,7 @@ export default function BookingConfirmScreen() {
                         ? journeyDestination
                         : undefined,
                 assistanceRequested: {
+                    wheelchairAssistance,
                     boardingAssistance,
                     walkingAssistance,
                     prioritySeatAssistance,
@@ -337,9 +344,29 @@ export default function BookingConfirmScreen() {
                 Assistance Requested
             </Text>
 
+            {(wheelchairAssistance || isSeatWheelchair) && (
+                <View style={styles.guardianNoticeCard}>
+                    <Ionicons name="people" size={20} color="#7C3AED" />
+                    <View style={{ marginLeft: 10, flex: 1 }}>
+                        <Text style={styles.guardianNoticeTitle}>
+                            Wheelchair & Guardian Companion Seat Paired ♿
+                        </Text>
+                        <Text style={styles.guardianNoticeText}>
+                            As per safety policy, a paired Guardian seat (G1) has been automatically reserved beside your wheelchair position for your accompanying helper.
+                        </Text>
+                    </View>
+                </View>
+            )}
+
             <View style={styles.card}>
                 <AssistanceToggle
-                    label="Boarding Assistance"
+                    label="Wheelchair Assistance & Ramp Access"
+                    value={wheelchairAssistance}
+                    onChange={setWheelchairAssistance}
+                />
+
+                <AssistanceToggle
+                    label="Boarding Support & Assistance"
                     value={boardingAssistance}
                     onChange={setBoardingAssistance}
                 />
@@ -859,6 +886,30 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         fontSize: 16,
         letterSpacing: 0.5,
+    },
+
+    guardianNoticeCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F3E8FF',
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#DDD6FE',
+    },
+
+    guardianNoticeTitle: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#6B21A8',
+        marginBottom: 2,
+    },
+
+    guardianNoticeText: {
+        fontSize: 12,
+        color: '#581C87',
+        lineHeight: 16,
     },
 
     editButton: {
