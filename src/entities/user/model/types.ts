@@ -44,6 +44,19 @@ export interface AccessibilityProfile {
   updatedAt: string;
 }
 
+export interface MedicalProfile {
+  medicalProfileId: string;
+  userId: string;
+  passengerId: string;
+  bloodType?: string | null;
+  allergies?: string | null;
+  currentMedications?: string | null;
+  chronicConditions?: string | null;
+  emergencyNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   uid: string;
   passengerId: string; // Auto-generated ID (e.g., PA-2026-1024)
@@ -61,6 +74,7 @@ export interface User {
   accessibilityProfileId?: string | null;
   hasAccessibilityNeeds?: boolean;
   isAccessibilityVerified?: boolean;
+  hasMedicalInformation?: boolean;
   isWheelchairUser?: boolean;
   isLowVisionPerson?: boolean;
   isHearingImpaired?: boolean;
