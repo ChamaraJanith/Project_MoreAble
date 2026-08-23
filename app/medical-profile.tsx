@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -8,36 +8,159 @@ import {
   TouchableOpacity, 
   Alert,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../src/shared/store/authStore';
+import { API_BASE_URL } from '../src/shared/api/config';
 
 export default function MedicalProfileScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [medicalProfileId, setMedicalProfileId] = useState<string | null>(null);
 
   const [bloodType, setBloodType] = useState('');
   const [allergies, setAllergies] = useState('');
   const [currentMedications, setCurrentMedications] = useState('');
   const [chronicConditions, setChronicConditions] = useState('');
   const [emergencyNotes, setEmergencyNotes] = useState('');
-  
-  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    setIsSaving(true);
-    // TODO: MOV-257 Hook up API save call here
-    setTimeout(() => {
-      setIsSaving(false);
-      Alert.alert(
-        "Medical Information Saved",
-        "Your optional medical details have been updated successfully.",
-        [{ text: "OK", onPress: () => router.back() }]
-      );
-    }, 1000);
+  useEffect(() => {
+    loadMedicalProfile();
+  }, []);
+
+  const loadMedicalProfile = async () => {
+    if (!user?.passengerId) {
+      setIsLoading(false);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/medical-profile?passengerId=${user.passengerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.profile) {
+          setMedicalProfileId(data.profile.medicalProfileId);
+          setBloodType(data.profile.bloodType || '');
+          setAllergies(data.profile.allergies || '');
+          setCurrentMedications(data.profile.currentMedications || '');
+          setChronicConditions(data.profile.chronicConditions || '');
+          setEmergencyNotes(data.profile.emergencyNotes || '');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load medical profile:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const handleSave = async () => {
+    if (!user?.passengerId || !user?.uid) {
+      Alert.alert('Error', 'User information is missing.');
+      return;
+    }
+
+    setIsSaving(true);
+    
+    const payload = {
+      passengerId: user.passengerId,
+      userId: user.uid,
+      medicalProfileId,
+      bloodType,
+      allergies,
+      currentMedications,
+      chronicConditions,
+      emergencyNotes,
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/medical-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setMedicalProfileId(data.profileId);
+        
+        // Update local auth store to reflect having medical information
+        setUser({ ...user, hasMedicalInformation: true });
+        
+        Alert.alert(
+          "Medical Information Saved",
+          "Your optional medical details have been updated successfully.",
+          [{ text: "OK", onPress: () => router.back() }]
+        );
+      } else {
+        Alert.alert('Error', data.message || 'Failed to save medical profile.');
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      Alert.alert('Error', 'An error occurred while saving.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!user?.passengerId) return;
+
+    Alert.alert(
+      "Remove Medical Information",
+      "Are you sure you want to permanently delete your medical information?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive",
+          onPress: async () => {
+            setIsRemoving(true);
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/medical-profile?passengerId=${user.passengerId}`, {
+                method: 'DELETE',
+              });
+              
+              if (res.ok) {
+                setMedicalProfileId(null);
+                setBloodType('');
+                setAllergies('');
+                setCurrentMedications('');
+                setChronicConditions('');
+                setEmergencyNotes('');
+                
+                // Update local auth store
+                setUser({ ...user, hasMedicalInformation: false });
+                
+                Alert.alert("Deleted", "Your medical information has been removed.");
+              }
+            } catch (error) {
+              Alert.alert("Error", "Failed to delete medical information.");
+            } finally {
+              setIsRemoving(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#E11D48" />
+        <Text style={{ marginTop: 10, color: '#64748B' }}>Loading medical profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView 
@@ -50,7 +173,13 @@ export default function MedicalProfileScreen() {
           <Ionicons name="arrow-back" size={24} color="#0F172A" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Medical Information</Text>
-        <View style={{ width: 40 }} />
+        {medicalProfileId ? (
+          <TouchableOpacity onPress={handleRemove} disabled={isRemoving}>
+            <Ionicons name="trash-outline" size={22} color={isRemoving ? "#FDA4AF" : "#E11D48"} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
