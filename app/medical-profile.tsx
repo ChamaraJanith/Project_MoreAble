@@ -18,7 +18,7 @@ import { API_BASE_URL } from '../src/shared/api/config';
 
 export default function MedicalProfileScreen() {
   const router = useRouter();
-  const { user, setUser } = useAuthStore();
+  const { user, token, setUser } = useAuthStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -42,7 +42,9 @@ export default function MedicalProfileScreen() {
     }
     
     try {
-      const res = await fetch(`${API_BASE_URL}/api/medical-profile?passengerId=${user.passengerId}`);
+      const res = await fetch(`${API_BASE_URL}/api/medical-profile?passengerId=${user.passengerId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.profile) {
@@ -83,7 +85,10 @@ export default function MedicalProfileScreen() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/medical-profile`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload),
       });
 
@@ -127,6 +132,7 @@ export default function MedicalProfileScreen() {
             try {
               const res = await fetch(`${API_BASE_URL}/api/medical-profile?passengerId=${user.passengerId}`, {
                 method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
               });
               
               if (res.ok) {

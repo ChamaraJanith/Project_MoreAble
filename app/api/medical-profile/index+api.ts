@@ -2,6 +2,7 @@
 // Manages Medical Profiles in Firestore collection 'medical_profiles'
 import { MedicalProfile } from '../../../src/entities/user/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { verifyToken, JwtPayload } from '../../../src/shared/config/jwt';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,9 +14,24 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
+async function getAuthenticatedUser(request: Request): Promise<JwtPayload | null> {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.split('Bearer ')[1];
+  return verifyToken(token);
+}
+
 // GET /api/medical-profile?profileId=MED-2026-00001 or ?passengerId=PAS-2026-00001
 export async function GET(request: Request) {
   try {
+    const authUser = await getAuthenticatedUser(request);
+    if (!authUser || !authUser.uid) {
+      return Response.json({ success: false, message: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    }
+    const uid = authUser.uid;
+
     const { searchParams } = new URL(request.url);
     const profileId = searchParams.get('profileId');
     const passengerId = searchParams.get('passengerId');
@@ -53,6 +69,12 @@ export async function GET(request: Request) {
     }
 
     const medData = medDoc.data() as MedicalProfile;
+
+    // Authorization Check
+    if (medData.userId !== uid) {
+      return Response.json({ success: false, message: 'Forbidden' }, { status: 403, headers: corsHeaders });
+    }
+
     return Response.json(
       {
         success: true,
@@ -72,6 +94,12 @@ export async function GET(request: Request) {
 // POST /api/medical-profile - Create or Update Medical Profile
 export async function POST(request: Request) {
   try {
+    const authUser = await getAuthenticatedUser(request);
+    if (!authUser || !authUser.uid) {
+      return Response.json({ success: false, message: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    }
+    const uid = authUser.uid;
+
     const body = await request.json();
     const {
       passengerId,
@@ -91,6 +119,11 @@ export async function POST(request: Request) {
       );
     }
 
+    // Authorization Check
+    if (userId !== uid) {
+       return Response.json({ success: false, message: 'Forbidden: Cannot modify another user profile' }, { status: 403, headers: corsHeaders });
+    }
+
     const adminDb = getAdminDb();
     const now = new Date().toISOString();
     const currentYear = new Date().getFullYear();
@@ -99,7 +132,6 @@ export async function POST(request: Request) {
 
     // Auto-generate ID if none is provided
     if (!targetProfileId) {
-      // Check if one already exists for this passenger first
       const existingSnapshot = await adminDb
         .collection('medical_profiles')
         .where('passengerId', '==', passengerId)
@@ -108,10 +140,20 @@ export async function POST(request: Request) {
 
       if (!existingSnapshot.empty) {
         targetProfileId = existingSnapshot.docs[0].id;
+        const existingData = existingSnapshot.docs[0].data();
+        if (existingData.userId !== uid) {
+            return Response.json({ success: false, message: 'Forbidden: Profile mismatch' }, { status: 403, headers: corsHeaders });
+        }
       } else {
         const formattedSequence = String(Math.floor(Math.random() * 90000) + 10000).padStart(5, '0');
         targetProfileId = `MED-${currentYear}-${formattedSequence}`;
       }
+    } else {
+        // If an ID is provided, verify ownership first
+        const docRef = await adminDb.collection('medical_profiles').doc(targetProfileId).get();
+        if (docRef.exists && docRef.data()?.userId !== uid) {
+            return Response.json({ success: false, message: 'Forbidden' }, { status: 403, headers: corsHeaders });
+        }
     }
 
     const profileRecord: MedicalProfile = {
@@ -163,6 +205,12 @@ export async function POST(request: Request) {
 // DELETE /api/medical-profile - Remove Medical Profile record
 export async function DELETE(request: Request) {
   try {
+    const authUser = await getAuthenticatedUser(request);
+    if (!authUser || !authUser.uid) {
+      return Response.json({ success: false, message: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+    }
+    const uid = authUser.uid;
+
     const { searchParams } = new URL(request.url);
     const profileId = searchParams.get('profileId');
     const passengerId = searchParams.get('passengerId');
@@ -181,7 +229,16 @@ export async function DELETE(request: Request) {
         
       if (!snapshot.empty) {
         targetProfileId = snapshot.docs[0].id;
+        const data = snapshot.docs[0].data();
+        if (data.userId !== uid) {
+             return Response.json({ success: false, message: 'Forbidden' }, { status: 403, headers: corsHeaders });
+        }
       }
+    } else if (targetProfileId) {
+        const doc = await adminDb.collection('medical_profiles').doc(targetProfileId).get();
+        if (doc.exists && doc.data()?.userId !== uid) {
+            return Response.json({ success: false, message: 'Forbidden' }, { status: 403, headers: corsHeaders });
+        }
     }
 
     if (targetProfileId) {
@@ -189,13 +246,17 @@ export async function DELETE(request: Request) {
     }
 
     if (passengerId) {
-      await adminDb.collection('users').doc(passengerId).set(
-        {
-          hasMedicalInformation: false,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      // Validate that the user owns the passenger ID they are attempting to clear flags from
+      const userDoc = await adminDb.collection('users').doc(passengerId).get();
+      if (userDoc.exists && userDoc.data()?.uid === uid) {
+          await adminDb.collection('users').doc(passengerId).set(
+            {
+              hasMedicalInformation: false,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+      }
     }
 
     return Response.json(
