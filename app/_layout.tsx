@@ -1,10 +1,35 @@
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, LogBox, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, LogBox, StyleSheet, View, Platform } from 'react-native';
 import { useAuthStore } from '../src/shared/store/authStore';
 
-// Ignore expo-notifications warning about remote notifications removal in Expo Go SDK 53/54 on Android
+// Intercept and silence expo-notifications warning on Android Expo Go to prevent both RedBox and Terminal console pollution
+if (Platform.OS === 'android') {
+  const originalWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    if (args[0] && typeof args[0] === 'string' && (
+      args[0].includes('expo-notifications: Android Push notifications') ||
+      args[0].includes('Android Push notifications (remote notifications)')
+    )) {
+      return;
+    }
+    originalWarn(...args);
+  };
+
+  const originalError = console.error;
+  console.error = (...args: any[]) => {
+    if (args[0] && typeof args[0] === 'string' && (
+      args[0].includes('expo-notifications: Android Push notifications') ||
+      args[0].includes('Android Push notifications (remote notifications)')
+    )) {
+      return;
+    }
+    originalError(...args);
+  };
+}
+
+// Ignore warnings matching the same signature in LogBox
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
   'Android Push notifications (remote notifications) functionality',
