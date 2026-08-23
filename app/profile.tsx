@@ -766,6 +766,16 @@ export default function ProfileScreen() {
             </>
           )}
 
+          <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/medical-profile')}>
+            <Ionicons name="medical-outline" size={22} color="#E11D48" />
+            <Text style={[styles.actionRowText, { color: '#E11D48', fontWeight: 'bold' }]}>
+              Manage Medical Information
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color="#E11D48" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
           <TouchableOpacity style={styles.actionRow} onPress={() => setIsViewModalOpen(true)}>
             <Ionicons name="eye-outline" size={22} color="#0066CC" />
             <Text style={styles.actionRowText}>View Guardian Details</Text>
