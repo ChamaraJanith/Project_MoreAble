@@ -248,6 +248,36 @@ describe('POST /api/reports/[reportId]/comments', () => {
 
         expect(response.status).toBe(201);
     });
+
+    it('leaves the report document untouched', async () => {
+        const db = firestoreWithReports();
+        mockGetAdminDb.mockReturnValue(db);
+
+        await comment(NEIGHBOUR, 'The ramp was not working properly.');
+
+        const report = (await db.collection('reports').doc(REPORT_ID).get()).data();
+
+        // Commenting writes one comment document and nothing else. In
+        // particular it does not keep a count on the report: GET /api/reports
+        // derives that per request, so a stored one could only ever drift.
+        expect(report).toEqual(storedReport(REPORT_ID));
+        expect(report?.commentCount).toBeUndefined();
+    });
+
+    it('resolves the author name at the time of writing', async () => {
+        const db = firestoreWithReports();
+        mockGetAdminDb.mockReturnValue(db);
+
+        await comment(NEIGHBOUR, 'Written under the old name.');
+
+        // The passenger renames themselves afterwards. The comment keeps the
+        // name it was written under, the way a report keeps the bus it named.
+        await db.collection('users').doc(NEIGHBOUR).update({ userName: 'Kasun P. Silva' });
+
+        const { body } = await readComments(AUTHOR);
+
+        expect(body.comments[0].authorName).toBe('Kasun Silva');
+    });
 });
 
 // ==================================================================

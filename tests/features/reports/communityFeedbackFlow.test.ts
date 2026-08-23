@@ -21,6 +21,7 @@ import {
     GET as getVotes,
     POST as postVote,
 } from '../../../app/api/reports/[reportId]/vote+api';
+import { GET as listReports } from '../../../app/api/reports/index+api';
 import {
     fetchReportComments,
     fetchReportVotes,
@@ -382,5 +383,49 @@ describe('when the feedback endpoints fail', () => {
         // not be read.
         expect(state.votes.agreeCount).toBe(0);
         expect(state.comments.items).toEqual([]);
+    });
+});
+
+// ==================================================================
+// What the list screen sees afterwards
+// ==================================================================
+describe('a comment reaching the reports list', () => {
+    /** GET /api/reports, as the list screen asks for it. */
+    async function listedReport() {
+        const response = await listReports(
+            new Request('http://localhost/api/reports', {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${TOKEN}` },
+            })
+        );
+
+        const body = await response.json();
+
+        return body.reports.find((entry: any) => entry.reportId === REPORT_ID);
+    }
+
+    it('shows on the card the next time the list is loaded', async () => {
+        // Nothing said about this report yet.
+        expect((await listedReport()).commentCount).toBe(0);
+
+        const opened = await openReport();
+
+        await pressSend(opened, 'The ramp was not working properly.');
+
+        // The list is one request and derives the count from the comments
+        // collection, so the card carries it without asking per report.
+        expect((await listedReport()).commentCount).toBe(1);
+    });
+
+    it('carries the vote tallies the vote route wrote', async () => {
+        const opened = await openReport();
+
+        await pressVote(opened, 'AGREE');
+
+        const report = await listedReport();
+
+        expect(report.agreeCount).toBe(1);
+        expect(report.disagreeCount).toBe(0);
+        expect(report.commentCount).toBe(0);
     });
 });
