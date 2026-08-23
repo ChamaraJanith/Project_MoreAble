@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Alert,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -14,20 +13,11 @@ import { AccessibilityReport, ReportScope } from '../../../entities/report/model
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
-import {
-    AdminEmptyState,
-    AdminErrorState,
-    AdminListSkeleton,
-    ConfirmDialog,
-} from '../../admin/ui/AdminStates';
+import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import {
-    canDeleteReport,
-    canEditReport,
-    isReportOwnedBy,
-} from '../utils/reportOwnership';
-import { reportApiPath, reportDetailsPath, reportEditPath } from '../utils/reportRoutes';
+import { isReportOwnedBy } from '../utils/reportOwnership';
+import { reportDetailsPath } from '../utils/reportRoutes';
 import {
     FetchableReportScope,
     isFetchableReportScope,
@@ -208,62 +198,6 @@ export const AccessibilityReportsScreen = () => {
         fetchReports(scope);
     }, [scope, fetchReports]);
 
-    // The report the passenger has asked to delete, held until they confirm.
-    // The report itself is the state rather than a boolean, because null is
-    // what closes the dialog and there is never more than one in flight.
-    const [reportPendingDelete, setReportPendingDelete] =
-        useState<AccessibilityReport | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-
-    const confirmDelete = async () => {
-        if (!reportPendingDelete || !token) return;
-
-        setIsDeleting(true);
-
-        try {
-            // Ownership is not decided here. The API compares the report
-            // against the passengerId on this token and refuses anybody else,
-            // whatever the app chose to render.
-            const response = await fetch(
-                `${API_BASE_URL}${reportApiPath(reportPendingDelete.reportId)}`,
-                {
-                    method: 'DELETE',
-                    headers: { Authorization: `Bearer ${token}` },
-                }
-            );
-
-            const result = await response.json().catch(() => ({}));
-
-            if (response.ok && result.success) {
-                setReportPendingDelete(null);
-
-                // The other tab still holds the deleted report in its cached
-                // list, so it is dropped from the "already fetched" set and
-                // reloads the next time it is opened.
-                requestedScopes.current = new Set(
-                    isFetchableReportScope(scope) ? [scope] : []
-                );
-
-                if (isFetchableReportScope(scope)) await fetchReports(scope, 'refresh');
-
-                Alert.alert('Report Deleted', 'Your accessibility report has been deleted.');
-            } else {
-                Alert.alert(
-                    'Unable to delete report',
-                    result.message || 'Please check your connection and try again.'
-                );
-            }
-        } catch (err) {
-            console.error('Delete Report Error:', err);
-            Alert.alert(
-                'Unable to delete report',
-                'Please check your connection and try again.'
-            );
-        } finally {
-            setIsDeleting(false);
-        }
-    };
-
     const goToReportForm = () => router.push('/reports');
 
     const renderBody = () => {
@@ -316,14 +250,12 @@ export const AccessibilityReportsScreen = () => {
                         isOwnReport={
                             scope === 'all' && isReportOwnedBy(report, user?.passengerId)
                         }
-                        canEdit={canEditReport(report, user?.passengerId)}
-                        canDelete={canDeleteReport(report, user?.passengerId)}
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something the
-                        // passenger is asked to read.
-                        onView={() => router.push(reportDetailsPath(report.reportId) as Href)}
-                        onEdit={() => router.push(reportEditPath(report.reportId) as Href)}
-                        onDelete={() => setReportPendingDelete(report)}
+                        // passenger is asked to read. Editing and deleting live
+                        // on the screen this opens, where there is room to
+                        // confirm them.
+                        onOpen={() => router.push(reportDetailsPath(report.reportId) as Href)}
                     />
                 ))}
             </>
@@ -388,17 +320,6 @@ export const AccessibilityReportsScreen = () => {
 
                 {renderBody()}
             </ScrollView>
-
-            <ConfirmDialog
-                visible={!!reportPendingDelete}
-                title="Delete Report"
-                message="Are you sure you want to delete this report?"
-                confirmLabel="Delete Report"
-                destructive
-                isBusy={isDeleting}
-                onCancel={() => setReportPendingDelete(null)}
-                onConfirm={confirmDelete}
-            />
         </View>
     );
 };
@@ -432,29 +353,31 @@ function ComingSoonSection({ scope }: { scope: PlaceholderScope }) {
 interface ReportCardProps {
     report: AccessibilityReport;
     isOwnReport: boolean;
-    /** Owner-only controls. The API enforces the same rule; see reportOwnership. */
-    canEdit: boolean;
-    canDelete: boolean;
-    onView: () => void;
-    onEdit: () => void;
-    onDelete: () => void;
+    onOpen: () => void;
 }
 
-function ReportCard({
-    report,
-    isOwnReport,
-    canEdit,
-    canDelete,
-    onView,
-    onEdit,
-    onDelete,
-}: ReportCardProps) {
+/**
+ * One report, as a row in the list.
+ *
+ * The whole card is the control: there is exactly one thing to do with a report
+ * from here — open it — so a button inside the card would only be a smaller
+ * target for the same action. The chevron says so, and the card carries a
+ * single accessibility label rather than a scattering of readable fragments.
+ */
+function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
     // Everything the card puts on screen, derived in one place — including the
     // fact that the report id is not part of it.
     const summary = reportCardSummary(report, { isOwnReport });
 
     return (
-        <View style={styles.card}>
+        <TouchableOpacity
+            style={styles.card}
+            onPress={onOpen}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={summary.accessibilityLabel}
+            accessibilityHint="Opens the full report"
+        >
             <View style={styles.cardTop}>
                 <View style={styles.categoryIconCircle}>
                     <Ionicons name={summary.icon} size={22} color={adminColors.primary} />
@@ -464,12 +387,28 @@ function ReportCard({
                     <Text style={styles.categoryText} numberOfLines={2}>
                         {summary.title}
                     </Text>
+
+                    <View style={styles.statusRow}>
+                        <StatusBadge status={report.status} size="small" />
+                    </View>
                 </View>
 
-                <StatusBadge status={report.status} size="small" />
+                {/* Decorative: the card itself is the control, so the arrow
+                    must not become a second thing to land on. */}
+                <View
+                    style={styles.chevron}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                >
+                    <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color={adminColors.textPlaceholder}
+                    />
+                </View>
             </View>
 
-            <Text style={styles.descriptionText} numberOfLines={3}>
+            <Text style={styles.descriptionText} numberOfLines={2}>
                 {summary.description}
             </Text>
 
@@ -490,48 +429,7 @@ function ReportCard({
                 <Ionicons name="calendar-outline" size={14} color={adminColors.textMuted} />
                 <Text style={styles.footerText}>{summary.submittedLabel}</Text>
             </View>
-
-            {/* The card is opened, not quoted, so the id it is addressed by
-                stays in the navigation path. Edit and Delete appear only on the
-                passenger's own reports. */}
-            <View style={styles.cardActions}>
-                <TouchableOpacity
-                    style={[styles.actionButton, styles.actionButtonPrimary]}
-                    onPress={onView}
-                    accessibilityRole="button"
-                    accessibilityLabel={`View details of the ${summary.title} report`}
-                >
-                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                    <Text style={[styles.actionText, styles.actionTextPrimary]}>
-                        View Details
-                    </Text>
-                </TouchableOpacity>
-
-                {canEdit && (
-                    <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={onEdit}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Edit the ${summary.title} report`}
-                    >
-                        <Ionicons name="create-outline" size={16} color={adminColors.primary} />
-                        <Text style={styles.actionText}>Edit</Text>
-                    </TouchableOpacity>
-                )}
-
-                {canDelete && (
-                    <TouchableOpacity
-                        style={[styles.actionButton, styles.actionButtonDanger]}
-                        onPress={onDelete}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Delete the ${summary.title} report`}
-                    >
-                        <Ionicons name="trash-outline" size={16} color={adminColors.danger} />
-                        <Text style={[styles.actionText, styles.actionTextDanger]}>Delete</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
-        </View>
+        </TouchableOpacity>
     );
 }
 
@@ -641,6 +539,13 @@ const styles = StyleSheet.create({
         ...adminShadow.card,
     },
     cardTop: { flexDirection: 'row', alignItems: 'center' },
+    statusRow: { flexDirection: 'row', marginTop: 6 },
+    chevron: {
+        width: 28,
+        height: 28,
+        justifyContent: 'center',
+        alignItems: 'flex-end',
+    },
     categoryIconCircle: {
         width: 46,
         height: 46,
@@ -705,40 +610,4 @@ const styles = StyleSheet.create({
         color: adminColors.textMuted,
         marginLeft: 6,
     },
-
-    cardActions: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        marginTop: 12,
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        // Comfortably past the 44pt minimum touch target.
-        minHeight: 46,
-        paddingHorizontal: 14,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: adminColors.border,
-        backgroundColor: adminColors.surface,
-    },
-    actionButtonPrimary: {
-        flexGrow: 1,
-        backgroundColor: adminColors.primary,
-        borderColor: adminColors.primary,
-    },
-    actionButtonDanger: {
-        borderColor: adminColors.dangerBorder,
-        backgroundColor: adminColors.dangerSoft,
-    },
-    actionText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: adminColors.primary,
-        marginLeft: 6,
-    },
-    actionTextPrimary: { color: '#FFFFFF' },
-    actionTextDanger: { color: adminColors.danger },
 });

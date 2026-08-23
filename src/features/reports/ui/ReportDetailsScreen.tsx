@@ -3,13 +3,13 @@ import { Href, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import React, { useCallback, useState } from 'react';
 import {
     Alert,
-    Dimensions,
     Image,
     Modal,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
+    useWindowDimensions,
     View,
 } from 'react-native';
 import { AccessibilityReport } from '../../../entities/report/model/types';
@@ -27,13 +27,14 @@ import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { canDeleteReport, canEditReport } from '../utils/reportOwnership';
 import { reportApiPath, reportEditPath } from '../utils/reportRoutes';
 import {
-    ReportDetailRow,
     ReportGalleryPhoto,
+    ReportJourneyEntry,
+    galleryColumnsForWidth,
+    hasBeenEdited,
     reportCardSummary,
     reportGalleryPhotos,
-    reportRouteRows,
+    reportJourneyEntries,
     reportTimelineRows,
-    reportVehicleRows,
 } from '../utils/reportSummary';
 
 /**
@@ -44,9 +45,11 @@ import {
  * shown here: what went wrong, on which bus and route, when, and every photo
  * that was attached as evidence.
  *
- * Edit and Delete are drawn only for the passenger who filed it. That is a
- * courtesy, not the rule: PUT and DELETE /api/reports/[reportId] compare the
- * report against the verified token and refuse anybody else regardless.
+ * Edit and Delete are drawn only for the passenger who filed it, and only here:
+ * they are decisions worth a screen of context rather than a control on a list
+ * row. That is still a courtesy, not the rule — PUT and DELETE
+ * /api/reports/[reportId] compare the report against the verified token and
+ * refuse anybody else regardless.
  */
 export const ReportDetailsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
@@ -116,8 +119,6 @@ export const ReportDetailsScreen = () => {
         }, [loadReport])
     );
 
-    const isOwner = canEditReport(report, user?.passengerId);
-
     const handleDelete = async () => {
         if (!report || !token) return;
 
@@ -177,68 +178,55 @@ export const ReportDetailsScreen = () => {
         }
 
         const summary = reportCardSummary(report);
-        const vehicleRows = reportVehicleRows(report);
-        const routeRows = reportRouteRows(report);
-        const timelineRows = reportTimelineRows(report);
+        const journey = reportJourneyEntries(report);
         const photos = reportGalleryPhotos(report);
+        const isOwner = canEditReport(report, user?.passengerId);
+
+        // Only once there is more than one moment to show: on an untouched
+        // report the hero's submitted date is the whole timeline already.
+        const timelineRows = hasBeenEdited(report) ? reportTimelineRows(report) : [];
 
         return (
             <>
-                {/* ---------------- Issue ---------------- */}
-                <View style={styles.card}>
-                    <View style={styles.headlineRow}>
-                        <View style={styles.categoryIconCircle}>
-                            <Ionicons name={summary.icon} size={24} color={adminColors.primary} />
-                        </View>
-
-                        <View style={styles.headlineText}>
-                            <Text style={styles.categoryText}>{summary.title}</Text>
-                            <Text style={styles.headlineMeta}>{summary.submittedLabel}</Text>
-                        </View>
+                {/* ---------------- Hero ---------------- */}
+                <View style={styles.hero}>
+                    <View style={styles.heroIconCircle}>
+                        <Ionicons name={summary.icon} size={30} color={adminColors.primary} />
                     </View>
 
-                    <View style={styles.statusRow}>
+                    <Text style={styles.heroTitle} accessibilityRole="header">
+                        {summary.title}
+                    </Text>
+
+                    <View style={styles.heroBadge}>
                         <StatusBadge status={report.status} />
                     </View>
+
+                    <Text style={styles.heroDate}>{summary.submittedLabel}</Text>
                 </View>
 
-                {/* ---------------- Description ---------------- */}
-                <Text style={styles.sectionTitle}>Description</Text>
+                {/* ---------------- Issue ---------------- */}
+                <SectionTitle>Issue Description</SectionTitle>
 
                 <View style={styles.card}>
                     <Text style={styles.descriptionText}>{report.description}</Text>
                 </View>
 
-                {/* ---------------- Bus ---------------- */}
-                <Text style={styles.sectionTitle}>Bus / Vehicle Details</Text>
+                {/* ---------------- Journey ---------------- */}
+                <SectionTitle>Journey Details</SectionTitle>
 
                 <View style={styles.card}>
-                    {vehicleRows.length > 0 ? (
-                        <DetailRows rows={vehicleRows} />
-                    ) : (
-                        <EmptySection
-                            icon="bus-outline"
-                            message="No bus details were recorded for this report."
+                    {journey.map((entry, index) => (
+                        <JourneyRow
+                            key={entry.label}
+                            entry={entry}
+                            isFirst={index === 0}
                         />
-                    )}
-                </View>
-
-                {/* ---------------- Route ---------------- */}
-                <Text style={styles.sectionTitle}>Route Details</Text>
-
-                <View style={styles.card}>
-                    {routeRows.length > 0 ? (
-                        <DetailRows rows={routeRows} />
-                    ) : (
-                        <EmptySection
-                            icon="git-branch-outline"
-                            message="No route details were recorded for this report."
-                        />
-                    )}
+                    ))}
                 </View>
 
                 {/* ---------------- Photo evidence ---------------- */}
-                <Text style={styles.sectionTitle}>Photo Evidence</Text>
+                <SectionTitle>Photo Evidence</SectionTitle>
 
                 <View style={styles.card}>
                     {photos.length > 0 ? (
@@ -252,15 +240,32 @@ export const ReportDetailsScreen = () => {
                 </View>
 
                 {/* ---------------- Timeline ---------------- */}
-                <Text style={styles.sectionTitle}>Report Timeline</Text>
+                {timelineRows.length > 0 && (
+                    <>
+                        <SectionTitle>Report Timeline</SectionTitle>
 
-                <View style={styles.card}>
-                    <DetailRows rows={timelineRows} />
-                </View>
+                        <View style={styles.card}>
+                            {timelineRows.map((row, index) => (
+                                <View
+                                    key={row.label}
+                                    style={[styles.timelineRow, index > 0 && styles.divided]}
+                                >
+                                    <Ionicons
+                                        name={row.icon}
+                                        size={16}
+                                        color={adminColors.textSecondary}
+                                    />
+                                    <Text style={styles.timelineLabel}>{row.label}</Text>
+                                    <Text style={styles.timelineValue}>{row.value}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </>
+                )}
 
                 {/* ---------------- Owner actions ---------------- */}
                 {isOwner && (
-                    <>
+                    <View style={styles.actions}>
                         <TouchableOpacity
                             style={styles.primaryButton}
                             onPress={() => router.push(reportEditPath(report.reportId) as Href)}
@@ -286,7 +291,7 @@ export const ReportDetailsScreen = () => {
                                 <Text style={styles.dangerButtonText}>Delete Report</Text>
                             </TouchableOpacity>
                         )}
-                    </>
+                    </View>
                 )}
             </>
         );
@@ -296,10 +301,7 @@ export const ReportDetailsScreen = () => {
 
     return (
         <View style={styles.container}>
-            <AdminScreenHeader
-                title="Report Details"
-                subtitle="Everything recorded about this accessibility report"
-            />
+            <AdminScreenHeader title="Report Details" />
 
             <ScrollView
                 contentContainerStyle={styles.content}
@@ -330,24 +332,50 @@ export const ReportDetailsScreen = () => {
 };
 
 // ------------------------------------------------------------------
-/** A label/value list, one row per stored field. */
-function DetailRows({ rows }: { rows: ReportDetailRow[] }) {
+function SectionTitle({ children }: { children: string }) {
     return (
-        <>
-            {rows.map((row, index) => (
-                <View
-                    key={row.label}
-                    style={[styles.detailRow, index > 0 && styles.detailRowDivided]}
-                >
-                    <Ionicons name={row.icon} size={18} color={adminColors.textSecondary} />
+        <Text style={styles.sectionTitle} accessibilityRole="header">
+            {children}
+        </Text>
+    );
+}
 
-                    <View style={styles.detailTextGroup}>
-                        <Text style={styles.detailLabel}>{row.label}</Text>
-                        <Text style={styles.detailValue}>{row.value}</Text>
-                    </View>
-                </View>
-            ))}
-        </>
+/**
+ * The bus, or the route.
+ *
+ * Both rows are always drawn. One the passenger did not fill in reads as "Not
+ * provided" rather than vanishing, so the section keeps its shape and the
+ * absence is stated instead of implied by a gap.
+ */
+function JourneyRow({ entry, isFirst }: { entry: ReportJourneyEntry; isFirst: boolean }) {
+    const isMissing = !entry.primary;
+
+    return (
+        <View style={[styles.journeyRow, !isFirst && styles.divided]}>
+            <View style={[styles.journeyIcon, isMissing && styles.journeyIconMuted]}>
+                <Ionicons
+                    name={entry.icon}
+                    size={20}
+                    color={isMissing ? adminColors.textPlaceholder : adminColors.primary}
+                />
+            </View>
+
+            <View style={styles.journeyText}>
+                <Text style={styles.journeyLabel}>{entry.label}</Text>
+
+                {isMissing ? (
+                    <Text style={styles.journeyMissing}>Not provided</Text>
+                ) : (
+                    <>
+                        <Text style={styles.journeyPrimary}>{entry.primary}</Text>
+
+                        {!!entry.secondary && (
+                            <Text style={styles.journeySecondary}>{entry.secondary}</Text>
+                        )}
+                    </>
+                )}
+            </View>
+        </View>
     );
 }
 
@@ -361,24 +389,22 @@ function EmptySection({
 }) {
     return (
         <View style={styles.emptySection}>
-            <Ionicons name={icon} size={20} color={adminColors.textPlaceholder} />
+            <View style={styles.emptySectionIcon}>
+                <Ionicons name={icon} size={20} color={adminColors.textPlaceholder} />
+            </View>
             <Text style={styles.emptySectionText}>{message}</Text>
         </View>
     );
 }
 
 // ------------------------------------------------------------------
-const GALLERY_COLUMNS = 3;
 const GALLERY_GAP = 10;
 
 // The grid sits inside a card, itself inside a padded screen: 20pt of screen
 // padding and 16pt of card padding on each side.
-const GALLERY_TILE_SIZE = Math.floor(
-    (Dimensions.get('window').width - 2 * 20 - 2 * 16 - GALLERY_GAP * (GALLERY_COLUMNS - 1)) /
-        GALLERY_COLUMNS
-);
+const GALLERY_HORIZONTAL_INSET = 2 * 20 + 2 * 16;
 
-/** Every attached photo, as tappable tiles. */
+/** Every attached photo, as square tiles that reflow with the screen width. */
 function PhotoGallery({
     photos,
     onOpen,
@@ -386,18 +412,32 @@ function PhotoGallery({
     photos: ReportGalleryPhoto[];
     onOpen: (index: number) => void;
 }) {
+    const { width } = useWindowDimensions();
+
+    const columns = galleryColumnsForWidth(width);
+    const tileSize = Math.floor(
+        (width - GALLERY_HORIZONTAL_INSET - GALLERY_GAP * (columns - 1)) / columns
+    );
+
     return (
         <>
             <View style={styles.galleryGrid}>
                 {photos.map((photo, index) => (
                     <TouchableOpacity
                         key={photo.url}
-                        style={styles.galleryTile}
+                        style={[styles.galleryTile, { width: tileSize }]}
                         onPress={() => onOpen(index)}
+                        activeOpacity={0.8}
                         accessibilityRole="imagebutton"
                         accessibilityLabel={photo.accessibilityLabel}
                     >
-                        <Image source={{ uri: photo.url }} style={styles.galleryImage} />
+                        {/* Square and cropped to fill, so a portrait photo and
+                            a landscape one sit in the grid the same way. */}
+                        <Image
+                            source={{ uri: photo.url }}
+                            style={styles.galleryImage}
+                            resizeMode="cover"
+                        />
                     </TouchableOpacity>
                 ))}
             </View>
@@ -501,92 +541,144 @@ const styles = StyleSheet.create({
 
     card: {
         backgroundColor: adminColors.surface,
-        borderRadius: 12,
+        borderRadius: 14,
         padding: 16,
-        marginBottom: 12,
         ...adminShadow.card,
     },
 
     sectionTitle: {
-        fontSize: 18,
+        fontSize: 13,
         fontWeight: '700',
-        color: adminColors.textPrimary,
-        marginBottom: 12,
-        marginTop: 20,
+        color: adminColors.textMuted,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+        marginTop: 24,
+        marginBottom: 10,
     },
 
-    headlineRow: { flexDirection: 'row', alignItems: 'center' },
-    categoryIconCircle: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
+    // ---- Hero ----
+    hero: {
+        backgroundColor: adminColors.surface,
+        borderRadius: 16,
+        paddingVertical: 24,
+        paddingHorizontal: 20,
+        alignItems: 'center',
+        ...adminShadow.card,
+    },
+    heroIconCircle: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
         backgroundColor: adminColors.primarySoft,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    headlineText: { flex: 1, marginLeft: 14 },
-    categoryText: {
-        fontSize: 17,
+    heroTitle: {
+        fontSize: 20,
         fontWeight: '800',
         color: adminColors.textPrimary,
+        textAlign: 'center',
+        marginTop: 14,
     },
-    headlineMeta: {
-        fontSize: 12,
+    heroBadge: { marginTop: 12 },
+    heroDate: {
+        fontSize: 13,
         fontWeight: '600',
         color: adminColors.textMuted,
-        marginTop: 4,
+        marginTop: 12,
     },
-    statusRow: {
+
+    descriptionText: {
+        fontSize: 15,
+        color: adminColors.textSecondary,
+        lineHeight: 23,
+    },
+
+    // ---- Journey ----
+    divided: {
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,
         marginTop: 14,
         paddingTop: 14,
     },
-
-    descriptionText: {
-        fontSize: 14,
-        color: adminColors.textSecondary,
-        lineHeight: 21,
+    journeyRow: { flexDirection: 'row', alignItems: 'center' },
+    journeyIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: 12,
+        backgroundColor: adminColors.primarySoft,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-
-    detailRow: { flexDirection: 'row', alignItems: 'flex-start' },
-    detailRowDivided: {
-        borderTopWidth: 1,
-        borderTopColor: adminColors.borderSubtle,
-        marginTop: 12,
-        paddingTop: 12,
-    },
-    detailTextGroup: { flex: 1, marginLeft: 12 },
-    detailLabel: {
-        fontSize: 12,
-        fontWeight: '600',
+    journeyIconMuted: { backgroundColor: adminColors.surfaceMuted },
+    journeyText: { flex: 1, marginLeft: 14 },
+    journeyLabel: {
+        fontSize: 11,
+        fontWeight: '700',
         color: adminColors.textMuted,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
     },
-    detailValue: {
-        fontSize: 15,
-        fontWeight: '600',
+    journeyPrimary: {
+        fontSize: 16,
+        fontWeight: '700',
         color: adminColors.textPrimary,
+        marginTop: 4,
+    },
+    journeySecondary: {
+        fontSize: 13,
+        color: adminColors.textSecondary,
         marginTop: 3,
     },
-
-    emptySection: { flexDirection: 'row', alignItems: 'center' },
-    emptySectionText: {
-        flex: 1,
-        fontSize: 13,
+    journeyMissing: {
+        fontSize: 15,
+        fontWeight: '600',
         color: adminColors.textPlaceholder,
-        marginLeft: 10,
-        lineHeight: 19,
+        marginTop: 4,
     },
 
+    // ---- Timeline ----
+    timelineRow: { flexDirection: 'row', alignItems: 'center' },
+    timelineLabel: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '600',
+        color: adminColors.textSecondary,
+        marginLeft: 10,
+    },
+    timelineValue: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.textPrimary,
+    },
+
+    // ---- Empty section ----
+    emptySection: { flexDirection: 'row', alignItems: 'center' },
+    emptySectionIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: 12,
+        backgroundColor: adminColors.surfaceMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptySectionText: {
+        flex: 1,
+        fontSize: 14,
+        color: adminColors.textPlaceholder,
+        marginLeft: 14,
+        lineHeight: 20,
+    },
+
+    // ---- Gallery ----
     galleryGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: GALLERY_GAP,
     },
     galleryTile: {
-        width: GALLERY_TILE_SIZE,
-        height: GALLERY_TILE_SIZE,
-        borderRadius: 10,
+        aspectRatio: 1,
+        borderRadius: 12,
         overflow: 'hidden',
         backgroundColor: adminColors.borderSubtle,
     },
@@ -597,6 +689,7 @@ const styles = StyleSheet.create({
         marginTop: 12,
     },
 
+    // ---- Full-screen viewer ----
     viewerBackdrop: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.92)',
@@ -644,40 +737,37 @@ const styles = StyleSheet.create({
     },
     viewerNavButtonDisabled: { opacity: 0.3 },
 
+    // ---- Owner actions ----
+    actions: { marginTop: 28 },
     primaryButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: adminColors.primary,
-        minHeight: 54,
+        minHeight: 52,
         borderRadius: 12,
-        marginTop: 24,
         ...adminShadow.card,
     },
     primaryButtonText: {
         color: '#FFFFFF',
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         marginLeft: 8,
-        letterSpacing: 0.4,
+        letterSpacing: 0.3,
     },
-
     dangerButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: 54,
+        minHeight: 52,
         borderRadius: 12,
-        borderWidth: 1,
-        borderColor: adminColors.dangerBorder,
-        backgroundColor: adminColors.dangerSoft,
-        marginTop: 12,
+        marginTop: 10,
     },
     dangerButtonText: {
         color: adminColors.danger,
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         marginLeft: 8,
-        letterSpacing: 0.4,
+        letterSpacing: 0.3,
     },
 });
