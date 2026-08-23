@@ -36,6 +36,7 @@ import {
     reportJourneyEntries,
     reportTimelineRows,
 } from '../utils/reportSummary';
+import { CommunityFeedback } from './CommunityFeedback';
 
 /**
  * One accessibility report in full.
@@ -262,6 +263,9 @@ export const ReportDetailsScreen = () => {
                         </View>
                     </>
                 )}
+
+                {/* ---------------- Community feedback ---------------- */}
+                <CommunityFeedback authorName={user?.userName} />
 
                 {/* ---------------- Owner actions ---------------- */}
                 {isOwner && (
