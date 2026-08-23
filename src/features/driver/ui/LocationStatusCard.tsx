@@ -9,22 +9,13 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { getBusSession } from '../../../shared/utils/busSession';
-import { getCurrentPhoneLocation } from '../../../shared/utils/phoneLocation';
-import { publishBusLocation } from '../api/busLocationApi';
+import { runPublishCycle } from '../utils/locationPublishCycle';
 import {
     PhoneLocationAction,
     PhoneLocationState,
-    busNotSignedIn,
     describePhoneLocationState,
     initialPhoneLocationState,
     isLocationRequestInFlight,
-    locationPublishFailed,
-    locationPublishStarted,
-    locationPublished,
-    locationReceived,
-    locationRequestFailed,
-    locationRequestStarted,
 } from '../utils/phoneLocationState';
 
 /**
@@ -36,8 +27,9 @@ import {
  *
  * Nothing runs on mount or on focus. The driver presses a button, so opening
  * the dashboard never sets off a permission prompt or a network request by
- * itself — and nothing here repeats on a timer. Automatic, continuous
- * publishing is MOV-262 and is deliberately absent.
+ * itself — and nothing here repeats on a timer. The periodic loop exists
+ * (`locationTracker`, via `usePhoneLocationTracking`) but this card does not
+ * start it: turning tracking on from the dashboard is MOV-268.
  *
  * One press does the whole manual flow: read the phone's position, look up the
  * signed-in bus, and send the reading to that bus's location endpoint.
@@ -51,41 +43,10 @@ export function LocationStatusCard() {
         // send the same position twice.
         if (isLocationRequestInFlight(state)) return;
 
-        setState(locationRequestStarted);
-
-        let reading;
-
-        try {
-            reading = await getCurrentPhoneLocation();
-        } catch (error) {
-            // Every failure is classified into a driver-facing state. The
-            // native error itself is never rendered, and nothing is published
-            // when there is no position to publish.
-            setState(locationRequestFailed(error));
-            return;
-        }
-
-        setState(locationReceived(reading));
-
-        // The bus this phone signed in as. Both values come from that session —
-        // neither the id nor the credential is derived or assumed here.
-        const session = await getBusSession();
-
-        if (!session) {
-            setState(busNotSignedIn);
-            return;
-        }
-
-        setState(locationPublishStarted);
-
-        try {
-            await publishBusLocation(session.busId, reading, session.token);
-            setState(locationPublished);
-        } catch (error) {
-            // The server's own wording is never shown; the state carries a
-            // message written for a driver.
-            setState((current) => locationPublishFailed(current, error));
-        }
+        // Read the phone's position, look up the signed-in bus, publish to it.
+        // The sequence lives in `locationPublishCycle` because MOV-267 repeats
+        // exactly this on a timer, and two copies of it would drift apart.
+        await runPublishCycle(setState);
     }, [state]);
 
     const openSettings = useCallback(async () => {
