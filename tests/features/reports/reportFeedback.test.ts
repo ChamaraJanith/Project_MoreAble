@@ -1,70 +1,61 @@
-// Community feedback on a report.
+// Community feedback on a report — how it reads.
 //
-// MOV-144 is frontend-only and deliberately invents nothing: there are no
-// seeded counts and no seeded comments to test, because a stand-in number would
-// read to a passenger as a real one. What is left is the logic that stays true
-// once MOV-145 and MOV-146 put an API behind it.
+// The state behind this section is the API's now (see reportFeedbackState and
+// reportFeedbackApi), so what is left in this module is presentation: how a
+// tally pluralises, what a screen reader is told about a vote button, and what
+// counts as a comment worth sending at all.
 //
-// The rule worth pinning down is that one passenger stays one vote: pressing
-// Agree twice must not become two votes. It costs nothing to hold now and will
-// cost a duplicate request when a press starts hitting the network.
+// The rule worth pinning down here is that nothing announces a number it does
+// not have. A count of null is a count that has not arrived, and it must reach
+// a screen reader as silence rather than as "0 votes".
 
 import {
     MAX_FEEDBACK_COMMENT_LENGTH,
-    addLocalComment,
-    applyVote,
     commentInitial,
     formatCommentCount,
     formatCommentTimestamp,
+    formatVoteCount,
     isSubmittableComment,
     voteAccessibilityLabel,
 } from '../../../src/features/reports/utils/reportFeedback';
 
-describe('applyVote', () => {
-    it('records a first vote', () => {
-        expect(applyVote(null, 'AGREE')).toBe('AGREE');
-        expect(applyVote(null, 'DISAGREE')).toBe('DISAGREE');
-    });
-
-    it('does not turn a repeated press into a second vote', () => {
-        const once = applyVote(null, 'AGREE');
-
-        expect(applyVote(once, 'AGREE')).toBe('AGREE');
-        expect(applyVote(applyVote(once, 'AGREE'), 'AGREE')).toBe('AGREE');
-    });
-
-    it('moves the vote across rather than holding both', () => {
-        const agreed = applyVote(null, 'AGREE');
-
-        expect(applyVote(agreed, 'DISAGREE')).toBe('DISAGREE');
-    });
-
-    it('lets a passenger change their mind and change it back', () => {
-        let vote = applyVote(null, 'AGREE');
-        vote = applyVote(vote, 'DISAGREE');
-        vote = applyVote(vote, 'AGREE');
-
-        expect(vote).toBe('AGREE');
-    });
-});
-
 describe('voteAccessibilityLabel', () => {
-    it('names the side without claiming a count', () => {
+    it('names the side, and says nothing about a count it has not been given', () => {
         expect(voteAccessibilityLabel('AGREE', false)).toBe('Agree with this report');
         expect(voteAccessibilityLabel('DISAGREE', false)).toBe('Disagree with this report');
+    });
+
+    it('announces a count once there is a real one', () => {
+        expect(voteAccessibilityLabel('AGREE', false, 5)).toBe(
+            'Agree with this report, 5 votes'
+        );
+        expect(voteAccessibilityLabel('DISAGREE', false, 2)).toBe(
+            'Disagree with this report, 2 votes'
+        );
+    });
+
+    it('announces a real zero, which is not the same as no count', () => {
+        expect(voteAccessibilityLabel('AGREE', false, 0)).toBe(
+            'Agree with this report, 0 votes'
+        );
+        expect(voteAccessibilityLabel('AGREE', false, null)).not.toMatch(/\d/);
     });
 
     it('says when it is the passenger own vote', () => {
         expect(voteAccessibilityLabel('AGREE', true)).toBe(
             'Agree with this report, your vote'
         );
+        expect(voteAccessibilityLabel('AGREE', true, 5)).toBe(
+            'Agree with this report, 5 votes, your vote'
+        );
     });
+});
 
-    it('never announces a number', () => {
-        for (const isSelected of [true, false]) {
-            expect(voteAccessibilityLabel('AGREE', isSelected)).not.toMatch(/\d/);
-            expect(voteAccessibilityLabel('DISAGREE', isSelected)).not.toMatch(/\d/);
-        }
+describe('formatVoteCount', () => {
+    it('pluralises the tally', () => {
+        expect(formatVoteCount(0)).toBe('0 votes');
+        expect(formatVoteCount(1)).toBe('1 vote');
+        expect(formatVoteCount(6)).toBe('6 votes');
     });
 });
 
@@ -82,64 +73,20 @@ describe('isSubmittableComment', () => {
         expect(isSubmittableComment('a'.repeat(MAX_FEEDBACK_COMMENT_LENGTH))).toBe(true);
         expect(isSubmittableComment('a'.repeat(MAX_FEEDBACK_COMMENT_LENGTH + 1))).toBe(false);
     });
+
+    it('agrees with the cap the API enforces', () => {
+        expect(MAX_FEEDBACK_COMMENT_LENGTH).toBe(300);
+    });
 });
 
-describe('addLocalComment', () => {
-    const NOW = '2026-08-22T09:30:00.000Z';
+describe('no comment is assembled locally any more', () => {
+    it('exports nothing that could build one', async () => {
+        const feedback = await import('../../../src/features/reports/utils/reportFeedback');
 
-    it('adds the first comment to an empty list', () => {
-        const next = addLocalComment([], '  Same here last week.  ', 'Amaya', NOW);
-
-        expect(next).toEqual([
-            {
-                commentId: 'local-1',
-                authorName: 'Amaya',
-                text: 'Same here last week.',
-                createdAt: NOW,
-            },
-        ]);
-    });
-
-    it('puts each new comment at the top', () => {
-        const first = addLocalComment([], 'One.', 'Amaya', NOW);
-        const second = addLocalComment(first, 'Two.', 'Amaya', NOW);
-
-        expect(second.map((comment) => comment.text)).toEqual(['Two.', 'One.']);
-
-        // The comment already there keeps its place and its id.
-        expect(second[1]).toEqual(first[0]);
-    });
-
-    it('gives each comment its own id', () => {
-        const first = addLocalComment([], 'One.', 'Amaya', NOW);
-        const second = addLocalComment(first, 'Two.', 'Amaya', NOW);
-
-        expect(second[0].commentId).not.toBe(second[1].commentId);
-    });
-
-    it('falls back to "You" when there is no name to show', () => {
-        expect(addLocalComment([], 'Anonymous note.', '   ', NOW)[0].authorName).toBe('You');
-    });
-
-    it('returns the same list when there is nothing submittable to add', () => {
-        const existing = addLocalComment([], 'One.', 'Amaya', NOW);
-
-        expect(addLocalComment(existing, '   ', 'Amaya', NOW)).toBe(existing);
-        expect(addLocalComment(existing, '', 'Amaya', NOW)).toBe(existing);
-    });
-
-    it('leaves the passed list untouched', () => {
-        const existing = addLocalComment([], 'One.', 'Amaya', NOW);
-
-        addLocalComment(existing, 'Two.', 'Amaya', NOW);
-
-        expect(existing).toHaveLength(1);
-    });
-
-    it('never carries a report id', () => {
-        const text = JSON.stringify(addLocalComment([], 'Nothing to see.', 'Amaya', NOW));
-
-        expect(text).not.toMatch(/REP-/);
+        // A comment used to be given a `local-N` id and "You" for a name while
+        // there was nowhere to post it. It is posted now, and what goes on the
+        // list is the record the API stored.
+        expect(feedback).not.toHaveProperty('addLocalComment');
     });
 });
 

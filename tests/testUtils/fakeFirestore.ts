@@ -17,6 +17,13 @@ interface FakeQuery {
     where: (field: string, op: string, value: unknown) => FakeQuery;
     orderBy: (...args: unknown[]) => FakeQuery;
     limit: (...args: unknown[]) => FakeQuery;
+    /**
+     * Field projection. Chainable and otherwise ignored: it changes what the
+     * real SDK puts on the wire, not which documents come back or what a caller
+     * can read off them, so a test asserting on the result sees the same thing
+     * either way.
+     */
+    select: (...fields: string[]) => FakeQuery;
     get: () => Promise<{ empty: boolean; docs: { id: string; exists: true; data: () => DocData }[] }>;
 }
 
@@ -27,6 +34,7 @@ function buildQuery(docs: DocData[]): FakeQuery {
         ),
         orderBy: jest.fn(() => query),
         limit: jest.fn(() => query),
+        select: jest.fn(() => query),
         get: jest.fn(async () => ({
             empty: docs.length === 0,
             docs: docs.map((data) => ({

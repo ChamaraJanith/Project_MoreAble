@@ -264,8 +264,13 @@ export const ReportDetailsScreen = () => {
                     </>
                 )}
 
-                {/* ---------------- Community feedback ---------------- */}
-                <CommunityFeedback authorName={user?.userName} />
+                {/* ---------------- Community feedback ----------------
+                    Loads and fails on its own: the votes and the thread come
+                    from their own endpoints, so a feedback request that does
+                    not come back costs this card and not the report above it.
+                    Who is voting comes off the token inside those calls — the
+                    report id is all this screen has to hand over. */}
+                <CommunityFeedback reportId={report.reportId} token={token} />
 
                 {/* ---------------- Owner actions ---------------- */}
                 {isOwner && (

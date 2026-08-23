@@ -4,6 +4,7 @@ import {
 } from '../../../src/shared/api/authMiddleware';
 import { isReportIssueCategory } from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { countCommentsByReport } from '../../../src/shared/server/reportFeedback';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
   resolveBusReference,
@@ -383,12 +384,27 @@ export async function GET(request: Request) {
 
     const snapshot = await reportsQuery.get();
 
+    // --------------------------------
+    // Comment counts
+    //
+    // One query for the whole page, tallied by report below. The vote tallies
+    // are already on each report document — POST /api/reports/[reportId]/vote
+    // writes them there — but comments are not counted onto anything, so the
+    // number has to be derived. Deriving it per report would be one query per
+    // card; deriving it in the app would be one request per card.
+    // --------------------------------
+    const commentCounts = await countCommentsByReport(adminDb);
+
     const reports = snapshot.docs.map((doc: any) => ({
       ...doc.data(),
       documentId: doc.id,
       // Firestore timestamps need to be converted to ISO strings or serialized
       createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : doc.data().createdAt,
       updatedAt: doc.data().updatedAt?.toDate ? doc.data().updatedAt.toDate() : doc.data().updatedAt,
+      // Always a number: a report nobody has commented on has no entry in the
+      // map, and that is a zero rather than a missing field the card has to
+      // guard against.
+      commentCount: commentCounts.get(doc.data().reportId ?? doc.id) ?? 0,
     }));
 
     if (isFiltered) {

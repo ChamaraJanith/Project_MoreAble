@@ -26,3 +26,19 @@ export function reportEditPath(reportId: string): string {
 export function reportApiPath(reportId: string): string {
     return `/api/reports/${encodeURIComponent(reportId)}`;
 }
+
+/**
+ * Where this report's votes live: `/api/reports/REP-00007/vote`.
+ *
+ * GET reads how the report stands and which way this session voted; POST casts
+ * or changes that vote. One route, because a vote and the tally it belongs to
+ * are the same fact asked in two directions.
+ */
+export function reportVoteApiPath(reportId: string): string {
+    return `${reportApiPath(reportId)}/vote`;
+}
+
+/** This report's comment thread: `/api/reports/REP-00007/comments`. */
+export function reportCommentsApiPath(reportId: string): string {
+    return `${reportApiPath(reportId)}/comments`;
+}

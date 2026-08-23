@@ -14,6 +14,7 @@
 
 import { AccessibilityReport } from '../../../entities/report/model/types';
 import { reportCategoryIcon, reportCategoryLabel } from '../ui/reportCategories';
+import { formatCommentCount } from './reportFeedback';
 import { formatPhotoCount, formatReportDateTime } from './reportFormat';
 
 /** The icons the card's chips use. A closed set, so the UI can pass them on. */
@@ -39,6 +40,20 @@ const DIRECTION_LABELS: Record<string, string> = {
 // List card
 // ------------------------------------------------------------------
 
+/**
+ * The three tallies a card shows: 💬 2  👍 18  👎 1.
+ *
+ * All three are always numbers. The votes come off the report document, where
+ * the vote route writes them, and the comment count is derived per request by
+ * GET /api/reports — so a report nobody has answered has all three at zero
+ * rather than some of them missing.
+ */
+export interface ReportCardFeedbackCounts {
+    commentCount: number;
+    agreeCount: number;
+    disagreeCount: number;
+}
+
 export interface ReportCardSummary {
     icon: ReturnType<typeof reportCategoryIcon>;
     /** The issue category, in the wording the picker offered it in. */
@@ -46,6 +61,11 @@ export interface ReportCardSummary {
     description: string;
     chips: ReportChip[];
     submittedLabel: string;
+    /**
+     * Community feedback on the report, as the list response carried it.
+     * Never fetched per card — see reportCardFeedbackCounts.
+     */
+    feedbackCounts: ReportCardFeedbackCounts;
     /**
      * What a screen reader announces for the whole card.
      *
@@ -92,14 +112,53 @@ export function reportCardSummary(
 
     const title = reportCategoryLabel(report.issueCategory);
 
+    // Everything the feedback row shows, all of it off the list response.
+    // Nothing is fetched for a card: the list is one request, and a lookup per
+    // row would make it as many requests as there are reports.
+    const feedbackCounts = reportCardFeedbackCounts(report);
+
+    const feedbackLabel =
+        `, ${formatCommentCount(feedbackCounts.commentCount)}` +
+        `, ${feedbackCounts.agreeCount} agree` +
+        `, ${feedbackCounts.disagreeCount} disagree`;
+
     return {
         icon: reportCategoryIcon(report.issueCategory),
         title,
         description: report.description,
         chips,
         submittedLabel: `Submitted ${formatReportDateTime(report.createdAt)}`,
-        accessibilityLabel: `View accessibility report: ${title}`,
+        feedbackCounts,
+        accessibilityLabel: `View accessibility report: ${title}${feedbackLabel}`,
     };
+}
+
+/**
+ * What the community has made of this report.
+ *
+ * Every count is read as a number or as zero, never as absent: the votes are
+ * stored on the report only once somebody has voted, and `commentCount` is
+ * attached by GET /api/reports rather than stored at all — so a card built from
+ * a report that predates either must still draw a row rather than a gap.
+ *
+ * Zero is a real answer here. It says nobody has agreed, disagreed or commented
+ * yet, which is exactly what a freshly filed report deserves to show.
+ */
+export function reportCardFeedbackCounts(
+    report: AccessibilityReport
+): ReportCardFeedbackCounts {
+    return {
+        commentCount: countOrZero(report.commentCount),
+        agreeCount: countOrZero(report.agreeCount),
+        disagreeCount: countOrZero(report.disagreeCount),
+    };
+}
+
+/** A stored tally, or zero for anything that is not a usable number. */
+function countOrZero(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.floor(value)
+        : 0;
 }
 
 /**

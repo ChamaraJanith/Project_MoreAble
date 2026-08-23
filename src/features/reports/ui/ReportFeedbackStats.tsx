@@ -2,27 +2,37 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { adminColors } from '../../admin/ui/adminTheme';
+import { ReportCardFeedbackCounts } from '../utils/reportSummary';
+
+interface ReportFeedbackStatsProps {
+    /** The three tallies, already resolved to numbers. Never fetched here. */
+    counts: ReportCardFeedbackCounts;
+}
 
 /**
- * The community feedback a report can carry, as three icons on the card.
+ * The community feedback a report has drawn, as three counted icons.
  *
- * No numbers beside them, on purpose. There is no backend for any of this yet —
- * MOV-145 and MOV-146 add the endpoints and the Firestore collections — and a
- * seeded count is a number a passenger would read as true. An icon says the
- * report can be commented on and voted on, which it can; "18 agree" would say
- * eighteen people agreed, which nobody did. The counts belong here once there
- * are real ones to show.
+ * All three numbers arrive with the list. The two vote tallies are stored on
+ * the report document — POST /api/reports/:reportId/vote writes them there —
+ * and the comment count is tallied for the whole page by GET /api/reports. So a
+ * list of thirty reports still costs the one request it always did: a per-card
+ * lookup would turn it into thirty round trips to draw three small numbers.
  *
- * Voting itself lives on the details screen, where there is the context to
- * decide. This row is a signpost to it, not a control.
+ * Zero is drawn rather than hidden. A row that showed a number only sometimes
+ * would leave a passenger comparing cards that count and cards that do not, and
+ * "no comments yet" is worth saying about a report as plainly as "two".
+ *
+ * Voting and commenting themselves live on the details screen, where there is
+ * the context to decide. This row is a signpost to it, not a control.
  *
  * Nothing here is its own touch target, for the same reason the card's chevron
  * is not: the card is a single button with a single accessibility label, and a
  * touchable inside it would be a smaller target for the same action while
- * making that label unreachable. With no counts to announce, the icons carry
- * nothing a screen reader loses by skipping them.
+ * making that label unreachable. The counts are announced as part of that one
+ * label, so this row stays hidden from screen readers rather than repeating
+ * them out of context.
  */
-export function ReportFeedbackStats() {
+export function ReportFeedbackStats({ counts }: ReportFeedbackStatsProps) {
     return (
         <View
             style={styles.row}
@@ -30,16 +40,22 @@ export function ReportFeedbackStats() {
             importantForAccessibility="no-hide-descendants"
         >
             <View style={styles.icons}>
-                <Ionicons
-                    name="chatbubble-outline"
-                    size={16}
-                    color={adminColors.textMuted}
-                />
-                <Ionicons name="thumbs-up-outline" size={16} color={adminColors.textMuted} />
-                <Ionicons name="thumbs-down-outline" size={16} color={adminColors.textMuted} />
+                <Stat icon="chatbubble-outline" count={counts.commentCount} />
+                <Stat icon="thumbs-up-outline" count={counts.agreeCount} />
+                <Stat icon="thumbs-down-outline" count={counts.disagreeCount} />
             </View>
 
             <Text style={styles.viewReport}>View Report</Text>
+        </View>
+    );
+}
+
+/** One icon and its number. */
+function Stat({ icon, count }: { icon: keyof typeof Ionicons.glyphMap; count: number }) {
+    return (
+        <View style={styles.stat}>
+            <Ionicons name={icon} size={16} color={adminColors.textMuted} />
+            <Text style={styles.count}>{count}</Text>
         </View>
     );
 }
@@ -55,6 +71,13 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     icons: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+    stat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    count: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: adminColors.textMuted,
+        fontVariant: ['tabular-nums'],
+    },
     viewReport: {
         fontSize: 12,
         fontWeight: '700',

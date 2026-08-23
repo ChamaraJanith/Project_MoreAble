@@ -1,72 +1,78 @@
 /**
- * Community feedback on a report — as data, not as JSX (MOV-144).
+ * Community feedback on a report — the wording, not the state.
  *
  * A report is one passenger's account; whether the ramp is actually broken is
  * something the people who ride that route answer together. They do it by
  * agreeing or disagreeing with the report, and by commenting on it.
  *
- * Nothing here invents any of it. There are no counts and no comments in this
- * module because there is nowhere yet to get real ones from: MOV-145 and
- * MOV-146 add the endpoints and the Firestore collections, and a stand-in
- * number in the meantime is not a placeholder to a passenger reading it — it is
- * a claim about how many people agreed. So the screen shows the controls and
- * the empty state, and says nothing it cannot support.
- *
- * What is left is the part that stays true once the API exists: which vote a
- * press produces, and what counts as a comment worth sending. It lives here
- * rather than inside the components because this project's Jest setup is
- * node-only with no React renderer, so a reducer is testable and a `useState`
- * call is not.
+ * Nothing here invents any of it, and now nothing here holds any of it either.
+ * MOV-144 kept a vote and a list of comments in the component and lost both on
+ * leaving the screen; MOV-145's endpoints are what they come from now, through
+ * reportFeedbackApi, with reportFeedbackState deciding what the section shows
+ * at each point. What is left in this module is presentation: how a count
+ * pluralises, what a screen reader is told, and what counts as a comment worth
+ * sending.
  */
 
+import {
+    MAX_REPORT_COMMENT_LENGTH,
+    ReportVoteChoice,
+} from '../../../entities/report/model/types';
 import { formatReportDateTime } from './reportFormat';
 
-/** Which way a passenger voted. `null` means they have not voted. */
-export type FeedbackVote = 'AGREE' | 'DISAGREE';
+/**
+ * Which way a passenger voted. `null` means they have not voted.
+ *
+ * An alias rather than a second list of the same two words: MOV-145's API
+ * refuses anything that is not one of them, so a vote this module could produce
+ * and that route would reject must not be expressible.
+ */
+export type FeedbackVote = ReportVoteChoice;
 
-export interface ReportComment {
-    commentId: string;
-    authorName: string;
-    text: string;
-    /** ISO 8601, so it formats through the same helper as every other date. */
-    createdAt: string;
-}
-
-/** Long enough to describe what was seen, short enough to stay a comment. */
-export const MAX_FEEDBACK_COMMENT_LENGTH = 300;
+/**
+ * Long enough to describe what was seen, short enough to stay a comment.
+ *
+ * Taken from the entity model, which is what POST
+ * /api/reports/:reportId/comments validates against — so the composer can never
+ * let a passenger type a comment the API would then refuse.
+ */
+export const MAX_FEEDBACK_COMMENT_LENGTH = MAX_REPORT_COMMENT_LENGTH;
 
 // ------------------------------------------------------------------
 // Votes
 // ------------------------------------------------------------------
 
-/**
- * The vote a press produces.
- *
- * Pressing the option already selected is a no-op rather than a second vote:
- * the passenger has one voice, and holding or double-tapping Agree must not
- * turn it into two. That is the rule MOV-145 has to keep when the tallies
- * become real and a press starts costing a request.
- */
-export function applyVote(
-    selected: FeedbackVote | null,
-    choice: FeedbackVote
-): FeedbackVote | null {
-    if (selected === choice) return selected;
-
-    return choice;
+/** "1 vote" / "6 votes" — the tally beside one side, pluralised. */
+export function formatVoteCount(count: number): string {
+    return count + ' vote' + (count === 1 ? '' : 's');
 }
 
 /**
  * What a screen reader announces for one vote button.
  *
- * Whether this is the passenger's own vote is spoken, because neither the tint
- * nor the tick that carry it visually is readable. No count is announced for
- * the same reason none is drawn: there is no real one to give.
+ * The count is spoken now that there is a real one to speak: it is drawn on the
+ * pill, and a number that is only visible is a number half the people using
+ * this screen do not get. Whether this is the passenger's own vote is spoken
+ * for the same reason — neither the tint nor the tick that carry it visually is
+ * readable.
+ *
+ * `count` is null while the tallies are still loading or failed to load, and
+ * then nothing is announced rather than a zero standing in for a number that is
+ * simply not known yet.
  */
-export function voteAccessibilityLabel(choice: FeedbackVote, isSelected: boolean): string {
+export function voteAccessibilityLabel(
+    choice: FeedbackVote,
+    isSelected: boolean,
+    count: number | null = null
+): string {
     const action = choice === 'AGREE' ? 'Agree' : 'Disagree';
 
-    return action + ' with this report' + (isSelected ? ', your vote' : '');
+    const parts = [action + ' with this report'];
+
+    if (count !== null) parts.push(formatVoteCount(count));
+    if (isSelected) parts.push('your vote');
+
+    return parts.join(', ');
 }
 
 // ------------------------------------------------------------------
@@ -85,32 +91,11 @@ export function isSubmittableComment(draft: string): boolean {
     return trimmed.length > 0 && trimmed.length <= MAX_FEEDBACK_COMMENT_LENGTH;
 }
 
-/**
- * The comment list with a newly written comment on it, newest first.
- *
- * Returns the list untouched when there is nothing submittable to add, so the
- * caller can send unconditionally and let one rule decide what counts.
- */
-export function addLocalComment(
-    comments: ReportComment[],
-    draft: string,
-    authorName: string,
-    createdAt: string
-): ReportComment[] {
-    if (!isSubmittableComment(draft)) return comments;
-
-    // Local-only ids, and never a report id: these exist to key a list until
-    // MOV-146 hands back real ones. The list only ever grows, so the count is
-    // enough to keep them apart.
-    const comment: ReportComment = {
-        commentId: 'local-' + (comments.length + 1),
-        authorName: authorName.trim() || 'You',
-        text: draft.trim(),
-        createdAt,
-    };
-
-    return [comment, ...comments];
-}
+// A comment written here used to be assembled locally, with a `local-N` id and
+// "You" where a name should be, because there was nowhere to send it. It is
+// posted now, and what goes on the list is the record POST
+// /api/reports/:reportId/comments returns — see mergeSubmittedComment in
+// reportFeedbackState.
 
 /** The letter shown in a comment's avatar circle. */
 export function commentInitial(authorName: string): string {
