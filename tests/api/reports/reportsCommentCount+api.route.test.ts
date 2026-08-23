@@ -161,6 +161,24 @@ describe('GET /api/reports - commentCount', () => {
         expect(byId['REP-00001'].commentCount).toBe(0);
     });
 
+    it('ignores a comment document with no report on it', async () => {
+        mockGetAdminDb.mockReturnValue(
+            createFakeFirestore({
+                reports: [storedReport('REP-00001')],
+                comments: [
+                    storedComment('CMT-00001', 'REP-00001'),
+                    // A record written by some earlier path, or half-written.
+                    // It counts towards nothing rather than towards everything.
+                    { id: 'CMT-00002', commentId: 'CMT-00002', text: 'Orphaned.' },
+                ],
+            })
+        );
+
+        const { byId } = await listed(await listReports(listRequest()));
+
+        expect(byId['REP-00001'].commentCount).toBe(1);
+    });
+
     it('is on every report of a filtered scope too', async () => {
         mockGetAdminDb.mockReturnValue(
             createFakeFirestore({

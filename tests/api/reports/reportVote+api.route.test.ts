@@ -33,6 +33,8 @@ jest.mock('../../../src/shared/config/jwt', () => ({
 // Fixtures
 // ------------------------------------------------------------------
 const REPORT_ID = 'REP-00007';
+/** A second report, so a vote can be shown not to reach the one next door. */
+const OTHER_REPORT_ID = 'REP-00008';
 const FILED_AT = new Date('2026-08-20T14:05:00.000Z');
 
 /** Six passengers, which is one more than the admin review threshold needs. */
@@ -260,6 +262,42 @@ describe('POST /api/reports/[reportId]/vote', () => {
         expect(votes[0].vote).toBe('DISAGREE');
     });
 
+    it('moves a vote back the other way just as readily', async () => {
+        const db = firestoreWith();
+        mockGetAdminDb.mockReturnValue(db);
+
+        // The mirror of the case above. Both directions are the same write, but
+        // "changed their mind" is not a one-way trip and the tallies have to
+        // follow it back.
+        await vote(PASSENGERS[1], 'DISAGREE');
+        const { body } = await vote(PASSENGERS[1], 'AGREE');
+
+        expect(body.vote).toBe('AGREE');
+        expect(body.agreeCount).toBe(1);
+        expect(body.disagreeCount).toBe(0);
+
+        const votes = await storedVotes(db);
+
+        expect(votes).toHaveLength(1);
+        expect(votes[0].vote).toBe('AGREE');
+    });
+
+    it('survives a passenger changing their mind repeatedly', async () => {
+        const db = firestoreWith();
+        mockGetAdminDb.mockReturnValue(db);
+
+        await vote(PASSENGERS[1], 'AGREE');
+        await vote(PASSENGERS[1], 'DISAGREE');
+        await vote(PASSENGERS[1], 'AGREE');
+        const { body } = await vote(PASSENGERS[1], 'DISAGREE');
+
+        // One passenger, one document, one voice — however many times they
+        // pressed.
+        expect(await storedVotes(db)).toHaveLength(1);
+        expect(body.agreeCount).toBe(0);
+        expect(body.disagreeCount).toBe(1);
+    });
+
     it('keeps the original createdAt when a vote is changed', async () => {
         const db = firestoreWith();
         mockGetAdminDb.mockReturnValue(db);
@@ -321,6 +359,75 @@ describe('POST /api/reports/[reportId]/vote', () => {
 
         expect(report.agreeCount).toBe(1);
         expect(report.disagreeCount).toBe(1);
+    });
+
+    it('leaves everything else on the report exactly as it was', async () => {
+        const db = firestoreWith();
+        mockGetAdminDb.mockReturnValue(db);
+
+        await vote(PASSENGERS[1], 'AGREE');
+
+        const report = await storedReportDoc(db);
+
+        // Voting writes tallies and a review flag. It is not an edit: what the
+        // passenger reported, who filed it and when must come through a vote
+        // untouched.
+        expect(report).toMatchObject({
+            reportId: REPORT_ID,
+            passengerId: AUTHOR,
+            issueCategory: 'BROKEN_RAMP',
+            description: 'The wheelchair ramp would not fold down at Pettah station.',
+            status: 'PENDING',
+        });
+        expect(report.createdAt).toEqual(FILED_AT);
+    });
+
+    it('keeps each report\'s votes to itself', async () => {
+        const db = createFakeFirestore({
+            reports: [storedReport(), storedReport({ id: OTHER_REPORT_ID, reportId: OTHER_REPORT_ID })],
+            votes: [],
+        });
+
+        mockGetAdminDb.mockReturnValue(db);
+
+        await vote(PASSENGERS[1], 'AGREE');
+        await vote(PASSENGERS[2], 'AGREE');
+
+        // The same passengers, a different report: its tally starts from
+        // nothing rather than inheriting the one next door.
+        const { body } = await vote(PASSENGERS[1], 'DISAGREE', OTHER_REPORT_ID);
+
+        expect(body.agreeCount).toBe(0);
+        expect(body.disagreeCount).toBe(1);
+
+        const first = await storedReportDoc(db);
+
+        expect(first.agreeCount).toBe(2);
+        expect(first.disagreeCount).toBe(0);
+
+        // One document per passenger per report: two on the first, one on the
+        // second.
+        expect(await storedVotes(db)).toHaveLength(3);
+    });
+
+    it('lets one passenger hold a different vote on each report', async () => {
+        const db = createFakeFirestore({
+            reports: [storedReport(), storedReport({ id: OTHER_REPORT_ID, reportId: OTHER_REPORT_ID })],
+            votes: [],
+        });
+
+        mockGetAdminDb.mockReturnValue(db);
+
+        await vote(PASSENGERS[1], 'AGREE');
+        await vote(PASSENGERS[1], 'DISAGREE', OTHER_REPORT_ID);
+
+        const votes = await storedVotes(db);
+        const byReport = Object.fromEntries(
+            votes.map((entry: any) => [entry.reportId, entry.vote])
+        );
+
+        expect(byReport[REPORT_ID]).toBe('AGREE');
+        expect(byReport[OTHER_REPORT_ID]).toBe('DISAGREE');
     });
 });
 
