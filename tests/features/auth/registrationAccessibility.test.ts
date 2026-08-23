@@ -93,4 +93,111 @@ describe('Registration Accessibility Needs DTO, User model & AccessibilityProfil
         expect(profile.passengerId).toBe('PAS-2026-00001');
         expect(profile.accessibilityNeeds).toEqual(['wheelchair', 'low_vision']);
     });
+
+    describe('getProfileCompletionPercentage & isAccessibilityProfileVerified Matrix', () => {
+        const { getProfileCompletionPercentage, isAccessibilityProfileVerified } = require('../../../src/shared/utils/profileUtils');
+
+        it('should indicate 50% for elderly users with no guardian and unverified accessibility', () => {
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: false,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: false,
+            })).toBe(50);
+        });
+
+        it('should indicate 60% for elderly users with no guardian and verified accessibility', () => {
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: false,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: true,
+            })).toBe(60);
+
+            // Elderly without accessibility needs & no guardian
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: false,
+                hasAccessibilityNeeds: false,
+            })).toBe(60);
+        });
+
+        it('should indicate 80% for elderly users with guardian registered but unverified accessibility', () => {
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: true,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: false,
+            })).toBe(80);
+        });
+
+        it('should indicate 100% for elderly users with guardian registered and verified accessibility', () => {
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: true,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: true,
+            })).toBe(100);
+
+            // Elderly without accessibility needs & guardian registered
+            expect(getProfileCompletionPercentage({
+                isElderly: true,
+                isGuardianCompleted: true,
+                hasAccessibilityNeeds: false,
+            })).toBe(100);
+        });
+
+        it('should indicate 50% for non-elderly users with accessibility needs, no guardian and unverified', () => {
+            const user = {
+                isElderly: false,
+                isGuardianCompleted: false,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: false,
+            };
+            expect(getProfileCompletionPercentage(user)).toBe(50);
+            expect(isAccessibilityProfileVerified(user)).toBe(false);
+        });
+
+        it('should indicate 60% for non-elderly users with accessibility needs, no guardian but verified', () => {
+            const user = {
+                isElderly: false,
+                isGuardianCompleted: false,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: true,
+            };
+            expect(getProfileCompletionPercentage(user)).toBe(60);
+            expect(isAccessibilityProfileVerified(user)).toBe(true);
+        });
+
+        it('should indicate 90% for non-elderly users with accessibility needs, guardian registered but unverified', () => {
+            const user = {
+                isElderly: false,
+                isGuardianCompleted: true,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: false,
+            };
+            expect(getProfileCompletionPercentage(user)).toBe(90);
+            expect(isAccessibilityProfileVerified(user)).toBe(false);
+        });
+
+        it('should indicate 100% for non-elderly users with accessibility needs, guardian registered and verified', () => {
+            const user = {
+                isElderly: false,
+                isGuardianCompleted: true,
+                hasAccessibilityNeeds: true,
+                isAccessibilityVerified: true,
+            };
+            expect(getProfileCompletionPercentage(user)).toBe(100);
+            expect(isAccessibilityProfileVerified(user)).toBe(true);
+        });
+
+        it('should indicate 100% for standard non-elderly users without accessibility needs', () => {
+            const standardUser = {
+                isElderly: false,
+                hasAccessibilityNeeds: false,
+            };
+            expect(getProfileCompletionPercentage(standardUser)).toBe(100);
+            expect(isAccessibilityProfileVerified(standardUser)).toBe(true);
+        });
+    });
 });
