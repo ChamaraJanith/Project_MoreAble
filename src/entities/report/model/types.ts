@@ -35,7 +35,31 @@ export function isReportIssueCategory(value: unknown): value is ReportIssueCateg
     );
 }
 
-export type ReportStatus = 'PENDING' | 'VERIFIED' | 'REJECTED' | 'REVIEWED' | 'RESOLVED';
+/**
+ * Every state a report can be stored in.
+ *
+ * Listed as values rather than as a bare union because the API has to validate
+ * an incoming `?status=` filter against the same set the type describes — a
+ * union alone exists only at compile time and can check nothing at request
+ * time.
+ */
+export const REPORT_STATUSES = [
+    'PENDING',
+    'VERIFIED',
+    'REJECTED',
+    'REVIEWED',
+    'RESOLVED',
+] as const;
+
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+/** Whether an arbitrary value is a status a report may be filtered by. */
+export function isReportStatus(value: unknown): value is ReportStatus {
+    return (
+        typeof value === 'string' &&
+        (REPORT_STATUSES as readonly string[]).includes(value)
+    );
+}
 
 /** Enough evidence to describe an issue without making the form unwieldy. */
 export const MAX_REPORT_PHOTOS = 5;
@@ -112,6 +136,29 @@ export interface AccessibilityReport {
 
     /** When the flag was last raised. Absent while the report is unflagged. */
     adminReviewFlaggedAt?: string;
+
+    // ------------------------------------------------------------------
+    // Admin review (MOV-161).
+    //
+    // Written only by POST /api/reports/:reportId/review, and only for an
+    // ADMIN session. All three are absent until an admin has actually looked
+    // at the report, which is what tells a reviewed report apart from one that
+    // merely sits at PENDING.
+    // ------------------------------------------------------------------
+
+    /** The admin account that decided the report. Their `uid`, not a name. */
+    reviewedBy?: string;
+
+    /** ISO 8601, stamped by the server when the decision was recorded. */
+    reviewedAt?: string;
+
+    /**
+     * What the admin wrote about the report.
+     *
+     * Kept apart from the community's comments: a remark is the outcome of the
+     * review, not another voice in the thread.
+     */
+    adminRemark?: string;
 }
 
 /** What the bus looked like when the report was filed. */
@@ -253,4 +300,64 @@ export interface ReportVoteSummary {
     myVote: ReportVoteChoice | null;
     agreeCount: number;
     disagreeCount: number;
+}
+
+// ==================================================================
+// Admin review (MOV-161)
+//
+// A report is decided by an action rather than by a status sent from the
+// client. The two are not the same thing: a status field would let any caller
+// name any state — including one no admin flow can reach — while an action is a
+// closed list of the decisions an admin is actually allowed to make, and the
+// status it produces is chosen here rather than accepted from a request.
+// ==================================================================
+
+/** Every decision an admin can record against a report. */
+export const REPORT_REVIEW_ACTIONS = ['VERIFY', 'REJECT', 'REMARK'] as const;
+
+export type ReportReviewAction = (typeof REPORT_REVIEW_ACTIONS)[number];
+
+/** Whether an arbitrary value is a review action the API will accept. */
+export function isReportReviewAction(value: unknown): value is ReportReviewAction {
+    return (
+        typeof value === 'string' &&
+        (REPORT_REVIEW_ACTIONS as readonly string[]).includes(value)
+    );
+}
+
+/**
+ * The status each decision moves the report to.
+ *
+ * REMARK maps to null on purpose: saving a remark is not a decision, so it
+ * leaves the report exactly where it stood.
+ */
+export const REPORT_REVIEW_ACTION_STATUS: Record<ReportReviewAction, ReportStatus | null> = {
+    VERIFY: 'VERIFIED',
+    REJECT: 'REJECTED',
+    REMARK: null,
+};
+
+/**
+ * The status a report must be in before an admin can decide it.
+ *
+ * A report that has already been verified or rejected is not re-decided
+ * through this route: the review is a record of what was found, and quietly
+ * overwriting it would erase who found it and when.
+ */
+export const REPORT_REVIEW_REQUIRED_STATUS: ReportStatus = 'PENDING';
+
+/**
+ * Long enough for a finding, short enough to stay a remark.
+ *
+ * Enforced by the API, and the number an admin composer should cap typing at
+ * so it can never send something the route will refuse.
+ */
+export const MAX_ADMIN_REMARK_LENGTH = 500;
+
+/** The review as it stands on a report an admin has already decided. */
+export interface AdminReportReview {
+    status: ReportStatus | string | null;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+    adminRemark: string | null;
 }

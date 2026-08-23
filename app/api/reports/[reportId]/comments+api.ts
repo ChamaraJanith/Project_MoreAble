@@ -4,9 +4,9 @@ import {
   loadFeedbackContext,
   nextReportCommentId,
   normalizeReportComment,
+  readReportComments,
   resolveCommentAuthorName,
   serializeReportComment,
-  toIsoString,
 } from '../../../../src/shared/server/reportFeedback';
 
 const corsHeaders = feedbackCorsHeaders;
@@ -16,13 +16,6 @@ export async function OPTIONS() {
     status: 204,
     headers: corsHeaders,
   });
-}
-
-/** A comment's createdAt as a sortable number; an unreadable one sorts last. */
-function sortableTime(value: unknown): number {
-  const time = new Date(toIsoString(value)).getTime();
-
-  return Number.isNaN(time) ? -Infinity : time;
 }
 
 // POST /api/reports/:reportId/comments
@@ -113,22 +106,10 @@ export async function GET(request: Request, context: any) {
 
     const { adminDb, reportId } = loaded.value;
 
-    // The filter alone goes to Firestore. An equality filter combined with
-    // orderBy on a different field needs a composite index, and without one the
-    // query fails outright rather than coming back unordered — the same reason
-    // GET /api/reports sorts a filtered scope after the fact. The filter stays
-    // in the query, which is the part that must not be done here.
-    const snapshot = await adminDb
-      .collection(REPORT_COMMENTS_COLLECTION)
-      .where('reportId', '==', reportId)
-      .get();
-
-    const comments = snapshot.docs
-      .map((doc: any) => serializeReportComment(doc.data() ?? {}, doc.id))
-      .sort(
-        (first: any, second: any) =>
-          sortableTime(second.createdAt) - sortableTime(first.createdAt)
-      );
+    // Reading and ordering the thread lives in shared/server/reportFeedback, so
+    // that the admin review view (MOV-161) shows the same comments in the same
+    // order as the passengers arguing about the report.
+    const comments = await readReportComments(adminDb, reportId);
 
     return Response.json(
       {
