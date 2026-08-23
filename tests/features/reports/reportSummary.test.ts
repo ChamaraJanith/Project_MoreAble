@@ -8,12 +8,13 @@
 
 import { AccessibilityReport } from '../../../src/entities/report/model/types';
 import {
+    galleryColumnsForWidth,
+    hasBeenEdited,
     reportCardSummary,
     reportCardVisibleText,
     reportGalleryPhotos,
-    reportRouteRows,
+    reportJourneyEntries,
     reportTimelineRows,
-    reportVehicleRows,
 } from '../../../src/features/reports/utils/reportSummary';
 
 const REPORT_ID = 'REP-00007';
@@ -40,6 +41,16 @@ function report(overrides: Partial<AccessibilityReport> = {}): AccessibilityRepo
         photoUrls: PHOTOS,
         ...overrides,
     };
+}
+
+/** The bus half of the journey section. */
+function busEntry(input: AccessibilityReport) {
+    return reportJourneyEntries(input)[0];
+}
+
+/** The route half. */
+function routeEntry(input: AccessibilityReport) {
+    return reportJourneyEntries(input)[1];
 }
 
 // ==================================================================
@@ -119,51 +130,100 @@ describe('the report card', () => {
     });
 });
 
-// ==================================================================
-// The details screen
-// ==================================================================
-describe('the bus rows', () => {
-    it('shows every stored vehicle field', () => {
-        const rows = reportVehicleRows(report());
-
-        expect(rows.map((row) => row.value)).toEqual(['NB-1234', 'Rosa', 'Mitsubishi']);
-    });
-
-    it('shows only what the snapshot actually holds', () => {
-        const rows = reportVehicleRows(
-            report({ vehicle: { numberPlate: 'NB-1234' } })
+describe('what a screen reader announces for a card', () => {
+    it('says what tapping the card does, and which report it opens', () => {
+        // The whole card is one control, so it gets one label rather than a
+        // scattering of separately readable fragments.
+        expect(reportCardSummary(report()).accessibilityLabel).toBe(
+            'View accessibility report: Broken Wheelchair Ramp'
         );
-
-        expect(rows).toHaveLength(1);
     });
 
-    it('is empty for a report filed without a bus', () => {
-        // Which is a normal report: the passenger may not have known the
-        // vehicle. The screen shows "no bus details", not an error.
-        expect(reportVehicleRows(report({ busId: undefined, vehicle: undefined }))).toEqual([]);
+    it('names the issue the same way the card shows it', () => {
+        const summary = reportCardSummary(report({ issueCategory: 'BUS_OVERCROWDED' }));
+
+        expect(summary.accessibilityLabel).toContain(summary.title);
+    });
+
+    it('does not read out the report id', () => {
+        expect(reportCardSummary(report()).accessibilityLabel).not.toContain('REP-');
     });
 });
 
-describe('the route rows', () => {
-    it('shows every stored route field', () => {
-        const rows = reportRouteRows(report());
-
-        expect(rows.map((row) => row.value)).toEqual(['138', 'Colombo - Kandy', 'Outbound']);
+// ==================================================================
+// Journey details
+// ==================================================================
+describe('the journey section', () => {
+    it('always shows both halves of the journey', () => {
+        // A fixed shape: an absent bus is stated, not implied by a gap.
+        expect(reportJourneyEntries(report()).map((entry) => entry.label)).toEqual([
+            'Bus / Vehicle',
+            'Route',
+        ]);
     });
 
-    it('reads the direction as words', () => {
-        const rows = reportRouteRows(
-            report({ route: { routeNumber: '400', direction: 'RETURN' } })
-        );
-
-        expect(rows.map((row) => row.value)).toContain('Return');
+    it('leads the bus row with its number plate', () => {
+        expect(busEntry(report()).primary).toBe('NB-1234');
     });
 
-    it('is empty for a report filed without a route', () => {
-        expect(reportRouteRows(report({ routeId: undefined, route: undefined }))).toEqual([]);
+    it('puts the model and manufacturer underneath', () => {
+        expect(busEntry(report()).secondary).toBe('Rosa · Mitsubishi');
+    });
+
+    it('shows only what the vehicle snapshot actually holds', () => {
+        const entry = busEntry(report({ vehicle: { numberPlate: 'NB-1234' } }));
+
+        expect(entry.primary).toBe('NB-1234');
+        expect(entry.secondary).toBeUndefined();
+    });
+
+    it('reads the route as its number and name together', () => {
+        expect(routeEntry(report()).primary).toBe('138 · Colombo - Kandy');
+    });
+
+    it('puts the direction underneath, in words', () => {
+        expect(routeEntry(report()).secondary).toBe('Outbound');
+        expect(
+            routeEntry(report({ route: { routeNumber: '400', direction: 'RETURN' } })).secondary
+        ).toBe('Return');
+    });
+
+    it('shows the route number alone when the snapshot has no name', () => {
+        expect(routeEntry(report({ route: { routeNumber: '138' } })).primary).toBe('138');
+    });
+
+    it('falls back to the raw ids when the snapshots are missing', () => {
+        const bare = report({ vehicle: undefined, route: undefined });
+
+        expect(busEntry(bare).primary).toBe('BUS-00007');
+        expect(routeEntry(bare).primary).toBe('R-138-OUT');
+    });
+
+    it('has no value at all for a journey half that was never recorded', () => {
+        // Which the screen renders as "Not provided" — a normal report, since
+        // the passenger may not have known the vehicle.
+        const noBus = report({ busId: undefined, vehicle: undefined });
+
+        expect(busEntry(noBus).primary).toBeNull();
+        expect(routeEntry(noBus).primary).not.toBeNull();
+    });
+
+    it('still lists both rows when neither was recorded', () => {
+        const neither = report({
+            busId: undefined,
+            vehicle: undefined,
+            routeId: undefined,
+            route: undefined,
+        });
+
+        expect(reportJourneyEntries(neither)).toHaveLength(2);
+        expect(reportJourneyEntries(neither).every((entry) => entry.primary === null)).toBe(true);
     });
 });
 
+// ==================================================================
+// Timeline
+// ==================================================================
 describe('the timeline rows', () => {
     it('always says when the report was submitted', () => {
         const rows = reportTimelineRows(report());
@@ -180,9 +240,21 @@ describe('the timeline rows', () => {
     it('does not report an edit that never happened', () => {
         // On an untouched report the two timestamps are the same moment, and
         // showing it twice reads as an event.
-        const rows = reportTimelineRows(report());
+        expect(reportTimelineRows(report()).some((row) => row.label === 'Last Updated')).toBe(
+            false
+        );
+    });
+});
 
-        expect(rows.some((row) => row.label === 'Last Updated')).toBe(false);
+describe('whether a report has been edited', () => {
+    it('is false on a report nobody has touched', () => {
+        // Which is what keeps the timeline section off the screen entirely:
+        // the hero already says when the report was submitted.
+        expect(hasBeenEdited(report())).toBe(false);
+    });
+
+    it('is true once the two timestamps differ', () => {
+        expect(hasBeenEdited(report({ updatedAt: '2026-08-22T09:30:00.000Z' }))).toBe(true);
     });
 });
 
@@ -225,6 +297,25 @@ describe('the photo gallery', () => {
     it('serves the stored Cloudinary URLs untouched', () => {
         reportGalleryPhotos(report()).forEach((photo) => {
             expect(photo.url.startsWith('https://res.cloudinary.com/')).toBe(true);
+        });
+    });
+});
+
+describe('how wide the gallery grid is', () => {
+    it('uses three columns on an ordinary phone', () => {
+        expect(galleryColumnsForWidth(390)).toBe(3);
+        expect(galleryColumnsForWidth(412)).toBe(3);
+    });
+
+    it('drops to two on a narrow screen', () => {
+        // Three tiles across a 320pt phone are too small to make out what the
+        // photo shows, which is the whole point of the grid.
+        expect(galleryColumnsForWidth(320)).toBe(2);
+    });
+
+    it('never asks for fewer than two', () => {
+        [280, 320, 360, 390, 430, 768].forEach((width) => {
+            expect(galleryColumnsForWidth(width)).toBeGreaterThanOrEqual(2);
         });
     });
 });

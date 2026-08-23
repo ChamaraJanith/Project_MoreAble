@@ -2,10 +2,10 @@
  * What a report actually puts on screen — as data, not as JSX.
  *
  * The list card and the details screen both read a report and decide what to
- * show of it: which chips a card carries, which vehicle lines exist, whether
- * there are photos. Deriving that here rather than inside the components is
- * what lets it be tested at all, since this project's Jest setup is node-only
- * with no React renderer.
+ * show of it: which chips a card carries, whether a bus was named at all,
+ * whether there are photos. Deriving that here rather than inside the
+ * components is what lets it be tested at all, since this project's Jest setup
+ * is node-only with no React renderer.
  *
  * It also makes one rule checkable rather than merely intended: the report id
  * is used for navigation, update and delete, and never appears in anything
@@ -30,23 +30,6 @@ export interface ReportChip {
     highlighted?: boolean;
 }
 
-/** The icons the details screen's rows use. */
-export type ReportDetailIcon =
-    | 'bus-outline'
-    | 'car-outline'
-    | 'business-outline'
-    | 'git-branch-outline'
-    | 'map-outline'
-    | 'navigate-outline'
-    | 'calendar-outline'
-    | 'refresh-outline';
-
-export interface ReportDetailRow {
-    icon: ReportDetailIcon;
-    label: string;
-    value: string;
-}
-
 const DIRECTION_LABELS: Record<string, string> = {
     OUTBOUND: 'Outbound',
     RETURN: 'Return',
@@ -63,6 +46,13 @@ export interface ReportCardSummary {
     description: string;
     chips: ReportChip[];
     submittedLabel: string;
+    /**
+     * What a screen reader announces for the whole card.
+     *
+     * The card is one control — tapping anywhere on it opens the report — so
+     * it needs one label rather than a heap of separate readable fragments.
+     */
+    accessibilityLabel: string;
 }
 
 /**
@@ -100,17 +90,21 @@ export function reportCardSummary(
         chips.push({ icon: 'person-circle-outline', label: 'Your report', highlighted: true });
     }
 
+    const title = reportCategoryLabel(report.issueCategory);
+
     return {
         icon: reportCategoryIcon(report.issueCategory),
-        title: reportCategoryLabel(report.issueCategory),
+        title,
         description: report.description,
         chips,
         submittedLabel: `Submitted ${formatReportDateTime(report.createdAt)}`,
+        accessibilityLabel: `View accessibility report: ${title}`,
     };
 }
 
 /**
- * Every string the card renders.
+ * Every string the card puts in front of a passenger, on screen or through a
+ * screen reader.
  *
  * Exists for the assertion that the report id is not among them — a check worth
  * having as code, because putting it back is a one-line change.
@@ -120,77 +114,91 @@ export function reportCardVisibleText(summary: ReportCardSummary): string[] {
         summary.title,
         summary.description,
         summary.submittedLabel,
+        summary.accessibilityLabel,
         ...summary.chips.map((chip) => chip.label),
     ];
 }
 
 // ------------------------------------------------------------------
-// Details screen
+// Journey details
 // ------------------------------------------------------------------
 
-/**
- * The bus lines, or none at all.
- *
- * A report filed without a bus is a normal report — the passenger may not have
- * known which vehicle it was — so an empty list here means the screen shows
- * "No bus details", not that something is missing.
- */
-export function reportVehicleRows(report: AccessibilityReport): ReportDetailRow[] {
-    const rows: ReportDetailRow[] = [];
-    const numberPlate = report.vehicle?.numberPlate ?? report.busId;
+export type ReportJourneyIcon = 'bus-outline' | 'git-branch-outline';
 
-    if (numberPlate) {
-        rows.push({ icon: 'bus-outline', label: 'Number Plate', value: numberPlate });
-    }
-
-    if (report.vehicle?.busModel) {
-        rows.push({ icon: 'car-outline', label: 'Model', value: report.vehicle.busModel });
-    }
-
-    if (report.vehicle?.manufacturer) {
-        rows.push({
-            icon: 'business-outline',
-            label: 'Manufacturer',
-            value: report.vehicle.manufacturer,
-        });
-    }
-
-    return rows;
+export interface ReportJourneyEntry {
+    icon: ReportJourneyIcon;
+    label: string;
+    /**
+     * The headline value, or null when the report was filed without this half
+     * of the journey — which is a normal report, not a broken one, so the
+     * screen says "Not provided" rather than leaving a gap.
+     */
+    primary: string | null;
+    /** Supporting line, present only where the snapshot holds more. */
+    secondary?: string;
 }
 
-/** The route lines, by the same rules as the bus. */
-export function reportRouteRows(report: AccessibilityReport): ReportDetailRow[] {
-    const rows: ReportDetailRow[] = [];
-    const routeNumber = report.route?.routeNumber ?? report.routeId;
+/**
+ * The bus and the route, always both, in the order the form asks for them.
+ *
+ * Returned as a fixed pair rather than "whatever was filled in" so the details
+ * screen shows a stable shape: a report without a bus reads as a report whose
+ * bus was not recorded, which is what it is.
+ */
+export function reportJourneyEntries(report: AccessibilityReport): ReportJourneyEntry[] {
+    const numberPlate = report.vehicle?.numberPlate ?? report.busId ?? null;
+    const busDetail = [report.vehicle?.busModel, report.vehicle?.manufacturer]
+        .filter(Boolean)
+        .join(' · ');
 
-    if (routeNumber) {
-        rows.push({ icon: 'git-branch-outline', label: 'Route Number', value: routeNumber });
-    }
+    const routeNumber = report.route?.routeNumber;
+    const routeName = report.route?.routeName;
 
-    if (report.route?.routeName) {
-        rows.push({ icon: 'map-outline', label: 'Route Name', value: report.route.routeName });
-    }
+    const routePrimary = routeNumber
+        ? [routeNumber, routeName].filter(Boolean).join(' · ')
+        : (report.routeId ?? null);
 
-    if (report.route?.direction) {
-        rows.push({
-            icon: 'navigate-outline',
-            label: 'Direction',
-            value: DIRECTION_LABELS[report.route.direction] ?? report.route.direction,
-        });
-    }
+    const direction = report.route?.direction;
 
-    return rows;
+    return [
+        {
+            icon: 'bus-outline',
+            label: 'Bus / Vehicle',
+            primary: numberPlate,
+            ...(busDetail ? { secondary: busDetail } : {}),
+        },
+        {
+            icon: 'git-branch-outline',
+            label: 'Route',
+            primary: routePrimary,
+            ...(direction
+                ? { secondary: DIRECTION_LABELS[direction] ?? direction }
+                : {}),
+        },
+    ];
+}
+
+// ------------------------------------------------------------------
+// Timeline
+// ------------------------------------------------------------------
+
+export type ReportTimelineIcon = 'calendar-outline' | 'refresh-outline';
+
+export interface ReportTimelineRow {
+    icon: ReportTimelineIcon;
+    label: string;
+    value: string;
 }
 
 /**
  * When the report was filed, and when it was last changed.
  *
- * The second line appears only once the two differ: on a report nobody has
+ * The second row appears only once the two differ: on a report nobody has
  * edited they are the same moment, and showing it twice reads as an event that
  * did not happen.
  */
-export function reportTimelineRows(report: AccessibilityReport): ReportDetailRow[] {
-    const rows: ReportDetailRow[] = [
+export function reportTimelineRows(report: AccessibilityReport): ReportTimelineRow[] {
+    const rows: ReportTimelineRow[] = [
         {
             icon: 'calendar-outline',
             label: 'Submitted',
@@ -207,6 +215,11 @@ export function reportTimelineRows(report: AccessibilityReport): ReportDetailRow
     }
 
     return rows;
+}
+
+/** Whether the report has been edited since it was filed. */
+export function hasBeenEdited(report: AccessibilityReport): boolean {
+    return !!report.updatedAt && report.updatedAt !== report.createdAt;
 }
 
 // ------------------------------------------------------------------
@@ -237,4 +250,14 @@ export function reportGalleryPhotos(report: AccessibilityReport): ReportGalleryP
         total: urls.length,
         accessibilityLabel: `Photo evidence ${index + 1} of ${urls.length}. Tap to view full screen.`,
     }));
+}
+
+/**
+ * How many columns the gallery grid uses at this width.
+ *
+ * Three on an ordinary phone, two on a narrow one, where three tiles would each
+ * be too small to make out what the photo shows.
+ */
+export function galleryColumnsForWidth(width: number): number {
+    return width >= 360 ? 3 : 2;
 }
