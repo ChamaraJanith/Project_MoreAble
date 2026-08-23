@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import {
     ActivityIndicator,
     Linking,
@@ -9,45 +9,26 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { runPublishCycle } from '../utils/locationPublishCycle';
-import {
-    PhoneLocationAction,
-    PhoneLocationState,
-    describePhoneLocationState,
-    initialPhoneLocationState,
-    isLocationRequestInFlight,
-} from '../utils/phoneLocationState';
+import { PhoneLocationAction } from '../utils/phoneLocationState';
+import { describeTrackingCard } from '../utils/trackingCardView';
+import { usePhoneLocationTracking } from './usePhoneLocationTracking';
 
 /**
- * Location sharing status on the vehicle dashboard (MOV-264).
+ * Location sharing on the vehicle dashboard (MOV-264, MOV-268).
  *
- * A deliberately thin shell: every decision about what to say and which button
- * to offer lives in `phoneLocationState`, which is covered by tests. This holds
- * the state and renders the result.
+ * A deliberately thin shell. Every decision about what to say and which button
+ * to offer lives in `trackingCardView`, which is covered by tests; the loop
+ * behind it lives in `locationTracker` (MOV-267). This renders the result and
+ * forwards presses.
  *
- * Nothing runs on mount or on focus. The driver presses a button, so opening
- * the dashboard never sets off a permission prompt or a network request by
- * itself — and nothing here repeats on a timer. The periodic loop exists
- * (`locationTracker`, via `usePhoneLocationTracking`) but this card does not
- * start it: turning tracking on from the dashboard is MOV-268.
- *
- * One press does the whole manual flow: read the phone's position, look up the
- * signed-in bus, and send the reading to that bus's location endpoint.
+ * Nothing starts on mount or on focus. Tracking begins only when the driver
+ * presses the button, so opening the dashboard never sets off a permission
+ * prompt or a network request by itself. There is no timer here — the periodic
+ * publishing, and the retrying after a failure, both belong to the tracker.
  */
 export function LocationStatusCard() {
-    const [state, setState] = useState<PhoneLocationState>(initialPhoneLocationState);
-
-    const requestLocation = useCallback(async () => {
-        // One attempt at a time, covering both halves. Without this a second
-        // press would start another permission prompt on top of the first, or
-        // send the same position twice.
-        if (isLocationRequestInFlight(state)) return;
-
-        // Read the phone's position, look up the signed-in bus, publish to it.
-        // The sequence lives in `locationPublishCycle` because MOV-267 repeats
-        // exactly this on a timer, and two copies of it would drift apart.
-        await runPublishCycle(setState);
-    }, [state]);
+    const { state, isTracking, startTracking, stopTracking, publishOnce } =
+        usePhoneLocationTracking();
 
     const openSettings = useCallback(async () => {
         try {
@@ -61,20 +42,35 @@ export function LocationStatusCard() {
 
     const runAction = useCallback(
         (action: PhoneLocationAction) => {
-            if (action.kind === 'OPEN_SETTINGS') {
-                openSettings();
-                return;
+            switch (action.kind) {
+                case 'START_TRACKING':
+                    // Pressing again while it is already on does nothing: the
+                    // tracker itself refuses a second loop.
+                    startTracking();
+                    return;
+                case 'STOP_TRACKING':
+                    // Safe to press repeatedly; stopping something already
+                    // stopped is a no-op.
+                    stopTracking();
+                    return;
+                case 'OPEN_SETTINGS':
+                    openSettings();
+                    return;
+                case 'SIGN_IN':
+                    router.replace('/(auth)/device-login' as any);
+                    return;
+                default:
+                    // 'REQUEST' — one reading, published once. Offered only as
+                    // recovery from a failure while tracking is off, so it must
+                    // stay a single attempt rather than quietly turning
+                    // continuous sharing on behind the driver's back.
+                    publishOnce();
             }
-            if (action.kind === 'SIGN_IN') {
-                router.replace('/(auth)/device-login' as any);
-                return;
-            }
-            requestLocation();
         },
-        [openSettings, requestLocation]
+        [openSettings, publishOnce, startTracking, stopTracking]
     );
 
-    const view = describePhoneLocationState(state);
+    const view = describeTrackingCard(state, isTracking);
     const toneStyles = TONE_STYLES[view.tone];
 
     return (
@@ -88,14 +84,21 @@ export function LocationStatusCard() {
                     )}
                 </View>
 
-                <View style={styles.headingTextGroup}>
+                {/* Announced as one phrase when it changes, so a driver using a
+                    screen reader hears the new state without hunting for it. */}
+                <View
+                    style={styles.headingTextGroup}
+                    accessible
+                    accessibilityRole="text"
+                    accessibilityLiveRegion="polite"
+                    accessibilityLabel={`${view.title}. ${view.description}`}
+                >
                     <Text style={[styles.title, toneStyles.title]}>{view.title}</Text>
                     <Text style={styles.description}>{view.description}</Text>
                 </View>
             </View>
 
-            {/* The coordinates are shown so the driver can see the phone really
-                did get a fix. Nothing is sent anywhere yet. */}
+            {/* Shown so the driver can see the phone really did get a fix. */}
             {(state.status === 'AVAILABLE' || state.status === 'PUBLISHED') && state.location && (
                 <View
                     style={styles.readingRow}
@@ -107,14 +110,54 @@ export function LocationStatusCard() {
                 </View>
             )}
 
+            {/* The tracking control comes first: it is the one thing on this
+                card a driver presses as part of their shift. It is never
+                disabled while a round is in flight — turning sharing off has to
+                work at any moment, and a button that greys out every thirty
+                seconds would be worse than useless. */}
+            {!!view.trackingAction && (
+                <TouchableOpacity
+                    style={[
+                        styles.primaryButton,
+                        view.trackingAction.kind === 'STOP_TRACKING' && styles.stopButton,
+                    ]}
+                    onPress={() => runAction(view.trackingAction!)}
+                    accessibilityRole="button"
+                    accessibilityLabel={view.trackingAction.label}
+                    accessibilityHint={
+                        view.trackingAction.kind === 'STOP_TRACKING'
+                            ? 'Stops sending this bus location to passengers'
+                            : 'Starts sending this bus location to passengers every 30 seconds'
+                    }
+                    accessibilityState={{ selected: isTracking }}
+                >
+                    <Text
+                        style={[
+                            styles.primaryButtonText,
+                            view.trackingAction.kind === 'STOP_TRACKING' && styles.stopButtonText,
+                        ]}
+                    >
+                        {view.trackingAction.label}
+                    </Text>
+                </TouchableOpacity>
+            )}
+
             {!!view.primaryAction && (
                 <TouchableOpacity
-                    style={styles.primaryButton}
+                    style={view.trackingAction ? styles.secondaryButton : styles.primaryButton}
                     onPress={() => runAction(view.primaryAction!)}
                     accessibilityRole="button"
                     accessibilityLabel={view.primaryAction.label}
                 >
-                    <Text style={styles.primaryButtonText}>{view.primaryAction.label}</Text>
+                    <Text
+                        style={
+                            view.trackingAction
+                                ? styles.secondaryButtonText
+                                : styles.primaryButtonText
+                        }
+                    >
+                        {view.primaryAction.label}
+                    </Text>
                 </TouchableOpacity>
             )}
 
@@ -240,6 +283,19 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 16,
         fontWeight: '700',
+    },
+    /**
+     * Stopping is an outlined button rather than a filled one, so "on" and
+     * "off" are not the same shape in two colours. The label changes too, so
+     * the difference never rests on the styling alone.
+     */
+    stopButton: {
+        backgroundColor: '#FFFFFF',
+        borderWidth: 2,
+        borderColor: '#0066CC',
+    },
+    stopButtonText: {
+        color: '#0066CC',
     },
     secondaryButton: {
         minHeight: 48,
