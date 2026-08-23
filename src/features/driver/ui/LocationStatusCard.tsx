@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
     ActivityIndicator,
     Linking,
@@ -9,9 +9,21 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { PhoneLocation } from '../../../shared/utils/phoneLocation';
+import { describeBusMap, nextLastKnownLocation } from '../utils/busMapView';
 import { PhoneLocationAction } from '../utils/phoneLocationState';
 import { describeTrackingCard } from '../utils/trackingCardView';
+import { BusLocationMap } from './BusLocationMap';
 import { usePhoneLocationTracking } from './usePhoneLocationTracking';
+
+/**
+ * How tall the map sits inside the card.
+ *
+ * Big enough to read which road the bus is on at a glance, small enough that
+ * the tracking state and the stop control are still on screen with it — this is
+ * a status card with a map in it, not a map screen.
+ */
+const MAP_HEIGHT = 190;
 
 /**
  * Location sharing on the vehicle dashboard (MOV-264, MOV-268).
@@ -73,6 +85,23 @@ export function LocationStatusCard() {
     const view = describeTrackingCard(state, isTracking);
     const toneStyles = TONE_STYLES[view.tone];
 
+    // The state model drops its reading when a GPS request fails, so the last
+    // real fix is kept here beside it — and cleared the moment tracking stops
+    // or the bus signs out. `nextLastKnownLocation` owns both rules; this is
+    // only where the value is held between renders.
+    const lastKnown = useRef<PhoneLocation | null>(null);
+    lastKnown.current = nextLastKnownLocation(lastKnown.current, state, isTracking);
+
+    const map = describeBusMap(state, isTracking, lastKnown.current);
+
+    // The numbers must never be worse off than the picture: wherever the map
+    // draws a marker the coordinates are readable too, so the position is not
+    // available only to someone who can see the map. Outside tracking this is
+    // exactly the reading the card has always shown.
+    const readout =
+        map.marker ??
+        (state.status === 'AVAILABLE' || state.status === 'PUBLISHED' ? state.location : null);
+
     return (
         <View style={styles.card}>
             <View style={styles.headingRow}>
@@ -99,15 +128,31 @@ export function LocationStatusCard() {
             </View>
 
             {/* Shown so the driver can see the phone really did get a fix. */}
-            {(state.status === 'AVAILABLE' || state.status === 'PUBLISHED') && state.location && (
+            {!!readout && (
                 <View
                     style={styles.readingRow}
                     accessible
-                    accessibilityLabel="Last location reading from this phone"
+                    accessibilityLabel={
+                        map.freshness === 'LAST_KNOWN' && map.visible
+                            ? 'Last known location reading from this phone'
+                            : 'Last location reading from this phone'
+                    }
                 >
-                    <Reading label="Latitude" value={state.location.latitude.toFixed(5)} />
-                    <Reading label="Longitude" value={state.location.longitude.toFixed(5)} />
+                    <Reading label="Latitude" value={readout.latitude.toFixed(5)} />
+                    <Reading label="Longitude" value={readout.longitude.toFixed(5)} />
                 </View>
+            )}
+
+            {/* Visualisation only. Every rule about whether a bus may be drawn
+                at all lives in `busMapView`; this passes the answer through. */}
+            {map.visible && (
+                <BusLocationMap
+                    marker={map.marker}
+                    freshness={map.freshness}
+                    caption={map.caption}
+                    accessibilityLabel={map.accessibilityLabel}
+                    height={MAP_HEIGHT}
+                />
             )}
 
             {/* The tracking control comes first: it is the one thing on this
