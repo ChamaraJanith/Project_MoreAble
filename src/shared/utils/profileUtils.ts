@@ -17,8 +17,11 @@ export interface ProfileCompletionInput {
  * - Guardian REGISTERED & Accessibility VERIFIED -> 100%
  *
  * Rules for Standard Passengers (< 60):
- * - Accessibility requested & UNVERIFIED -> 80%
- * - Accessibility requested & VERIFIED (or no accessibility needs) -> 100%
+ * - Accessibility requested & Guardian NOT registered & UNVERIFIED -> 50%
+ * - Accessibility requested & Guardian NOT registered & VERIFIED -> 60%
+ * - Accessibility requested & Guardian REGISTERED & UNVERIFIED -> 90%
+ * - Accessibility requested & Guardian REGISTERED & VERIFIED -> 100%
+ * - No accessibility needs -> 100%
  */
 export function getProfileCompletionPercentage(user: ProfileCompletionInput | null | undefined): number {
   if (!user) return 100;
@@ -44,8 +47,17 @@ export function getProfileCompletionPercentage(user: ProfileCompletionInput | nu
   }
 
   // Non-elderly (< 60)
-  if (hasAccNeeds && !isAccVerified) {
-    return 80;
+  if (hasAccNeeds) {
+    if (!isGuardianDone && !isAccVerified) {
+      return 50;
+    }
+    if (!isGuardianDone && isAccVerified) {
+      return 60;
+    }
+    if (isGuardianDone && !isAccVerified) {
+      return 90;
+    }
+    return 100;
   }
 
   return 100;
