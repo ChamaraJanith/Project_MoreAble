@@ -62,3 +62,81 @@ export function listAccessibilityFacilities(
 
     return items;
 }
+
+/**
+ * Why a bus has no facilities to show.
+ *
+ *  - `AVAILABLE`      — at least one facility is recorded as available.
+ *  - `NONE_AVAILABLE` — the vehicle WAS assessed, and everything it records is
+ *                       unavailable. A statement about the bus.
+ *  - `UNKNOWN`        — nothing about accessibility was ever recorded for it.
+ *                       Not a statement about the bus at all.
+ */
+export type AccessibilityFacilitiesStatus = 'AVAILABLE' | 'NONE_AVAILABLE' | 'UNKNOWN';
+
+export interface AccessibilityFacilitiesSummary {
+    status: AccessibilityFacilitiesStatus;
+    /** The facilities to list. Empty unless the status is `AVAILABLE`. */
+    items: AccessibilityFacilityItem[];
+}
+
+/**
+ * Every field the fleet record can hold an accessibility answer in.
+ *
+ * Typed as a total map of the facility model, so the compiler refuses a key
+ * that does not exist and refuses to let one be forgotten if the model grows.
+ */
+const RECORDED_FACILITY_FIELDS: Record<keyof BusAccessibilityFacilities, true> = {
+    wheelchairRamp: true,
+    audioAnnouncement: true,
+    lowFloorVehicle: true,
+    walkingAssistance: true,
+    wheelchairSpace: true,
+    guardianSeats: true,
+    prioritySeats: true,
+    elderlySeats: true,
+};
+
+/**
+ * Whether anything was ever recorded about this vehicle's accessibility.
+ *
+ * A key carrying a real stored value means somebody answered that question,
+ * whatever the answer was. An empty object, or one holding nothing but nulls,
+ * means nobody has — Firestore drops `undefined` on write, so a key that is
+ * present with a value is evidence of an actual answer.
+ */
+function hasAnyRecordedFacility(facilities: BusAccessibilityFacilities): boolean {
+    return (Object.keys(RECORDED_FACILITY_FIELDS) as (keyof BusAccessibilityFacilities)[]).some(
+        (field) => facilities[field] !== undefined && facilities[field] !== null
+    );
+}
+
+/**
+ * What a passenger screen should say about this bus's facilities.
+ *
+ * `listAccessibilityFacilities` answers "what does it have?" and returns an
+ * empty list for two situations that are not the same thing: a bus assessed and
+ * found to have nothing, and a bus nobody has assessed. Telling a passenger the
+ * second is the first asserts something the data does not support — the vehicle
+ * may well have a ramp that no one has entered yet.
+ *
+ * So the list is reused unchanged and only the reason for an empty one is added.
+ * Nothing here decides what counts as available; that stays the strict rule in
+ * `listAccessibilityFacilities`.
+ */
+export function describeAccessibilityFacilities(
+    facilities?: BusAccessibilityFacilities | null
+): AccessibilityFacilitiesSummary {
+    const items = listAccessibilityFacilities(facilities);
+
+    if (items.length > 0) {
+        return { status: 'AVAILABLE', items };
+    }
+
+    const isRecord = typeof facilities === 'object' && facilities !== null;
+
+    return {
+        status: isRecord && hasAnyRecordedFacility(facilities) ? 'NONE_AVAILABLE' : 'UNKNOWN',
+        items: [],
+    };
+}
