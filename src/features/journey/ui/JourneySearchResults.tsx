@@ -6,8 +6,14 @@ import {
     JourneyGeoInformation,
     JourneySearchMatch,
 } from '../../../entities/route/model/types';
+import { useAuthStore } from '../../../shared/store/authStore';
+import {
+    fetchSavedAccessibilityRequirements,
+    saveAccessibilityRequirements,
+} from '../api/accessibilityPreferenceApi';
 import { searchJourneys } from '../api/journeySearchApi';
 import {
+    accessibilityRequirementSelection,
     AccessibilityRequirementKey,
     AccessibilityRequirementSelection,
     filterJourneysByAccessibility,
@@ -44,6 +50,39 @@ export const JourneySearchResults = () => {
     const [requirements, setRequirements] = useState<AccessibilityRequirementSelection>(
         NO_ACCESSIBILITY_REQUIREMENTS
     );
+
+    // Whose preference to restore and save (MOV-93). Null for a passenger who
+    // is not signed in, who simply gets the unsaved, in-session behaviour.
+    const passengerId = useAuthStore((state) => state.user?.passengerId ?? null);
+
+    // The first search waits for this. Searching before the saved requirements
+    // are known would briefly offer a passenger the very departures they have
+    // already said they cannot use, and one of them is tappable.
+    const [hasRestoredPreference, setHasRestoredPreference] = useState(false);
+
+    useEffect(() => {
+        let isActive = true;
+
+        if (!passengerId) {
+            setHasRestoredPreference(true);
+            return;
+        }
+
+        fetchSavedAccessibilityRequirements(passengerId).then((saved) => {
+            if (!isActive) return;
+
+            // Never throws and returns [] for "nothing saved", so a passenger
+            // with no preference lands on exactly the default selection.
+            if (saved.length > 0) {
+                setRequirements(accessibilityRequirementSelection(saved));
+            }
+            setHasRestoredPreference(true);
+        });
+
+        return () => {
+            isActive = false;
+        };
+    }, [passengerId]);
 
     // The stated needs travel to the API (MOV-92), so the search itself returns
     // only suitable departures. Memoised so a search re-runs when the selection
@@ -98,8 +137,10 @@ export const JourneySearchResults = () => {
     }, [origin, destination, travelDate, travelTime, selectedRequirements]);
 
     useEffect(() => {
+        if (!hasRestoredPreference) return;
+
         runSearch();
-    }, [runSearch]);
+    }, [runSearch, hasRestoredPreference]);
 
     // Every trip on every matched route, in recommended order (MOV-88).
     //
@@ -122,11 +163,30 @@ export const JourneySearchResults = () => {
         [journeyOptions, requirements]
     );
 
-    const handleToggleRequirement = (key: AccessibilityRequirementKey) => {
-        setRequirements((previous) => toggleAccessibilityRequirement(previous, key));
+    /**
+     * Applies a selection and remembers it (MOV-93).
+     *
+     * Fire-and-forget, like the recent searches this screen already saves: a
+     * preference that fails to save must never interrupt the search running now.
+     * Clearing everything is saved too — it is a preference, not the absence of
+     * one.
+     */
+    const applyRequirements = (next: AccessibilityRequirementSelection) => {
+        setRequirements(next);
+
+        if (passengerId) {
+            saveAccessibilityRequirements(
+                passengerId,
+                selectedAccessibilityRequirements(next)
+            ).catch(() => {});
+        }
     };
 
-    const handleClearRequirements = () => setRequirements(NO_ACCESSIBILITY_REQUIREMENTS);
+    const handleToggleRequirement = (key: AccessibilityRequirementKey) => {
+        applyRequirements(toggleAccessibilityRequirement(requirements, key));
+    };
+
+    const handleClearRequirements = () => applyRequirements(NO_ACCESSIBILITY_REQUIREMENTS);
 
     const handleEditSearch = () => {
         router.back();

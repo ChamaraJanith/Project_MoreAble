@@ -2,6 +2,7 @@
 // Manages Accessibility Profiles in Firestore collection 'accessibility_needs_persons'
 import { AccessibilityProfile } from '../../../src/entities/user/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { parseAccessibilityRequirements } from '../../../src/shared/utils/accessibility';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,10 +49,26 @@ export async function GET(request: Request) {
     }
 
     const accData = accDoc.data() as AccessibilityProfile;
+
+    // MOV-93: the stored preference is sanitised on the way out, never trusted
+    // as stored. Firestore is schema-less, so this field can hold anything a
+    // past write or a hand edit left there; only recognised keys survive, in
+    // canonical order, and anything else reads as no preference at all. A
+    // passenger is never handed a filter the system cannot honour, and a
+    // malformed document never fails the read.
+    const storedRequirements = parseAccessibilityRequirements(
+      accData?.journeyAccessibilityRequirements
+    );
+
     return Response.json(
       {
         success: true,
-        profile: accData,
+        profile: {
+          ...accData,
+          // Always an array, so "no preference saved" and "preference saved as
+          // empty" reach the client as the same thing it already handles.
+          journeyAccessibilityRequirements: storedRequirements.requirements,
+        },
       },
       { status: 200, headers: corsHeaders }
     );
@@ -75,7 +92,38 @@ export async function POST(request: Request) {
       accessibilityNeeds,
       otherDescription,
       requestedServices,
+      journeyAccessibilityRequirements,
     } = body;
+
+    // MOV-93. Absent means "this request is not about the journey filters",
+    // which is every request that predates the field — the stored preference is
+    // then left exactly as it was rather than being cleared.
+    const statesJourneyRequirements =
+      journeyAccessibilityRequirements !== undefined && journeyAccessibilityRequirements !== null;
+    const journeyRequirements = parseAccessibilityRequirements(journeyAccessibilityRequirements);
+
+    if (journeyRequirements.malformed) {
+      return Response.json(
+        {
+          success: false,
+          message: 'journeyAccessibilityRequirements must be a list of accessibility requirements.',
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    // Rejected rather than stored and ignored later: an arbitrary string kept on
+    // the record would look like a saved requirement that silently never
+    // filters anything.
+    if (journeyRequirements.unrecognized.length > 0) {
+      return Response.json(
+        {
+          success: false,
+          message: `Unknown accessibility requirement: ${journeyRequirements.unrecognized.join(', ')}.`,
+        },
+        { status: 400, headers: corsHeaders }
+      );
+    }
 
     const adminDb = getAdminDb();
     const now = new Date().toISOString();
@@ -91,9 +139,67 @@ export async function POST(request: Request) {
       }
     }
 
+    let profileIdIsNew = false;
+
     if (!targetProfileId) {
       const formattedSequence = String(Math.floor(Math.random() * 90000) + 10000).padStart(5, '0');
       targetProfileId = `ACC-${currentYear}-${formattedSequence}`;
+      profileIdIsNew = true;
+    }
+
+    // MOV-93: a request that states ONLY the journey filters updates only those.
+    //
+    // The journey screen holds the passenger's filter selection, not their
+    // accessibility profile, so it cannot resend the rest of the record. Taking
+    // the path below with the fields it does not have would blank the
+    // passenger's accessibility needs, their description and their requested
+    // services. Guarded on `accessibilityNeeds` being absent, so every existing
+    // caller — all of which send it — behaves exactly as it always has.
+    if (statesJourneyRequirements && accessibilityNeeds === undefined) {
+      const profileRef = adminDb.collection('accessibility_needs_persons').doc(targetProfileId);
+      const existingProfile = await profileRef.get();
+
+      await profileRef.set(
+        {
+          accessibilityProfileId: targetProfileId,
+          // Written even when empty: clearing every filter is a preference in
+          // its own right and must survive leaving the screen.
+          journeyAccessibilityRequirements: journeyRequirements.requirements,
+          // Only for a record this request is creating, so an existing
+          // profile's own creation time is never rewritten.
+          ...(existingProfile.exists
+            ? {}
+            : {
+                userId: userId || '',
+                passengerId: passengerId || '',
+                hasAccessibilityNeeds: false,
+                accessibilityNeeds: [],
+                createdAt: now,
+              }),
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      // Without this, a preference saved against a freshly generated id would
+      // be written to a document nothing could find again. Only the pointer is
+      // touched — none of the user's accessibility indicator flags.
+      if (passengerId && profileIdIsNew) {
+        await adminDb
+          .collection('users')
+          .doc(passengerId)
+          .set({ accessibilityProfileId: targetProfileId, updatedAt: now }, { merge: true });
+      }
+
+      return Response.json(
+        {
+          success: true,
+          message: 'Accessibility filter preference saved successfully!',
+          profileId: targetProfileId,
+          journeyAccessibilityRequirements: journeyRequirements.requirements,
+        },
+        { status: 200, headers: corsHeaders }
+      );
     }
 
     const selectedNeeds = Array.isArray(accessibilityNeeds) ? accessibilityNeeds : [];
@@ -113,6 +219,12 @@ export async function POST(request: Request) {
       accessibilityNeeds: selectedNeeds,
       otherDescription: otherDesc,
       requestedServices: requestedServices || {},
+      // Omitted entirely when the request does not state it, so a full profile
+      // save from the accessibility profile screen leaves a preference saved
+      // from the journey screen untouched (the write below merges).
+      ...(statesJourneyRequirements
+        ? { journeyAccessibilityRequirements: journeyRequirements.requirements }
+        : {}),
       createdAt: now,
       updatedAt: now,
     };
