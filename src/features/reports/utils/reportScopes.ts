@@ -1,22 +1,18 @@
 /**
- * Which report scopes the list screen can actually ask the API for.
+ * What each tab of the list screen asks the API for.
  *
- * `all` and `my` are both answered by GET /api/reports — the same handler, told
- * apart only by the `scope` query parameter, which is also what decides whether
- * the query is filtered by the caller's passengerId. `verified` is deliberately
- * absent: its tab is still a placeholder, and keeping it out of this type is
- * what stops the screen from requesting it by accident.
+ * All three tabs are answered by GET /api/reports — the same handler, told
+ * apart only by the `scope` query parameter, which is what decides whether the
+ * query is filtered by the caller's passengerId (`my`), by status (`verified`)
+ * or not at all (`all`). Three tabs, one endpoint: none of them is a second
+ * listing route, and none of them narrows a wider list in the app.
+ *
+ * `verified` was a placeholder tab until MOV-272 — the backend scope existed
+ * and was tested, and the tab drew a "Coming Soon" card instead of calling it.
+ * What it needed was this path, not a screen of its own.
  */
 
 import { ReportScope } from '../../../entities/report/model/types';
-
-/** A scope the screen is allowed to fetch. */
-export type FetchableReportScope = Extract<ReportScope, 'all' | 'my'>;
-
-/** Whether this tab is backed by the API rather than by a placeholder. */
-export function isFetchableReportScope(scope: ReportScope): scope is FetchableReportScope {
-    return scope === 'all' || scope === 'my';
-}
 
 /**
  * The reports request for a scope, relative to the API base URL.
@@ -25,6 +21,6 @@ export function isFetchableReportScope(scope: ReportScope): scope is FetchableRe
  * would default to anyway — so the request says which slice it wants rather
  * than relying on what the handler happens to do with a missing parameter.
  */
-export function reportsRequestPath(scope: FetchableReportScope): string {
+export function reportsRequestPath(scope: ReportScope): string {
     return `/api/reports?scope=${scope}`;
 }

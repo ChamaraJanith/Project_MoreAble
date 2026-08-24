@@ -20,7 +20,11 @@ import {
     ConfirmDialog,
 } from '../../admin/ui/AdminStates';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { canDeleteReport, canEditReport } from '../utils/reportOwnership';
+import {
+    canDeleteReport,
+    canEditReport,
+    isReportOwnedBy,
+} from '../utils/reportOwnership';
 import { reportApiPath, reportEditPath } from '../utils/reportRoutes';
 import {
     hasBeenEdited,
@@ -53,11 +57,12 @@ import {
  * review page (MOV-160) draws the same report and has to be looking at the same
  * thing the passenger filed rather than at a second rendering of it.
  *
- * Edit and Delete are drawn only for the passenger who filed it, and only here:
- * they are decisions worth a screen of context rather than a control on a list
- * row. That is still a courtesy, not the rule — PUT and DELETE
- * /api/reports/[reportId] compare the report against the verified token and
- * refuse anybody else regardless.
+ * Edit and Delete are drawn only for the passenger who filed it, only while it
+ * is still waiting to be reviewed, and only here: they are decisions worth a
+ * screen of context rather than a control on a list row. That is still a
+ * courtesy, not the rule — PUT and DELETE /api/reports/[reportId] compare the
+ * report against the verified token and against the review it has already had,
+ * refusing anybody else with 403 and a decided report with 409 regardless.
  */
 export const ReportDetailsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
@@ -188,7 +193,14 @@ export const ReportDetailsScreen = () => {
         const summary = reportCardSummary(report);
         const journey = reportJourneyEntries(report);
         const photos = reportGalleryPhotos(report);
-        const isOwner = canEditReport(report, user?.passengerId);
+
+        // Owning the report and being able to change it are two questions, and
+        // the answers diverge the moment an admin decides it. Kept apart so the
+        // author of a verified report is told why the buttons are gone rather
+        // than shown the same nothing as a passenger reading somebody else's.
+        const isOwner = isReportOwnedBy(report, user?.passengerId);
+        const canEdit = canEditReport(report, user?.passengerId);
+        const canDelete = canDeleteReport(report, user?.passengerId);
 
         // What an admin decided, if one has. Null on a report still waiting to
         // be looked at, where the hero's "Pending" badge is the whole story.
@@ -343,17 +355,21 @@ export const ReportDetailsScreen = () => {
                 {/* ---------------- Owner actions ---------------- */}
                 {isOwner && (
                     <View style={styles.actions}>
-                        <TouchableOpacity
-                            style={styles.primaryButton}
-                            onPress={() => router.push(reportEditPath(report.reportId) as Href)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit Report"
-                        >
-                            <Ionicons name="create-outline" size={18} color="#FFFFFF" />
-                            <Text style={styles.primaryButtonText}>Edit Report</Text>
-                        </TouchableOpacity>
+                        {canEdit && (
+                            <TouchableOpacity
+                                style={styles.primaryButton}
+                                onPress={() =>
+                                    router.push(reportEditPath(report.reportId) as Href)
+                                }
+                                accessibilityRole="button"
+                                accessibilityLabel="Edit Report"
+                            >
+                                <Ionicons name="create-outline" size={18} color="#FFFFFF" />
+                                <Text style={styles.primaryButtonText}>Edit Report</Text>
+                            </TouchableOpacity>
+                        )}
 
-                        {canDeleteReport(report, user?.passengerId) && (
+                        {canDelete && (
                             <TouchableOpacity
                                 style={styles.dangerButton}
                                 onPress={() => setIsConfirmingDelete(true)}
@@ -367,6 +383,23 @@ export const ReportDetailsScreen = () => {
                                 />
                                 <Text style={styles.dangerButtonText}>Delete Report</Text>
                             </TouchableOpacity>
+                        )}
+
+                        {/* Said rather than merely enacted: an author whose
+                            report has been decided would otherwise find the
+                            controls simply missing, which reads as a fault. */}
+                        {!canEdit && !canDelete && (
+                            <View style={styles.lockedNotice}>
+                                <Ionicons
+                                    name="lock-closed-outline"
+                                    size={16}
+                                    color={adminColors.textSecondary}
+                                />
+                                <Text style={styles.lockedNoticeText}>
+                                    This report has been reviewed, so it can no longer be
+                                    edited or deleted.
+                                </Text>
+                            </View>
                         )}
                     </View>
                 )}
@@ -454,5 +487,21 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         marginLeft: 8,
         letterSpacing: 0.3,
+    },
+    lockedNotice: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        borderRadius: 12,
+        padding: 14,
+    },
+    lockedNoticeText: {
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 19,
+        color: adminColors.textSecondary,
+        marginLeft: 10,
     },
 });

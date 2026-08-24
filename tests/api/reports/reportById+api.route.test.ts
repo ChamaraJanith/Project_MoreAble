@@ -439,10 +439,11 @@ describe('PUT /api/reports/[reportId] - the owner', () => {
         expect(stored).not.toHaveProperty('adminRemark');
     });
 
-    it('keeps a decision that has already been recorded', async () => {
-        // The other half of the same rule: an edit must not quietly undo a
-        // review either. The passenger may still correct what their report
-        // says after it has been decided; what an admin found stays put.
+    it('leaves a decision that has already been recorded entirely alone', async () => {
+        // The other half of the same rule, and MOV-272's version of it: an
+        // edit must not undo a review — and once one has been made, the report
+        // it was made about is not the author's to change either. The whole
+        // request is refused rather than applied around the review fields.
         const reviewedAt = '2026-08-21T09:00:00.000Z';
 
         const firestore = firestoreWith(
@@ -459,17 +460,200 @@ describe('PUT /api/reports/[reportId] - the owner', () => {
             request('PUT', { token: OWNER_SESSION, body: validEdit() }),
             params()
         );
-        const json = await response.json();
 
-        expect(json.report.status).toBe('VERIFIED');
-        expect(json.report.reviewedBy).toBe('UID-ADMIN');
-        expect(json.report.reviewedAt).toBe(reviewedAt);
-        expect(json.report.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+        expect(response.status).toBe(409);
 
         const stored = (await firestore.collection('reports').doc(REPORT_ID).get()).data() ?? {};
 
         expect(stored.status).toBe('VERIFIED');
+        expect(stored.reviewedBy).toBe('UID-ADMIN');
+        expect(stored.reviewedAt).toBe(reviewedAt);
         expect(stored.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+    });
+});
+
+// ==================================================================
+// A decided report is closed to its author (MOV-272)
+//
+// Editing and deleting are the author's only while the report is waiting to be
+// reviewed. The moment an admin decides it, the report becomes the thing that
+// was decided: an edit would change the account behind a finding somebody
+// stands behind, and a delete would remove the finding — or, on a rejection,
+// the answer its author is owed — outright.
+//
+// 409 rather than 403, because the caller IS the owner and the request IS well
+// formed. What stopped it is the state the report reached, which is what the
+// review route already answers 409 for.
+// ==================================================================
+describe('PUT /api/reports/[reportId] - a report that has been decided', () => {
+    it('refuses to edit a verified report', async () => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
+
+        const response = await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(409);
+        expect(json.success).toBe(false);
+        expect(json.message).toContain('VERIFIED');
+    });
+
+    it('refuses to edit a rejected report', async () => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'REJECTED' })));
+
+        const response = await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        expect(response.status).toBe(409);
+    });
+
+    it('changes nothing the report said', async () => {
+        const firestore = firestoreWith(storedReport({ status: 'VERIFIED' }));
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        const stored = (await firestore.collection('reports').doc(REPORT_ID).get()).data() ?? {};
+
+        expect(stored.issueCategory).toBe('BROKEN_RAMP');
+        expect(stored.description).toBe(
+            'The wheelchair ramp would not fold down at Pettah station.'
+        );
+        expect(new Date(stored.updatedAt).toISOString()).toBe(FILED_AT.toISOString());
+    });
+
+    it('refuses the edit before it validates the body', async () => {
+        // A decided report answers 409 whatever was sent, rather than 400 for
+        // a field that was never going to be stored.
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
+
+        const response = await updateReport(
+            request('PUT', {
+                token: OWNER_SESSION,
+                body: validEdit({ description: '   ', issueCategory: 'NOT_A_CATEGORY' }),
+            }),
+            params()
+        );
+
+        expect(response.status).toBe(409);
+    });
+
+    it('still edits a report that is only waiting to be reviewed', async () => {
+        // The rule closes a decided report, not a pending one — a passenger
+        // asked for more detail must still be able to add it.
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'PENDING' })));
+
+        const response = await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        expect(response.status).toBe(200);
+    });
+
+    it('still edits a report whose only review so far is a remark', async () => {
+        // A remark carries no decision, so it leaves the report at PENDING and
+        // leaves it open.
+        mockGetAdminDb.mockReturnValue(
+            firestoreWith(
+                storedReport({
+                    status: 'PENDING',
+                    reviewedBy: 'UID-ADMIN',
+                    reviewedAt: '2026-08-21T09:00:00.000Z',
+                    adminRemark: 'Chasing the depot for a repair date.',
+                })
+            )
+        );
+
+        const response = await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        expect(response.status).toBe(200);
+    });
+
+    it('refuses another passenger before it looks at the status at all', async () => {
+        // Ownership is still the first question: somebody else's pending
+        // report is a 403, not a 409.
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'PENDING' })));
+
+        const response = await updateReport(
+            request('PUT', { token: OTHER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        expect(response.status).toBe(403);
+    });
+
+    it('tells a stranger nothing more about a decided report either', async () => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
+
+        const response = await updateReport(
+            request('PUT', { token: OTHER_SESSION, body: validEdit() }),
+            params()
+        );
+
+        expect(response.status).toBe(403);
+    });
+});
+
+describe('DELETE /api/reports/[reportId] - a report that has been decided', () => {
+    it('refuses to delete a verified report', async () => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
+
+        const response = await deleteReport(
+            request('DELETE', { token: OWNER_SESSION }),
+            params()
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(409);
+        expect(json.success).toBe(false);
+        expect(json.message).toContain('VERIFIED');
+    });
+
+    it('refuses to delete a rejected report', async () => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'REJECTED' })));
+
+        const response = await deleteReport(
+            request('DELETE', { token: OWNER_SESSION }),
+            params()
+        );
+
+        expect(response.status).toBe(409);
+    });
+
+    it('leaves the document in place', async () => {
+        const firestore = firestoreWith(storedReport({ status: 'VERIFIED' }));
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        await deleteReport(request('DELETE', { token: OWNER_SESSION }), params());
+
+        const doc = await firestore.collection('reports').doc(REPORT_ID).get();
+
+        expect(doc.exists).toBe(true);
+        expect((doc.data() ?? {}).status).toBe('VERIFIED');
+    });
+
+    it('still deletes a report that is waiting to be reviewed', async () => {
+        const firestore = firestoreWith(storedReport({ status: 'PENDING' }));
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await deleteReport(
+            request('DELETE', { token: OWNER_SESSION }),
+            params()
+        );
+
+        expect(response.status).toBe(200);
+        expect((await firestore.collection('reports').doc(REPORT_ID).get()).exists).toBe(false);
     });
 });
 

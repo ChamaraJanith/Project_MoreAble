@@ -1,4 +1,8 @@
-import { isReportIssueCategory } from '../../../src/entities/report/model/types';
+import {
+  isReportDecided,
+  isReportIssueCategory,
+  reportDecisionStatus,
+} from '../../../src/entities/report/model/types';
 import {
   authenticateRequest,
   unauthorizedResponse,
@@ -86,6 +90,32 @@ function serializeReport(data: Record<string, any>, documentId: string) {
  */
 function isReportOwner(report: Record<string, any>, passengerId: string): boolean {
   return !!passengerId && report.passengerId === passengerId;
+}
+
+/**
+ * Whether the report is still the author's to change, or why it is not.
+ *
+ * A report leaves its author's hands the moment an admin decides it. Editing a
+ * verified report would change the account behind a finding somebody stands
+ * behind, and deleting one would remove that finding outright; a rejection is
+ * the record its author is owed and must not be edited into something else
+ * either. So both are refused once the report is off PENDING.
+ *
+ * 409 rather than 403: the caller IS the owner and the request IS well formed
+ * — what stopped it is the state the report has reached, which is exactly what
+ * the review route already answers 409 for. The status is named in the message
+ * so the app can say what happened rather than that something did.
+ */
+function checkReportIsOpenToChange(
+  report: Record<string, any>,
+  verb: 'edited' | 'deleted'
+): Response | null {
+  if (!isReportDecided(report)) return null;
+
+  return errorResponse(
+    409,
+    `This report has already been reviewed (${reportDecisionStatus(report)}) and can no longer be ${verb}.`
+  );
 }
 
 /**
@@ -189,6 +219,16 @@ export async function PUT(request: Request, context: any) {
     if (!loaded.ok) return loaded.response;
 
     const { docRef, report: existing } = loaded;
+
+    // --------------------------------
+    // The report has to still be open to change
+    //
+    // Checked before the body is read, so an edit to a decided report costs a
+    // 409 and no validation of fields that were never going to be stored.
+    // --------------------------------
+    const closed = checkReportIsOpenToChange(existing, 'edited');
+
+    if (closed) return closed;
 
     // --------------------------------
     // Read request body
@@ -323,6 +363,10 @@ export async function DELETE(request: Request, context: any) {
     const loaded = await loadReport(request, context, { requireOwner: true });
 
     if (!loaded.ok) return loaded.response;
+
+    const closed = checkReportIsOpenToChange(loaded.report, 'deleted');
+
+    if (closed) return closed;
 
     await loaded.docRef.delete();
 

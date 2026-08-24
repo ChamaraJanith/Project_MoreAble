@@ -18,11 +18,7 @@ import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
 import { reportDetailsPath, reportFormPath } from '../utils/reportRoutes';
-import {
-    FetchableReportScope,
-    isFetchableReportScope,
-    reportsRequestPath,
-} from '../utils/reportScopes';
+import { reportsRequestPath } from '../utils/reportScopes';
 import { reportCardSummary } from '../utils/reportSummary';
 import { ReportFeedbackStats } from './ReportFeedbackStats';
 
@@ -33,12 +29,15 @@ const SCOPE_TABS: { value: ReportScope; label: string }[] = [
 ];
 
 /**
- * What each API-backed tab shows when it comes back with nothing. Both offer
- * the same way out — file a report — because on either tab an empty list means
- * there is nothing to read, not that something went wrong.
+ * What each tab shows when it comes back with nothing.
+ *
+ * All three offer the same way out — file a report — because on any of them an
+ * empty list means there is nothing to read, not that something went wrong.
+ * Verified Reports says who does the verifying, since it is the one tab a
+ * passenger cannot fill by themselves.
  */
 const EMPTY_STATES: Record<
-    FetchableReportScope,
+    ReportScope,
     { icon: keyof typeof Ionicons.glyphMap; title: string; description: string }
 > = {
     all: {
@@ -51,39 +50,19 @@ const EMPTY_STATES: Record<
         title: 'You have not submitted any reports yet',
         description: 'Accessibility issues you report will appear here.',
     },
-};
-
-/**
- * "Verified Reports" is presentation-only for now: its backend scope is not
- * wired up yet, so the tab deliberately renders a placeholder instead of
- * querying `/api/reports`.
- */
-type PlaceholderScope = Extract<ReportScope, 'verified'>;
-
-const PLACEHOLDER_SECTIONS: Record<
-    PlaceholderScope,
-    {
-        icon: keyof typeof Ionicons.glyphMap;
-        title: string;
-        description: string;
-        secondaryDescription: string;
-    }
-> = {
     verified: {
         icon: 'checkmark-circle-outline',
-        title: 'Verified Reports',
-        description: 'Verified accessibility reports will appear here.',
-        secondaryDescription:
-            'This section will be connected to verified reports in a later update.',
+        title: 'No verified reports yet',
+        description: 'Reports an administrator has verified will appear here.',
     },
 };
 
 /**
  * One tab's worth of state.
  *
- * Each API-backed scope keeps its own, so switching tabs never shows another
- * tab's reports, its skeleton, or an error it had no part in — and so a tab
- * that already has data can be returned to without refetching it.
+ * Each scope keeps its own, so switching tabs never shows another tab's
+ * reports, its skeleton, or an error it had no part in — and so a tab that
+ * already has data can be returned to without refetching it.
  */
 interface ReportFeed {
     reports: AccessibilityReport[];
@@ -102,16 +81,17 @@ const INITIAL_FEED: ReportFeed = {
 export const AccessibilityReportsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
 
-    const [feeds, setFeeds] = useState<Record<FetchableReportScope, ReportFeed>>({
+    const [feeds, setFeeds] = useState<Record<ReportScope, ReportFeed>>({
         all: INITIAL_FEED,
         my: INITIAL_FEED,
+        verified: INITIAL_FEED,
     });
     const [scope, setScope] = useState<ReportScope>('all');
 
     // Which scopes have had a request fired for them. A ref rather than state
     // because it is read to decide whether to start a fetch, and has to be
     // already updated by the time the next effect runs in the same commit.
-    const requestedScopes = useRef(new Set<FetchableReportScope>());
+    const requestedScopes = useRef(new Set<ReportScope>());
 
     // Lets the focus refresh below read the visible tab without re-subscribing
     // every time the passenger switches tab. Only ever read on a focus event,
@@ -122,12 +102,12 @@ export const AccessibilityReportsScreen = () => {
         scopeRef.current = scope;
     }, [scope]);
 
-    const updateFeed = useCallback((target: FetchableReportScope, patch: Partial<ReportFeed>) => {
+    const updateFeed = useCallback((target: ReportScope, patch: Partial<ReportFeed>) => {
         setFeeds((current) => ({ ...current, [target]: { ...current[target], ...patch } }));
     }, []);
 
     const fetchReports = useCallback(
-        async (target: FetchableReportScope, mode: 'initial' | 'refresh' = 'initial') => {
+        async (target: ReportScope, mode: 'initial' | 'refresh' = 'initial') => {
             if (!isAuthenticated || !token) {
                 // Left out of `requestedScopes` on purpose: nothing was asked
                 // of the API, so opening the tab again once there is a session
@@ -150,9 +130,11 @@ export const AccessibilityReportsScreen = () => {
             );
 
             try {
-                // `all` and `my` differ only by this parameter. The `my` filter
-                // is applied by the API against the passengerId on the verified
-                // token — never by this screen against a wider list.
+                // The three tabs differ only by this parameter. Both
+                // narrowings are applied by the API — `my` against the
+                // passengerId on the verified token, `verified` against the
+                // status an admin recorded — never by this screen against a
+                // wider list it has already been given.
                 const response = await fetch(`${API_BASE_URL}${reportsRequestPath(target)}`, {
                     method: 'GET',
                     headers: {
@@ -183,9 +165,7 @@ export const AccessibilityReportsScreen = () => {
     // is already there when the passenger comes back to My Reports.
     useFocusEffect(
         useCallback(() => {
-            const active = scopeRef.current;
-
-            if (isFetchableReportScope(active)) fetchReports(active);
+            fetchReports(scopeRef.current);
         }, [fetchReports])
     );
 
@@ -193,7 +173,6 @@ export const AccessibilityReportsScreen = () => {
     // already been fetched costs no request — the focus refresh above is what
     // keeps it current.
     useEffect(() => {
-        if (!isFetchableReportScope(scope)) return;
         if (requestedScopes.current.has(scope)) return;
 
         fetchReports(scope);
@@ -205,10 +184,6 @@ export const AccessibilityReportsScreen = () => {
     const goToReportForm = () => router.push(reportFormPath() as Href);
 
     const renderBody = () => {
-        // Checked first so the placeholder tab never shows a loading skeleton
-        // or a backend error it had no part in.
-        if (!isFetchableReportScope(scope)) return <ComingSoonSection scope={scope} />;
-
         const feed = feeds[scope];
 
         if (feed.isLoading) return <AdminListSkeleton count={3} />;
@@ -252,7 +227,7 @@ export const AccessibilityReportsScreen = () => {
                         // On My Reports every card would carry the chip, which
                         // tells the passenger nothing.
                         isOwnReport={
-                            scope === 'all' && isReportOwnedBy(report, user?.passengerId)
+                            scope !== 'my' && isReportOwnedBy(report, user?.passengerId)
                         }
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something the
@@ -277,13 +252,10 @@ export const AccessibilityReportsScreen = () => {
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
-                    // Pull-to-refresh belongs only to the tabs backed by the API.
-                    isFetchableReportScope(scope) ? (
-                        <RefreshControl
-                            refreshing={feeds[scope].isRefreshing}
-                            onRefresh={() => fetchReports(scope, 'refresh')}
-                        />
-                    ) : undefined
+                    <RefreshControl
+                        refreshing={feeds[scope].isRefreshing}
+                        onRefresh={() => fetchReports(scope, 'refresh')}
+                    />
                 }
             >
                 {/* Primary action */}
@@ -327,31 +299,6 @@ export const AccessibilityReportsScreen = () => {
         </View>
     );
 };
-
-// ------------------------------------------------------------------
-/**
- * Placeholder for a tab whose backend scope is not implemented yet. Renders no
- * loading or error state because it never talks to the API.
- */
-function ComingSoonSection({ scope }: { scope: PlaceholderScope }) {
-    const section = PLACEHOLDER_SECTIONS[scope];
-
-    return (
-        <View>
-            <View style={styles.comingSoonBadge}>
-                <Ionicons name="time-outline" size={12} color={adminColors.warning} />
-                <Text style={styles.comingSoonText}>Coming Soon</Text>
-            </View>
-
-            <AdminEmptyState
-                icon={section.icon}
-                title={section.title}
-                description={section.description}
-                secondaryDescription={section.secondaryDescription}
-            />
-        </View>
-    );
-}
 
 // ------------------------------------------------------------------
 interface ReportCardProps {
@@ -514,27 +461,6 @@ const styles = StyleSheet.create({
         color: adminColors.textMuted,
         marginBottom: 10,
         fontWeight: '600',
-    },
-
-    // Sits inside the top-right corner of the placeholder card below it.
-    comingSoonBadge: {
-        position: 'absolute',
-        top: 20,
-        right: 12,
-        zIndex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: adminColors.warningSoft,
-        borderRadius: 8,
-        paddingHorizontal: 9,
-        paddingVertical: 5,
-    },
-    comingSoonText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: adminColors.warning,
-        marginLeft: 4,
-        letterSpacing: 0.2,
     },
 
     card: {

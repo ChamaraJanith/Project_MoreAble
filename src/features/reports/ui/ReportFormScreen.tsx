@@ -284,6 +284,15 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                             ? 'You can only edit your own reports.'
                             : 'Only passengers can submit accessibility reports.'
                     );
+                } else if (response.status === 409) {
+                    // The report was decided while this form was open. Trying
+                    // again cannot help, so the API's own wording is shown —
+                    // it names the status the report reached — rather than an
+                    // invitation to repeat a request that will be refused.
+                    setError(
+                        result.message ||
+                            'This report has already been reviewed, so it can no longer be edited.'
+                    );
                 } else if (response.status === 400 || response.status === 404) {
                     setError(result.message || 'Invalid request. Please check your inputs.');
                 } else {

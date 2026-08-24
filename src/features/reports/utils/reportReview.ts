@@ -24,6 +24,8 @@ import {
     MAX_ADMIN_REMARK_LENGTH,
     REPORT_REVIEW_REQUIRED_STATUS,
     ReportReviewAction,
+    isReportDecided,
+    reportDecisionStatus,
 } from '../../../entities/report/model/types';
 import { formatCommentCount } from './reportFeedback';
 import { reportStatusLabel } from './reportFormat';
@@ -144,9 +146,7 @@ export function mapAdminReviewReports(raw: unknown): AdminReviewReport[] {
  * Verify button on a report the API would happily have verified.
  */
 export function reviewStatusOf(report: { status?: unknown } | null | undefined): string {
-    return typeof report?.status === 'string' && report.status
-        ? report.status
-        : REPORT_REVIEW_REQUIRED_STATUS;
+    return reportDecisionStatus(report);
 }
 
 /**
@@ -160,9 +160,14 @@ export function canDecideReport(report: { status?: unknown } | null | undefined)
     return !!report && reviewStatusOf(report) === REPORT_REVIEW_REQUIRED_STATUS;
 }
 
-/** Whether an admin has already decided this report. */
+/**
+ * Whether an admin has already decided this report.
+ *
+ * The entity model's rule, applied to a report that is actually there: nothing
+ * at all is not a decided report, it is no report.
+ */
 export function isDecidedReport(report: { status?: unknown } | null | undefined): boolean {
-    return !!report && !canDecideReport(report);
+    return !!report && isReportDecided(report);
 }
 
 /**

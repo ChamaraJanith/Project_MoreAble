@@ -35,6 +35,7 @@ import {
     ReportReviewAction,
     ReportStatus,
     isReportReviewAction,
+    reportDecisionStatus,
 } from '../../entities/report/model/types';
 import { authenticateRequest, unauthorizedResponse } from '../api/authMiddleware';
 import { getAdminDb } from '../config/firebaseAdmin';
@@ -310,9 +311,7 @@ export function canApplyReview(
 ): { ok: true } | { ok: false; status: number; message: string } {
     if (instruction.status === null) return { ok: true };
 
-    const current = typeof report?.status === 'string' && report.status
-        ? report.status
-        : REPORT_REVIEW_REQUIRED_STATUS;
+    const current = reportDecisionStatus(report);
 
     if (current !== REPORT_REVIEW_REQUIRED_STATUS) {
         return {
