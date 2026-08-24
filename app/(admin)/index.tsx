@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useReducer, useState } from 'react';
 import {
     ActivityIndicator,
     RefreshControl,
@@ -20,9 +20,24 @@ import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
 import { getUsers } from '../../src/features/admin/api/userAdminApi';
+import { fetchReportsForReview } from '../../src/features/reports/api/reportReviewApi';
+import {
+    NO_SESSION_ACTION,
+    initialReportCountState,
+    isReportCountLoading,
+    reportCountAccessibilityLabel,
+    reportCountAction,
+    reportCountLabel,
+    reportCountReducer,
+} from '../../src/features/reports/utils/reportCountState';
 import { adminReviewQueuePath } from '../../src/features/reports/utils/reportRoutes';
+import { useAuthStore } from '../../src/shared/store/authStore';
 
 export default function AdminDashboard() {
+    // The reports tile is the one overview number that needs an admin session:
+    // the review scope is admin-only, enforced by the route itself.
+    const { token, isAuthenticated } = useAuthStore();
+
     const [buses, setBuses] = useState<Bus[] | null>(null);
     const [routes, setRoutes] = useState<Route[] | null>(null);
     const [trips, setTrips] = useState<Trip[] | null>(null);
@@ -31,6 +46,10 @@ export default function AdminDashboard() {
     const [isLoadingOverview, setIsLoadingOverview] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [overviewError, setOverviewError] = useState('');
+    const [reportCount, dispatchReportCount] = useReducer(
+        reportCountReducer,
+        initialReportCountState
+    );
 
     const loadOverview = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
         if (mode === 'refresh') setIsRefreshing(true);
@@ -58,12 +77,35 @@ export default function AdminDashboard() {
         }
     }, []);
 
+    /**
+     * How many accessibility reports there are (MOV-131).
+     *
+     * Read from the same review queue the tile opens, so the dashboard number
+     * and the list behind it are the one fact asked once. Deliberately outside
+     * the Promise.all above: a refused admin session must not blank the bus,
+     * route, trip, stop and user counts, which no session is needed to read.
+     */
+    const loadReportCount = useCallback(async () => {
+        dispatchReportCount({ type: 'loadStarted' });
+
+        if (!isAuthenticated || !token) {
+            dispatchReportCount(NO_SESSION_ACTION);
+            return;
+        }
+
+        const result = await fetchReportsForReview(token, 'ALL');
+
+        dispatchReportCount(reportCountAction(result));
+    }, [isAuthenticated, token]);
+
     // Refresh whenever the dashboard regains focus so counts stay accurate
-    // after adding or editing a bus or route.
+    // after adding or editing a bus or route — and after an admin reviews a
+    // report, which is what the reports tile leads to.
     useFocusEffect(
         useCallback(() => {
             loadOverview();
-        }, [loadOverview])
+            loadReportCount();
+        }, [loadOverview, loadReportCount])
     );
 
     const busBreakdown = useMemo(() => {
@@ -185,7 +227,10 @@ export default function AdminDashboard() {
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
-                        onRefresh={() => loadOverview('refresh')}
+                        onRefresh={() => {
+                            loadOverview('refresh');
+                            loadReportCount();
+                        }}
                     />
                 }
             >
@@ -366,16 +411,32 @@ export default function AdminDashboard() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Reports — no backend yet */}
-                    <View style={[styles.statCard, styles.statCardUnavailable]}>
+                    {/* Reports — the total, and the way into the review queue */}
+                    <TouchableOpacity
+                        style={styles.statCard}
+                        onPress={handleReports}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={reportCountAccessibilityLabel(reportCount)}
+                    >
                         <View style={styles.statIconOrange}>
                             <Ionicons name="alert-circle-outline" size={28} color="#F57C00" />
                         </View>
 
-                        <Text style={styles.statNumberUnavailable}>—</Text>
+                        {isReportCountLoading(reportCount) ? (
+                            <ActivityIndicator size="small" color="#F57C00" style={styles.statLoader} />
+                        ) : (
+                            <Text style={styles.statNumber}>{reportCountLabel(reportCount)}</Text>
+                        )}
+
                         <Text style={styles.statLabel}>Reports</Text>
-                        <Text style={styles.statBreakdown}>Not available yet</Text>
-                    </View>
+
+                        {reportCount.count !== null && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                Accessibility reports filed
+                            </Text>
+                        )}
+                    </TouchableOpacity>
 
                     {/* Users */}
                     <TouchableOpacity
@@ -850,17 +911,6 @@ const styles = StyleSheet.create({
     statWideTextGroup: {
         flex: 1,
         marginLeft: 14,
-    },
-
-    statCardUnavailable: {
-        opacity: 0.85,
-    },
-
-    statNumberUnavailable: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: '#9AA7B2',
-        marginTop: 8,
     },
 
     statIconCyan: {
