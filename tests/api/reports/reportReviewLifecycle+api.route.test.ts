@@ -920,6 +920,124 @@ describe('report review lifecycle - authorisation across the flow', () => {
 });
 
 // ==================================================================
+// What the author is told about their own report (MOV-149)
+//
+// The routes above establish that a decision persists and that the admin
+// screens read it back. This is the other end of the same wire: My Reports is
+// the only place the passenger who filed the report learns what became of it,
+// and it is answered by GET /api/reports?scope=my — the listing, not the
+// review routes, which a passenger may not call at all.
+//
+// So the listing has to carry the whole answer: the status it moved to, when
+// it was decided, and what the admin wrote. A response that carries the status
+// alone leaves the report reading as decided by nobody, for no stated reason.
+// ==================================================================
+describe('report review lifecycle - the author tracks their own report', () => {
+    /** The author's own report, as their My Reports list returns it. */
+    async function myReport(db: any, reportId: string) {
+        const { body } = await list(db, 'my', AUTHOR_SESSION);
+
+        return (body.reports ?? []).find((report: any) => report.reportId === reportId);
+    }
+
+    it('shows a freshly filed report as pending, with no review against it', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        const mine = await myReport(db, reportId);
+
+        expect(mine.status).toBe('PENDING');
+        expect(mine.reviewedAt).toBeUndefined();
+        expect(mine.adminRemark).toBeUndefined();
+    });
+
+    it('carries the verification, the remark and the review date to the author', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, {
+            action: 'VERIFY',
+            adminRemark: 'Depot confirmed the ramp motor had failed.',
+        });
+
+        const record = await stored(db, reportId);
+        const mine = await myReport(db, reportId);
+
+        expect(mine.status).toBe('VERIFIED');
+        expect(mine.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+        expect(mine.reviewedAt).toBe(record.reviewedAt);
+    });
+
+    it('carries a rejection and its reason just as plainly', async () => {
+        // The outcome a passenger is least likely to be told by anything else,
+        // since a rejected report leaves the public feed entirely.
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, {
+            action: 'REJECT',
+            adminRemark: 'The ramp was tested on site and folded normally.',
+        });
+
+        const record = await stored(db, reportId);
+        const mine = await myReport(db, reportId);
+
+        expect(mine.status).toBe('REJECTED');
+        expect(mine.adminRemark).toBe('The ramp was tested on site and folded normally.');
+        expect(mine.reviewedAt).toBe(record.reviewedAt);
+    });
+
+    it('shows a remark left without a decision', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, { action: 'REMARK', adminRemark: 'Chasing the depot.' });
+
+        const mine = await myReport(db, reportId);
+
+        expect(mine.status).toBe('PENDING');
+        expect(mine.adminRemark).toBe('Chasing the depot.');
+    });
+
+    it('still names the report, its category and when it was filed', async () => {
+        // The decision is added to the card the passenger already had; it does
+        // not replace it. Everything My Reports listed before the review is
+        // still there after it.
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        const before = await myReport(db, reportId);
+
+        await review(db, reportId, { action: 'VERIFY', adminRemark: 'Confirmed.' });
+
+        const after = await myReport(db, reportId);
+
+        expect(after.reportId).toBe(reportId);
+        expect(after.issueCategory).toBe(before.issueCategory);
+        expect(after.description).toBe(before.description);
+        expect(after.createdAt).toBe(before.createdAt);
+        expect(after.photoUrls).toEqual(before.photoUrls);
+        expect(after.vehicle).toEqual(before.vehicle);
+        expect(after.route).toEqual(before.route);
+    });
+
+    it('tells nobody else what was decided through their own My Reports', async () => {
+        // scope=my is filtered on the passengerId of the verified token, so a
+        // decided report reaches its author and no one else by that route —
+        // whatever the decision was.
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, { action: 'VERIFY', adminRemark: 'Confirmed.' });
+
+        const { body } = await list(db, 'my', voterSession(0));
+
+        expect(idsIn(body)).not.toContain(reportId);
+        expect(body.reports).toHaveLength(0);
+    });
+});
+
+// ==================================================================
 // Unknown reports and malformed decisions, against a live collection
 // ==================================================================
 describe('report review lifecycle - refusals leave the collection alone', () => {

@@ -406,6 +406,71 @@ describe('PUT /api/reports/[reportId] - the owner', () => {
 
         expect(json.report.reviewNotes).toBe('Passed to the depot manager.');
     });
+
+    // The review keys, specifically. A passenger editing their own report is
+    // the one caller with write access to the document, so "only an admin
+    // decides a report" is a rule this route has to hold as much as the review
+    // route does — an edit that could name its own reviewer would be a second
+    // way into the status the review route guards.
+    it('cannot be used to record a decision on the report', async () => {
+        const firestore = firestoreWith();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await updateReport(
+            request('PUT', {
+                token: OWNER_SESSION,
+                body: validEdit({
+                    status: 'VERIFIED',
+                    reviewedBy: 'UID-ADMIN',
+                    reviewedAt: '2026-08-21T09:00:00.000Z',
+                    adminRemark: 'Verified by the passenger who filed it.',
+                }),
+            }),
+            params()
+        );
+
+        expect(response.status).toBe(200);
+
+        const stored = (await firestore.collection('reports').doc(REPORT_ID).get()).data() ?? {};
+
+        expect(stored.status).toBe('PENDING');
+        expect(stored).not.toHaveProperty('reviewedBy');
+        expect(stored).not.toHaveProperty('reviewedAt');
+        expect(stored).not.toHaveProperty('adminRemark');
+    });
+
+    it('keeps a decision that has already been recorded', async () => {
+        // The other half of the same rule: an edit must not quietly undo a
+        // review either. The passenger may still correct what their report
+        // says after it has been decided; what an admin found stays put.
+        const reviewedAt = '2026-08-21T09:00:00.000Z';
+
+        const firestore = firestoreWith(
+            storedReport({
+                status: 'VERIFIED',
+                reviewedBy: 'UID-ADMIN',
+                reviewedAt,
+                adminRemark: 'Depot confirmed the ramp motor had failed.',
+            })
+        );
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await updateReport(
+            request('PUT', { token: OWNER_SESSION, body: validEdit() }),
+            params()
+        );
+        const json = await response.json();
+
+        expect(json.report.status).toBe('VERIFIED');
+        expect(json.report.reviewedBy).toBe('UID-ADMIN');
+        expect(json.report.reviewedAt).toBe(reviewedAt);
+        expect(json.report.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+
+        const stored = (await firestore.collection('reports').doc(REPORT_ID).get()).data() ?? {};
+
+        expect(stored.status).toBe('VERIFIED');
+        expect(stored.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+    });
 });
 
 describe('PUT /api/reports/[reportId] - anybody else', () => {
