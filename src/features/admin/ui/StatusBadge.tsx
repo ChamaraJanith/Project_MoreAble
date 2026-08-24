@@ -65,10 +65,15 @@ const BADGE_CONFIG: Record<
         background: adminColors.warningSoft,
         icon: 'time',
     },
+    // Green, not the app's blue: verified is an outcome an admin recorded, and
+    // it has to read as one wherever it appears — the passenger list, the
+    // details screen and the review queue all draw this same badge. Blue is
+    // what every neutral accent on these screens already uses, so it said
+    // "informational" where this has to say "confirmed".
     VERIFIED: {
         label: 'Verified',
-        color: adminColors.primary,
-        background: adminColors.primarySoft,
+        color: adminColors.success,
+        background: adminColors.successSoft,
         icon: 'shield-checkmark',
     },
     REVIEWED: {
