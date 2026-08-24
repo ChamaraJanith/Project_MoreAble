@@ -7,8 +7,17 @@ import {
     JourneySearchMatch,
 } from '../../../entities/route/model/types';
 import { searchJourneys } from '../api/journeySearchApi';
+import {
+    AccessibilityRequirementKey,
+    AccessibilityRequirementSelection,
+    filterJourneysByAccessibility,
+    hasSelectedAccessibilityRequirements,
+    NO_ACCESSIBILITY_REQUIREMENTS,
+    toggleAccessibilityRequirement,
+} from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
 import { toRecommendedJourneys } from '../utils/journeyRecommendations';
+import { AccessibilityFilterPanel } from './AccessibilityFilterPanel';
 import { JourneyOptionCard } from './JourneyOptionCard';
 
 type ResultsStatus = 'loading' | 'loaded' | 'error';
@@ -28,6 +37,13 @@ export const JourneySearchResults = () => {
     // Kept so "View details" can hand the route map data to the details screen.
     const [geo, setGeo] = useState<JourneyGeoInformation | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
+    // The passenger's stated accessibility needs (MOV-91). Held here, alongside
+    // the results they narrow, so selecting one filters what is already on
+    // screen without another round trip — and so re-running the search leaves
+    // the stated needs exactly as they were.
+    const [requirements, setRequirements] = useState<AccessibilityRequirementSelection>(
+        NO_ACCESSIBILITY_REQUIREMENTS
+    );
 
     const runSearch = useCallback(async () => {
         if (!origin || !destination || !travelDate || !travelTime) {
@@ -61,6 +77,22 @@ export const JourneySearchResults = () => {
     // accessible suitable one is simply first.
     const journeyOptions = useMemo(() => toRecommendedJourneys(routes), [routes]);
 
+    // The passenger's requirements applied to that same ranked list (MOV-91).
+    // Filtering only removes: the order is still MOV-87's, and with nothing
+    // selected this is `journeyOptions` itself.
+    const visibleJourneys = useMemo(
+        () => filterJourneysByAccessibility(journeyOptions, requirements),
+        [journeyOptions, requirements]
+    );
+
+    const isFiltering = hasSelectedAccessibilityRequirements(requirements);
+
+    const handleToggleRequirement = (key: AccessibilityRequirementKey) => {
+        setRequirements((previous) => toggleAccessibilityRequirement(previous, key));
+    };
+
+    const handleClearRequirements = () => setRequirements(NO_ACCESSIBILITY_REQUIREMENTS);
+
     const handleEditSearch = () => {
         router.back();
     };
@@ -72,6 +104,10 @@ export const JourneySearchResults = () => {
     // cases need different explanations.
     const hasMatchedRoutes = routes.length > 0;
     const isEmpty = status === 'loaded' && journeyOptions.length === 0;
+    // Departures exist, but none of them meet the stated needs. A different
+    // situation from having nothing to show, and it has its own way out.
+    const isFilteredEmpty =
+        status === 'loaded' && journeyOptions.length > 0 && visibleJourneys.length === 0;
 
     return (
         <View style={styles.container}>
@@ -126,6 +162,17 @@ export const JourneySearchResults = () => {
                     </View>
                 </View>
 
+                {/* Accessibility requirements (MOV-91) */}
+                {status === 'loaded' && journeyOptions.length > 0 && (
+                    <AccessibilityFilterPanel
+                        selection={requirements}
+                        onToggle={handleToggleRequirement}
+                        onClear={handleClearRequirements}
+                        matchingCount={visibleJourneys.length}
+                        totalCount={journeyOptions.length}
+                    />
+                )}
+
                 {/* Loading */}
                 {status === 'loading' && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
@@ -163,6 +210,29 @@ export const JourneySearchResults = () => {
                     </View>
                 )}
 
+                {/* No journey meets the stated requirements */}
+                {isFilteredEmpty && (
+                    <View style={styles.stateContainer} accessibilityLiveRegion="polite">
+                        <View style={styles.stateIconBadge}>
+                            <Ionicons name="accessibility-outline" size={32} color="#94A3B8" />
+                        </View>
+                        <Text style={styles.stateTitle}>No matching journeys</Text>
+                        <Text style={styles.stateDescription}>
+                            {journeyOptions.length} departure{journeyOptions.length > 1 ? 's were' : ' was'} found
+                            between {origin} and {destination}, but none record everything you selected.
+                            Try removing a requirement.
+                        </Text>
+                        <TouchableOpacity
+                            style={styles.stateButton}
+                            onPress={handleClearRequirements}
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear accessibility requirements"
+                        >
+                            <Text style={styles.stateButtonText}>CLEAR REQUIREMENTS</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 {/* Error */}
                 {status === 'error' && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="assertive">
@@ -191,12 +261,13 @@ export const JourneySearchResults = () => {
                 )}
 
                 {/* Results */}
-                {status === 'loaded' && journeyOptions.length > 0 && (
+                {status === 'loaded' && visibleJourneys.length > 0 && (
                     <>
                         <Text style={styles.resultsCountText}>
-                            {journeyOptions.length} journey option{journeyOptions.length > 1 ? 's' : ''} · most accessible first
+                            {visibleJourneys.length} journey option{visibleJourneys.length > 1 ? 's' : ''}
+                            {isFiltering ? ' match your requirements' : ''} · most accessible first
                         </Text>
-                        {journeyOptions.map(({ key, route, option, timing, display, accessibilityScore }) => (
+                        {visibleJourneys.map(({ key, route, option, timing, display, accessibilityScore }) => (
                             <JourneyOptionCard
                                 key={key}
                                 route={route}
