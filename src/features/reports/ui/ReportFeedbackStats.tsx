@@ -7,6 +7,18 @@ import { ReportCardFeedbackCounts } from '../utils/reportSummary';
 interface ReportFeedbackStatsProps {
     /** The three tallies, already resolved to numbers. Never fetched here. */
     counts: ReportCardFeedbackCounts;
+    /**
+     * How the row sits in its card.
+     *
+     * 'row' is the full-width band it has always been: the tallies on the left
+     * and "View Report" on the right, on a line of its own.
+     *
+     * 'inline' is the same three tallies with the line and the label dropped,
+     * for the compact passenger card that ends in a single footer — there the
+     * date already occupies the left of that line and the card's own chevron
+     * is what says the report opens, so a second label would repeat it.
+     */
+    variant?: 'row' | 'inline';
 }
 
 /**
@@ -32,29 +44,39 @@ interface ReportFeedbackStatsProps {
  * label, so this row stays hidden from screen readers rather than repeating
  * them out of context.
  */
-export function ReportFeedbackStats({ counts }: ReportFeedbackStatsProps) {
+export function ReportFeedbackStats({ counts, variant = 'row' }: ReportFeedbackStatsProps) {
+    const isInline = variant === 'inline';
+
     return (
         <View
-            style={styles.row}
+            style={isInline ? styles.inlineRow : styles.row}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
         >
-            <View style={styles.icons}>
-                <Stat icon="chatbubble-outline" count={counts.commentCount} />
-                <Stat icon="thumbs-up-outline" count={counts.agreeCount} />
-                <Stat icon="thumbs-down-outline" count={counts.disagreeCount} />
+            <View style={isInline ? styles.inlineIcons : styles.icons}>
+                <Stat icon="chatbubble-outline" count={counts.commentCount} size={isInline ? 14 : 16} />
+                <Stat icon="thumbs-up-outline" count={counts.agreeCount} size={isInline ? 14 : 16} />
+                <Stat icon="thumbs-down-outline" count={counts.disagreeCount} size={isInline ? 14 : 16} />
             </View>
 
-            <Text style={styles.viewReport}>View Report</Text>
+            {!isInline && <Text style={styles.viewReport}>View Report</Text>}
         </View>
     );
 }
 
 /** One icon and its number. */
-function Stat({ icon, count }: { icon: keyof typeof Ionicons.glyphMap; count: number }) {
+function Stat({
+    icon,
+    count,
+    size,
+}: {
+    icon: keyof typeof Ionicons.glyphMap;
+    count: number;
+    size: number;
+}) {
     return (
         <View style={styles.stat}>
-            <Ionicons name={icon} size={16} color={adminColors.textMuted} />
+            <Ionicons name={icon} size={size} color={adminColors.textMuted} />
             <Text style={styles.count}>{count}</Text>
         </View>
     );
@@ -70,7 +92,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginTop: 10,
     },
+    // The compact variant: no top margin and no width of its own, so it can sit
+    // at the end of the passenger card's footer beside the submitted date.
+    inlineRow: { flexDirection: 'row', alignItems: 'center' },
     icons: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+    inlineIcons: { flexDirection: 'row', alignItems: 'center', gap: 14 },
     stat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     count: {
         fontSize: 12,
