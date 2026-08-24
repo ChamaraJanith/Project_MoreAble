@@ -33,6 +33,27 @@ const STATUSES: { value: RouteStatus; label: string }[] = [
     { value: 'INACTIVE', label: 'Inactive' },
 ];
 
+/**
+ * Stored stop-to-stop timings as text inputs, one per gap between stops.
+ *
+ * Always exactly `stopCount - 1` entries, so an input can never end up bound to
+ * the wrong pair of stops. Anything unusable becomes an empty field — an
+ * untimed gap is shown as untimed rather than as zero minutes.
+ */
+function toSegmentInputs(
+    stored: (number | null)[] | null | undefined,
+    stopCount: number
+): string[] {
+    const source = Array.isArray(stored) ? stored : [];
+
+    return Array.from({ length: Math.max(stopCount - 1, 0) }, (_, index) => {
+        const entry = source[index];
+        return typeof entry === 'number' && Number.isFinite(entry) && entry >= 0
+            ? String(entry)
+            : '';
+    });
+}
+
 export const RouteForm = ({ routeId }: RouteFormProps) => {
     const isEditing = !!routeId;
 
@@ -51,6 +72,12 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
     // Start/end locations are derived from the first and last stop so they can
     // never drift out of sync with the ordered stop list.
     const [stops, setStops] = useState<string[]>(['', '']);
+    // Travelling minutes for the GAPS between the stops above: entry `i` is the
+    // time from stop `i` to stop `i + 1`, so there is always one fewer entry
+    // than there are stops (MOV-88). Held as text because these are text
+    // inputs; an empty entry means this gap has not been timed yet and is saved
+    // as null rather than as a guessed number.
+    const [segmentMinutes, setSegmentMinutes] = useState<string[]>(['']);
 
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,7 +102,10 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
             setDistanceKm(route.distanceKm != null ? String(route.distanceKm) : '');
             setEstimatedDuration(route.estimatedDuration ?? '');
             setStatus(route.status ?? 'ACTIVE');
-            setStops(Array.isArray(route.stops) && route.stops.length >= 2 ? route.stops : ['', '']);
+            const loadedStops =
+                Array.isArray(route.stops) && route.stops.length >= 2 ? route.stops : ['', ''];
+            setStops(loadedStops);
+            setSegmentMinutes(toSegmentInputs(route.segmentDurationsMinutes, loadedStops.length));
         } catch (err: any) {
             setLoadError(err?.message || 'Unable to load this route.');
         } finally {
@@ -91,26 +121,106 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
         setStops((prev) => prev.map((stop, i) => (i === index ? value : stop)));
     };
 
-    const addStop = () => setStops((prev) => [...prev, '']);
-
-    const removeStop = (index: number) => {
-        setStops((prev) => (prev.length <= 2 ? prev : prev.filter((_, i) => i !== index)));
+    const updateSegmentMinutes = (index: number, value: string) => {
+        // Whole minutes only — a stop-to-stop timing is entered as an integer
+        // the same way the rest of this form takes numbers.
+        const digitsOnly = value.replace(/[^0-9]/g, '');
+        setSegmentMinutes((prev) => prev.map((entry, i) => (i === index ? digitsOnly : entry)));
     };
 
-    const moveStop = (index: number, offset: -1 | 1) => {
-        setStops((prev) => {
-            const target = index + offset;
-            if (target < 0 || target >= prev.length) return prev;
+    const addStop = () => {
+        setStops((prev) => [...prev, '']);
+        // The new stop opens a new, untimed gap after the previous last stop.
+        setSegmentMinutes((prev) => [...prev, '']);
+    };
 
+    const removeStop = (index: number) => {
+        if (stops.length <= 2) return;
+
+        const lastIndex = stops.length - 1;
+
+        setStops((prev) => prev.filter((_, i) => i !== index));
+
+        setSegmentMinutes((prev) => {
             const next = [...prev];
-            [next[index], next[target]] = [next[target], next[index]];
+
+            if (index === 0) {
+                next.shift();
+            } else if (index === lastIndex) {
+                next.pop();
+            } else {
+                // Removing a middle stop merges the gaps either side of it into
+                // one longer gap whose real timing nobody has measured. One
+                // entry goes, and the surviving merged gap is blanked rather
+                // than inheriting half of the old journey.
+                next.splice(index, 1);
+                next[index - 1] = '';
+            }
+
             return next;
         });
     };
 
-    const cleanedStops = stops.map((stop) => stop.trim()).filter(Boolean);
+    const moveStop = (index: number, offset: -1 | 1) => {
+        const target = index + offset;
+        if (target < 0 || target >= stops.length) return;
+
+        setStops((prev) => {
+            const next = [...prev];
+            [next[index], next[target]] = [next[target], next[index]];
+            return next;
+        });
+
+        setSegmentMinutes((prev) => {
+            const next = [...prev];
+
+            // Reordering stops changes which pairs of stops the timings around
+            // the move describe, so those entries are cleared. Keeping them
+            // would silently attach a measured time to a gap it was never
+            // measured for.
+            for (const gap of [index - 1, index, target - 1, target]) {
+                if (gap >= 0 && gap < next.length) next[gap] = '';
+            }
+
+            return next;
+        });
+    };
+
+    // Which positions in `stops` survive the blank-filtering below. Kept
+    // explicitly so the timings can be re-aligned to the saved stop list: a gap
+    // belongs to the stop it starts at, and dropping a blank row must not shift
+    // every timing after it onto the wrong pair of stops.
+    const keptStopIndices = stops
+        .map((stop, index) => ({ stop, index }))
+        .filter((entry) => entry.stop.trim().length > 0)
+        .map((entry) => entry.index);
+
+    const cleanedStops = keptStopIndices.map((index) => stops[index].trim());
     const startLocation = cleanedStops[0] ?? '';
     const endLocation = cleanedStops.length > 1 ? cleanedStops[cleanedStops.length - 1] : '';
+
+    // One entry per gap in `cleanedStops`, in the same travel order. An empty
+    // field becomes null: the gap is recorded as untimed, never as zero.
+    const cleanedSegmentDurations: (number | null)[] = keptStopIndices
+        .slice(0, -1)
+        .map((stopIndex) => {
+            const raw = segmentMinutes[stopIndex];
+            if (typeof raw !== 'string' || raw.trim() === '') return null;
+
+            const minutes = Number(raw);
+            return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
+        });
+
+    const timedGapCount = cleanedSegmentDurations.filter((entry) => entry !== null).length;
+    const totalGapCount = cleanedSegmentDurations.length;
+    const isFullyTimed = totalGapCount > 0 && timedGapCount === totalGapCount;
+
+    // Shown back to the operator as a sanity check against the route's own
+    // estimated duration — the two describe the same end-to-end journey.
+    const timedTotalMinutes = cleanedSegmentDurations.reduce<number>(
+        (total, entry) => total + (entry ?? 0),
+        0
+    );
 
     const validate = (): boolean => {
         const next: Record<string, string> = {};
@@ -154,6 +264,11 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
                 stops: cleanedStops,
                 distanceKm: distanceKm.trim() ? Number(distanceKm) : null,
                 estimatedDuration: estimatedDuration.trim() || null,
+                // Sent aligned to `stops` above. Null when the operator has
+                // timed nothing, so a route with no timings is stored as
+                // untimed rather than as a row of zeroes — passenger screens
+                // then report no journey duration instead of a wrong one.
+                segmentDurationsMinutes: timedGapCount > 0 ? cleanedSegmentDurations : null,
                 status,
             };
 
@@ -338,7 +453,9 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
                 <View style={styles.card}>
                     <Text style={styles.stopsHelper}>
                         Stops run in travel order. The first stop is the starting point and the last is the
-                        destination.
+                        destination. Enter the real travelling time between each pair of stops — a
+                        passenger boarding partway along the route is shown the total for the stops they
+                        actually travel, so an untimed gap is better left blank than guessed.
                     </Text>
 
                     {stops.map((stop, index) => {
@@ -346,7 +463,8 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
                         const isLast = index === stops.length - 1;
 
                         return (
-                            <View key={index} style={styles.stopRow}>
+                            <React.Fragment key={index}>
+                            <View style={styles.stopRow}>
                                 <View style={styles.stopIndexBadge}>
                                     <Text style={styles.stopIndexText}>{index + 1}</Text>
                                 </View>
@@ -420,6 +538,29 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
                                     </TouchableOpacity>
                                 </View>
                             </View>
+
+                            {!isLast && (
+                                <View style={styles.segmentRow}>
+                                    <View style={styles.segmentConnectorColumn}>
+                                        <View style={styles.segmentConnectorLine} />
+                                    </View>
+
+                                    <TextInput
+                                        style={styles.segmentInput}
+                                        value={segmentMinutes[index] ?? ''}
+                                        onChangeText={(text) => updateSegmentMinutes(index, text)}
+                                        placeholder="—"
+                                        placeholderTextColor={adminColors.textPlaceholder}
+                                        keyboardType="number-pad"
+                                        accessibilityLabel={`Travelling minutes from stop ${index + 1} to stop ${index + 2}`}
+                                    />
+
+                                    <Text style={styles.segmentUnitText}>
+                                        min to stop {index + 2}
+                                    </Text>
+                                </View>
+                            )}
+                            </React.Fragment>
                         );
                     })}
 
@@ -442,6 +583,14 @@ export const RouteForm = ({ routeId }: RouteFormProps) => {
 
                     {cleanedStops.length >= 2 && (
                         <View style={styles.derivedBox}>
+                            <Text style={styles.derivedText}>
+                                <Text style={styles.derivedLabel}>Timings: </Text>
+                                {timedGapCount === 0
+                                    ? `None of the ${totalGapCount} gaps timed — passengers will see no journey duration.`
+                                    : isFullyTimed
+                                      ? `All ${totalGapCount} gaps timed · ${timedTotalMinutes} min end to end`
+                                      : `${timedGapCount} of ${totalGapCount} gaps timed — a journey crossing an untimed gap shows no duration.`}
+                            </Text>
                             <Text style={styles.derivedText}>
                                 <Text style={styles.derivedLabel}>Start: </Text>
                                 {startLocation}
@@ -738,6 +887,35 @@ const styles = StyleSheet.create({
         marginTop: 4,
         marginLeft: 2,
     },
+    segmentRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    segmentConnectorColumn: { width: 30, alignItems: 'center' },
+    segmentConnectorLine: {
+        width: 2,
+        height: 26,
+        borderRadius: 1,
+        backgroundColor: adminColors.border,
+    },
+    segmentInput: {
+        width: 66,
+        minHeight: 40,
+        marginLeft: 10,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surfaceMuted,
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        textAlign: 'center',
+        fontSize: 14,
+        fontWeight: '700',
+        color: adminColors.textPrimary,
+    },
+    segmentUnitText: {
+        marginLeft: 10,
+        fontSize: 12,
+        fontWeight: '600',
+        color: adminColors.textMuted,
+    },
+
     stopControls: { flexDirection: 'row' },
     stopControlButton: {
         width: 32,

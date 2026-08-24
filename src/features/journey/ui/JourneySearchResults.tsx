@@ -5,34 +5,13 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import {
     JourneyGeoInformation,
     JourneySearchMatch,
-    JourneySearchOption,
 } from '../../../entities/route/model/types';
 import { searchJourneys } from '../api/journeySearchApi';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
+import { toRecommendedJourneys } from '../utils/journeyRecommendations';
 import { JourneyOptionCard } from './JourneyOptionCard';
 
 type ResultsStatus = 'loading' | 'loaded' | 'error';
-
-interface JourneyOption {
-    key: string;
-    route: JourneySearchMatch;
-    option: JourneySearchOption;
-}
-
-// Every trip becomes its own journey option, ordered by departure time across all
-// matched routes — so two trips on the same route appear as separate, comparable
-// departures rather than being collapsed together.
-function toJourneyOptions(routes: JourneySearchMatch[]): JourneyOption[] {
-    return routes
-        .flatMap((route) =>
-            route.trips.map((option) => ({
-                key: `${route.routeId}-${option.trip.tripId}`,
-                route,
-                option,
-            }))
-        )
-        .sort((a, b) => a.option.trip.departureTime.localeCompare(b.option.trip.departureTime));
-}
 
 export const JourneySearchResults = () => {
     const params = useLocalSearchParams<{
@@ -74,7 +53,13 @@ export const JourneySearchResults = () => {
         runSearch();
     }, [runSearch]);
 
-    const journeyOptions = useMemo(() => toJourneyOptions(routes), [routes]);
+    // Every trip on every matched route, in recommended order (MOV-88).
+    //
+    // Ordering is MOV-87's `rankJourneyOptions` reading MOV-89's accessibility
+    // score — not a sort written here. It reorders and never filters, so the
+    // passenger can still compare every departure the search returned; the most
+    // accessible suitable one is simply first.
+    const journeyOptions = useMemo(() => toRecommendedJourneys(routes), [routes]);
 
     const handleEditSearch = () => {
         router.back();
@@ -209,13 +194,16 @@ export const JourneySearchResults = () => {
                 {status === 'loaded' && journeyOptions.length > 0 && (
                     <>
                         <Text style={styles.resultsCountText}>
-                            {journeyOptions.length} journey option{journeyOptions.length > 1 ? 's' : ''} · soonest first
+                            {journeyOptions.length} journey option{journeyOptions.length > 1 ? 's' : ''} · most accessible first
                         </Text>
-                        {journeyOptions.map(({ key, route, option }) => (
+                        {journeyOptions.map(({ key, route, option, timing, display, accessibilityScore }) => (
                             <JourneyOptionCard
                                 key={key}
                                 route={route}
                                 option={option}
+                                timing={timing}
+                                display={display}
+                                accessibilityScore={accessibilityScore}
                                 geo={geo}
                                 travelDate={travelDate}
                                 travelTime={travelTime}

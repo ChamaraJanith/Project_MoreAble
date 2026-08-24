@@ -107,6 +107,27 @@ export const RouteDetailsScreen = ({ routeId }: RouteDetailsScreenProps) => {
 
     const stops = Array.isArray(route.stops) ? route.stops : [];
 
+    // Configured travelling minutes between consecutive stops (MOV-88). Entry
+    // `i` covers `stops[i]` to `stops[i + 1]`; anything unusable reads as
+    // untimed rather than as zero.
+    const segmentDurations = Array.isArray(route.segmentDurationsMinutes)
+        ? route.segmentDurationsMinutes
+        : [];
+
+    const gapCount = Math.max(stops.length - 1, 0);
+    const timedGaps = segmentDurations
+        .slice(0, gapCount)
+        .filter((minutes) => typeof minutes === 'number' && Number.isFinite(minutes) && minutes >= 0);
+
+    const segmentTimingSummary =
+        gapCount === 0
+            ? 'Not applicable'
+            : timedGaps.length === 0
+              ? 'Not recorded'
+              : timedGaps.length === gapCount
+                ? `All ${gapCount} timed · ${timedGaps.reduce<number>((total, minutes) => total + (minutes as number), 0)} min end to end`
+                : `${timedGaps.length} of ${gapCount} timed`;
+
     return (
         <View style={styles.container}>
             <AdminScreenHeader title={`Route ${route.routeNumber}`} subtitle={route.routeName} />
@@ -164,6 +185,7 @@ export const RouteDetailsScreen = ({ routeId }: RouteDetailsScreenProps) => {
                         value={route.estimatedDuration || 'Not recorded'}
                     />
                     <DetailRow label="Total Stops" value={`${stops.length}`} />
+                    <DetailRow label="Stop-to-Stop Timings" value={segmentTimingSummary} />
                     <DetailRow label="Status" value={route.status} isLast />
                 </View>
 
@@ -220,6 +242,16 @@ export const RouteDetailsScreen = ({ routeId }: RouteDetailsScreenProps) => {
                                     </View>
 
                                     <Text style={styles.stopIndex}>{index + 1}</Text>
+
+                                    {!isLast && (
+                                        <Text style={styles.stopSegmentMinutes}>
+                                            {typeof segmentDurations[index] === 'number' &&
+                                            Number.isFinite(segmentDurations[index] as number) &&
+                                            (segmentDurations[index] as number) >= 0
+                                                ? `+${segmentDurations[index]} min`
+                                                : '+— min'}
+                                        </Text>
+                                    )}
                                 </View>
                             );
                         })
@@ -476,6 +508,14 @@ const styles = StyleSheet.create({
         letterSpacing: 0.5,
     },
     endpointTagTextEnd: { color: adminColors.success },
+    stopSegmentMinutes: {
+        marginLeft: 10,
+        minWidth: 58,
+        textAlign: 'right',
+        fontSize: 11,
+        fontWeight: '700',
+        color: adminColors.textMuted,
+    },
     stopIndex: {
         fontSize: 12,
         fontWeight: '700',

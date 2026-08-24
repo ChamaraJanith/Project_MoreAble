@@ -84,31 +84,98 @@ export function parseApiTimeString(value: string): TimeOfDay {
     return { hour, minute, period };
 }
 
+const MINUTES_PER_DAY = 24 * 60;
+
+/**
+ * Minutes since midnight for an 'HH:MM' value, or null when it is unusable.
+ *
+ * Shared by everything below so "what counts as a readable time" is decided
+ * once.
+ */
+export function apiTimeToMinutes(value: unknown): number | null {
+    if (typeof value !== 'string') return null;
+
+    const [hourStr, minuteStr] = value.split(':');
+    const hours = Number(hourStr);
+    const minutes = Number(minuteStr);
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (hourStr.trim() === '' || minuteStr === undefined || minuteStr.trim() === '') return null;
+
+    return hours * 60 + minutes;
+}
+
+/** Minutes since midnight back to the zero-padded 'HH:MM' the API stores. */
+export function minutesToApiTime(totalMinutes: number): string | null {
+    if (!Number.isFinite(totalMinutes)) return null;
+
+    // Wrapped rather than clamped: a late trip legitimately runs past midnight,
+    // and the project stores a time of day, not a timestamp.
+    const wrapped = ((Math.round(totalMinutes) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+
+    const hours = Math.floor(wrapped / 60);
+    const minutes = wrapped % 60;
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/**
+ * Moves an 'HH:MM' time on by a number of minutes, wrapping past midnight.
+ *
+ * Used to place a passenger's own boarding and alighting times inside a trip
+ * whose stored times describe the whole route (MOV-88). Returns null rather than
+ * a wrong time when either input is unusable.
+ */
+export function addMinutesToApiTime(value: string, minutesToAdd: number): string | null {
+    const base = apiTimeToMinutes(value);
+    if (base === null || !Number.isFinite(minutesToAdd)) return null;
+
+    return minutesToApiTime(base + minutesToAdd);
+}
+
+/**
+ * Formats a whole number of minutes as e.g. "1h 10m" / "45m" / "2h".
+ *
+ * The project's single duration format. `formatDurationBetween` delegates here,
+ * so a journey duration measured by summing configured stop-to-stop timings
+ * (MOV-88) reads exactly like one measured between two clock times — there is
+ * no second formatter to drift from this one.
+ *
+ * Zero is null, matching the long-standing behaviour of
+ * `formatDurationBetween`: "0m" tells a passenger nothing useful.
+ */
+export function formatDurationMinutes(totalMinutes: number | null | undefined): string | null {
+    if (typeof totalMinutes !== 'number' || !Number.isFinite(totalMinutes)) return null;
+    if (totalMinutes <= 0) return null;
+
+    const whole = Math.round(totalMinutes);
+    if (whole === 0) return null;
+
+    const hours = Math.floor(whole / 60);
+    const minutes = whole % 60;
+
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+}
+
+/** Whole minutes between two 'HH:MM' times, treating a wrap as crossing midnight. */
+export function minutesBetweenApiTimes(
+    departureTime: string,
+    arrivalTime: string
+): number | null {
+    const start = apiTimeToMinutes(departureTime);
+    const end = apiTimeToMinutes(arrivalTime);
+    if (start === null || end === null) return null;
+
+    return end >= start ? end - start : end + MINUTES_PER_DAY - start;
+}
+
 // Formats the gap between two 'HH:MM' times as e.g. "1h 10m" / "45m".
 // An arrival earlier than the departure is treated as crossing midnight.
 export function formatDurationBetween(
     departureTime: string,
     arrivalTime: string
 ): string | null {
-    const toMinutes = (value: string): number | null => {
-        const [hourStr, minuteStr] = value.split(':');
-        const hours = Number(hourStr);
-        const minutes = Number(minuteStr);
-        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-        return hours * 60 + minutes;
-    };
-
-    const start = toMinutes(departureTime);
-    const end = toMinutes(arrivalTime);
-    if (start === null || end === null) return null;
-
-    const totalMinutes = end >= start ? end - start : end + 24 * 60 - start;
-    if (totalMinutes === 0) return null;
-
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-
-    if (hours === 0) return `${minutes}m`;
-    if (minutes === 0) return `${hours}h`;
-    return `${hours}h ${minutes}m`;
+    return formatDurationMinutes(minutesBetweenApiTimes(departureTime, arrivalTime));
 }

@@ -19,6 +19,27 @@ export interface Route {
     stops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
+    /**
+     * Configured travelling minutes between each CONSECUTIVE pair of `stops`
+     * (MOV-88).
+     *
+     * Entry `i` is the time from `stops[i]` to `stops[i + 1]`, so a fully timed
+     * route has exactly `stops.length - 1` entries and the array is read in the
+     * same travel order as `stops` itself — no separate ordering field, because
+     * `stops` is already the authoritative sequence.
+     *
+     * This is the only stop-level timing the project holds, and it exists
+     * because `estimatedDuration` and a trip's departure/arrival times all
+     * describe the WHOLE route: none of them can say how long a passenger
+     * boarding mid-route actually travels for. Summing the entries between the
+     * boarded and alighted stops can, which is what MOV-88 needs.
+     *
+     * Entered by an operator against real timings, never derived. A gap nobody
+     * has timed yet is `null` rather than a guess, and the whole field is
+     * optional so every route that predates it stays valid — an untimed route
+     * simply reports no passenger-specific duration instead of a wrong one.
+     */
+    segmentDurationsMinutes?: (number | null)[] | null;
     status: RouteStatus;
     createdAt?: unknown;
     updatedAt?: unknown;
@@ -170,6 +191,41 @@ export interface JourneySearchMatch {
     journeyStops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
+    /**
+     * How far the PASSENGER travels: origin stop to destination stop, not the
+     * whole route (MOV-88).
+     *
+     * `distanceKm` above is the route's own end-to-end total and stays that, so
+     * the admin screens reading it are unaffected. This is the part of it the
+     * passenger actually rides, measured stop by stop along their own span.
+     *
+     * Sources, in order:
+     *   - a journey covering the whole route reports the route's recorded
+     *     `distanceKm`, which is the operator's own authoritative figure;
+     *   - a partial journey is summed from the stop coordinates already stored
+     *     in the `stops` collection, consecutive pair by consecutive pair — the
+     *     same measurement the fare calculation has billed on since MOV-97.
+     *
+     * Null when a stop on the passenger's path has no stored coordinates.
+     * Nothing here scales the route total by a fraction of the stops or
+     * estimates from a stop count: a distance that cannot be measured is
+     * reported as unavailable rather than approximated.
+     */
+    journeyDistanceKm?: number | null;
+    /**
+     * This route's own `Route.segmentDurationsMinutes`, passed through unchanged
+     * and still aligned to the FULL `stops` list rather than to `journeyStops`
+     * (MOV-88).
+     *
+     * Deliberately not pre-sliced. The passenger's boarding time depends on the
+     * gaps BEFORE they board — the part `journeyStops` deliberately excludes —
+     * so a consumer needs the whole route's timings to place the journey inside
+     * the trip. Slicing here would throw that away and leave the duration
+     * correct but its departure time wrong.
+     *
+     * Null when the operator has not timed this route.
+     */
+    segmentDurationsMinutes?: (number | null)[] | null;
     /**
      * The road path along this route's own stop sequence, from OSRM.
      *

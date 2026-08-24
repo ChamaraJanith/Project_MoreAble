@@ -1,16 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { TransportOption } from '../../../entities/booking/model/types';
+import { accessibilityScoreColor as scoreColor } from '../../../shared/utils/accessibility';
 
 interface Props {
     option: TransportOption;
     onSelect: (option: TransportOption) => void;
-}
-
-function scoreColor(score: number): string {
-    if (score >= 70) return '#388E3C';
-    if (score >= 40) return '#F57C00';
-    return '#D32F2F';
 }
 
 export function TransportOptionCard({ option, onSelect }: Props) {

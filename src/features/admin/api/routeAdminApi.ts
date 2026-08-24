@@ -13,6 +13,16 @@ export interface CreateRoutePayload {
     stops: string[];
     distanceKm: number | null;
     estimatedDuration: string | null;
+    /**
+     * Travelling minutes between each consecutive pair of `stops` — entry `i`
+     * covers `stops[i]` to `stops[i + 1]` (MOV-88).
+     *
+     * Optional so a caller that is not editing the timings can leave them
+     * alone: the API only writes the field when it is actually sent, so
+     * omitting it preserves whatever is already recorded. `null` inside the
+     * array means that gap has not been timed yet.
+     */
+    segmentDurationsMinutes?: (number | null)[] | null;
     status: RouteStatus;
 }
 
