@@ -13,6 +13,7 @@ import { POST as createBus } from '../../../app/api/buses/index+api';
 import { POST as searchJourneys } from '../../../app/api/journeys/search+api';
 import { POST as createRoute } from '../../../app/api/routes/index+api';
 import { POST as createTrip } from '../../../app/api/trips/index+api';
+import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { buildTestPassword } from '../../testUtils/testPassword';
 
@@ -146,6 +147,8 @@ describe('transport records written by admin are read back by journey search', (
             manufacturer: 'Ashok Leyland',
             seatCapacity: 54,
             accessibilityFacilities: busPayload.accessibilityFacilities,
+            // Derived from the facilities the admin recorded (MOV-89).
+            accessibilityScore: computeAccessibilityScore(busPayload.accessibilityFacilities),
         });
     });
 
@@ -169,6 +172,9 @@ describe('transport records written by admin are read back by journey search', (
         expect(bus.passwordHash).toBeUndefined();
         expect(Object.keys(bus).sort()).toEqual([
             'accessibilityFacilities',
+            // Added by MOV-89. The list stays exhaustive on purpose: it is what
+            // makes a credential stored beside the vehicle unable to travel.
+            'accessibilityScore',
             'busId',
             'busModel',
             'manufacturer',

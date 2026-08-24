@@ -2,6 +2,7 @@ import { Bus } from '../../../src/entities/bus/model/types';
 import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import { POST } from '../../../app/api/journeys/search+api';
+import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { geocodeLocation } from '../../../src/shared/api/locationService';
 import {
@@ -521,6 +522,10 @@ describe('POST /api/journeys/search', () => {
                 manufacturer: 'Ashok Leyland',
                 seatCapacity: 54,
                 accessibilityFacilities: bus1.accessibilityFacilities,
+                // Carried so a recommendation can be ranked by it (MOV-89).
+                // Read from the shared function rather than written down, so
+                // this stays a check of the contract, not of the arithmetic.
+                accessibilityScore: computeAccessibilityScore(bus1.accessibilityFacilities),
             });
         });
 

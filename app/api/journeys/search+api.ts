@@ -13,6 +13,7 @@ import {
 } from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
+import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
 import { normalizeLocation } from '../../../src/shared/utils/location';
 export { normalizeLocation };
 
@@ -454,6 +455,12 @@ async function attachUpcomingTrips(
               manufacturer: bus.manufacturer,
               seatCapacity: bus.seatCapacity,
               accessibilityFacilities: bus.accessibilityFacilities,
+              // Derived from this bus's own facilities, inside the same block
+              // that resolved them, so a score can never be paired with a
+              // different vehicle. The same function the booking flow uses —
+              // one definition of how accessible a bus is (MOV-89). What the
+              // score should weigh is MOV-79's to widen.
+              accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
             }
           : null,
         liveStatus: buildLiveStatus(vehicleLocation, now),

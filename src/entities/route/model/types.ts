@@ -32,8 +32,7 @@ export interface JourneySearchTrip {
     turnNumber: number;
 }
 
-// The bus operating a JourneySearchTrip. Deliberately excludes fields (e.g. an
-// accessibility score) that this stage of the project does not calculate yet.
+// The bus operating a JourneySearchTrip.
 export interface JourneySearchBus {
     busId: string;
     numberPlate: string;
@@ -41,6 +40,25 @@ export interface JourneySearchBus {
     manufacturer: string;
     seatCapacity: number;
     accessibilityFacilities: BusAccessibilityFacilities;
+    /**
+     * How accessible this vehicle is, from the facilities recorded against it
+     * (MOV-89).
+     *
+     * Carried so a recommendation can be ranked by it without every caller
+     * re-deriving it from the facilities — and so the ranking layer (MOV-87)
+     * never has to know how the figure is produced.
+     *
+     * Not calculated here and not calculated by the search: it is the same
+     * `computeAccessibilityScore` the booking flow already reports, so a bus
+     * reads the same in both places. What that score should eventually take
+     * into account — community reports, ratings, delay history, reliability —
+     * belongs to MOV-79, and widening it there widens it here for free.
+     *
+     * Present only when the bus record itself is. A trip whose bus is missing
+     * has `bus: null`, which the ranking layer treats as an unknown score
+     * rather than a bad one.
+     */
+    accessibilityScore: number;
 }
 
 /**
