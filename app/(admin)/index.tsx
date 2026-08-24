@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -21,6 +20,7 @@ import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
 import { getUsers } from '../../src/features/admin/api/userAdminApi';
+import { adminReviewQueuePath } from '../../src/features/reports/utils/reportRoutes';
 
 export default function AdminDashboard() {
     const [buses, setBuses] = useState<Bus[] | null>(null);
@@ -136,11 +136,14 @@ export default function AdminDashboard() {
         router.push('/(admin)/trips/add');
     };
 
+    // The admin review queue (MOV-160). Opens the same reports the passengers
+    // filed, with the decisions only an administrator can record on them.
+    //
+    // Cast for the same reason the report screens cast their own paths: the
+    // generated route union in .expo/types is only as current as the last dev
+    // server run, and a route added since then is not in it yet.
     const handleReports = () => {
-        Alert.alert(
-            'Accessibility Reports',
-            'Accessibility Reports screen will be connected next.'
-        );
+        router.push(adminReviewQueuePath() as Href);
     };
 
     const handleUsers = () => {

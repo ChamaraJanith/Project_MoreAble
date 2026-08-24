@@ -18,6 +18,23 @@ export function reportEditPath(reportId: string): string {
 }
 
 /**
+ * The admin review queue in the app: `/(admin)/reports`.
+ *
+ * Grouped under `(admin)` alongside buses, routes and users rather than beside
+ * the passenger `/reports` screens, because what makes it an admin screen is
+ * the same thing that makes those ones admin screens — and the route it calls
+ * refuses a passenger session whatever path led there.
+ */
+export function adminReviewQueuePath(): string {
+    return '/(admin)/reports';
+}
+
+/** The review screen for one report, e.g. `/(admin)/reports/REP-00007`. */
+export function adminReviewDetailsPath(reportId: string): string {
+    return `${adminReviewQueuePath()}/${encodeURIComponent(reportId)}`;
+}
+
+/**
  * The API route for one report, relative to the API base URL.
  *
  * GET, PUT and DELETE all address the same route — the owner-only rules live on
