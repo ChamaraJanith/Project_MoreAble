@@ -14,7 +14,12 @@ import {
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { sumSegmentDistances } from '../../../src/shared/server/routeDistance';
 import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import {
+  AccessibilityRequirementKey,
+  computeAccessibilityScore,
+  meetsAccessibilityRequirements,
+  parseAccessibilityRequirements,
+} from '../../../src/shared/utils/accessibility';
 import { normalizeLocation } from '../../../src/shared/utils/location';
 export { normalizeLocation };
 
@@ -566,6 +571,53 @@ async function attachUpcomingTrips(
   return { ...match, trips: options };
 }
 
+/**
+ * Narrows the matched routes to the departures that meet the passenger's stated
+ * accessibility requirements (MOV-92).
+ *
+ * Runs AFTER the routes, the trips and their buses have been resolved, because
+ * suitability is a property of the vehicle operating a departure rather than of
+ * the route it runs on: the same route can be served by an accessible bus at
+ * 08:00 and an inaccessible one at 08:30, and only one of those is an option
+ * for this passenger.
+ *
+ * It only ever REMOVES. Nothing here reorders (ranking is MOV-87's, applied
+ * afterwards by the consumer), nothing recalculates a score (MOV-79's figure
+ * travels on each option untouched), and every surviving option is the same
+ * object the search built.
+ *
+ * With no requirement selected the input is returned as-is — not a copy, not a
+ * re-filtered list — so an existing request behaves exactly as it did before
+ * this feature existed.
+ *
+ * A route whose every departure was excluded is dropped rather than returned
+ * empty. An empty `trips` array already means "this route runs, but nothing
+ * leaves after your travel time", and a passenger reading that about a route
+ * that simply has no accessible bus would be told to try an earlier time for a
+ * problem no time can solve.
+ *
+ * The decision itself is `meetsAccessibilityRequirements`, shared with the
+ * passenger screen, so a bus is never suitable here and unsuitable there.
+ */
+export function filterMatchesByAccessibility(
+  matches: JourneySearchMatch[],
+  requirements: readonly AccessibilityRequirementKey[]
+): JourneySearchMatch[] {
+  if (requirements.length === 0) return matches;
+
+  const suitable: JourneySearchMatch[] = [];
+
+  for (const match of matches) {
+    const trips = (Array.isArray(match.trips) ? match.trips : []).filter((option) =>
+      meetsAccessibilityRequirements(option?.bus?.accessibilityFacilities, requirements)
+    );
+
+    if (trips.length > 0) suitable.push({ ...match, trips });
+  }
+
+  return suitable;
+}
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -578,6 +630,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     const { origin, destination, travelDate, travelTime } = body ?? {};
+
+    // Optional (MOV-92). Absent means the passenger stated no requirement, which
+    // is every request that predates this feature.
+    const accessibility = parseAccessibilityRequirements(body?.accessibilityRequirements);
 
     const trimmedOrigin = typeof origin === 'string' ? origin.trim() : '';
     const trimmedDestination = typeof destination === 'string' ? destination.trim() : '';
@@ -647,6 +703,35 @@ export async function POST(request: Request) {
       );
     }
 
+    // Rejected rather than ignored. A request that asks for a facility this API
+    // does not recognise would otherwise come back unfiltered but looking
+    // filtered, which is the one outcome this feature exists to prevent.
+    if (accessibility.malformed) {
+      return Response.json(
+        {
+          success: false,
+          message: 'accessibilityRequirements must be a list of accessibility requirements.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    if (accessibility.unrecognized.length > 0) {
+      return Response.json(
+        {
+          success: false,
+          message: `Unknown accessibility requirement: ${accessibility.unrecognized.join(', ')}.`,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
     const adminDb = getAdminDb();
 
     const routesSnapshot = await adminDb
@@ -706,6 +791,9 @@ export async function POST(request: Request) {
       destination: trimmedDestination,
       travelDate,
       travelTime,
+      // Echoed so a client can see exactly what the results were filtered by,
+      // normalized to the canonical order. Empty when none were asked for.
+      accessibilityRequirements: accessibility.requirements,
     };
 
     if (matchedRoutes.length === 0) {
@@ -733,23 +821,35 @@ export async function POST(request: Request) {
     // measured against the same clock.
     const now = new Date();
 
+    const routesWithDepartures = await Promise.all(
+      matchedRoutes.map((match) =>
+        attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now)
+      )
+    );
+
+    // MOV-92, applied here and only here: after the vehicles are known, so
+    // suitability can be judged, and before the road enrichment below, so a
+    // route no passenger can use costs no routing call.
+    const suitableRoutes = filterMatchesByAccessibility(
+      routesWithDepartures,
+      accessibility.requirements
+    );
+
     const enrichedRoutes = await Promise.all(
-      matchedRoutes.map(async (match) =>
-        attachRoadRoute(
-          attachJourneyDistance(
-            await attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now),
-            stopCoordinates
-          ),
-          stopCoordinates,
-          geo
-        )
+      suitableRoutes.map(async (match) =>
+        attachRoadRoute(attachJourneyDistance(match, stopCoordinates), stopCoordinates, geo)
       )
     );
 
     return Response.json(
       {
         success: true,
-        message: `${enrichedRoutes.length} matching route${enrichedRoutes.length > 1 ? 's' : ''} found.`,
+        message:
+          enrichedRoutes.length === 0
+            ? // Only reachable once requirements are filtering: routes did match
+              // this journey, so saying none did would be untrue.
+              'No routes match your accessibility requirements.'
+            : `${enrichedRoutes.length} matching route${enrichedRoutes.length > 1 ? 's' : ''} found.`,
         searchCriteria,
         count: enrichedRoutes.length,
         routes: enrichedRoutes,

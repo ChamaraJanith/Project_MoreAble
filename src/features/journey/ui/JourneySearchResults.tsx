@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import {
     JourneyGeoInformation,
@@ -11,8 +11,8 @@ import {
     AccessibilityRequirementKey,
     AccessibilityRequirementSelection,
     filterJourneysByAccessibility,
-    hasSelectedAccessibilityRequirements,
     NO_ACCESSIBILITY_REQUIREMENTS,
+    selectedAccessibilityRequirements,
     toggleAccessibilityRequirement,
 } from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
@@ -45,6 +45,22 @@ export const JourneySearchResults = () => {
         NO_ACCESSIBILITY_REQUIREMENTS
     );
 
+    // The stated needs travel to the API (MOV-92), so the search itself returns
+    // only suitable departures. Memoised so a search re-runs when the selection
+    // changes and not when the screen merely re-renders.
+    const selectedRequirements = useMemo(
+        () => selectedAccessibilityRequirements(requirements),
+        [requirements]
+    );
+
+    const isFiltering = selectedRequirements.length > 0;
+
+    // Toggling a requirement starts a new search while an earlier one may still
+    // be in flight. Only the newest may write to the screen: without this, two
+    // taps in quick succession can leave the slower, older response on display,
+    // and that response was filtered by a selection the passenger has changed.
+    const latestRequestId = useRef(0);
+
     const runSearch = useCallback(async () => {
         if (!origin || !destination || !travelDate || !travelTime) {
             setStatus('error');
@@ -52,18 +68,34 @@ export const JourneySearchResults = () => {
             return;
         }
 
+        const requestId = ++latestRequestId.current;
         setStatus('loading');
 
         try {
-            const response = await searchJourneys({ origin, destination, travelDate, travelTime });
+            const response = await searchJourneys({
+                origin,
+                destination,
+                travelDate,
+                travelTime,
+                // Omitted entirely when nothing is selected, so a search with no
+                // stated need is the request this screen has always sent.
+                ...(selectedRequirements.length > 0
+                    ? { accessibilityRequirements: selectedRequirements }
+                    : {}),
+            });
+
+            if (requestId !== latestRequestId.current) return;
+
             setRoutes(Array.isArray(response.routes) ? response.routes : []);
             setGeo(response.geo ?? null);
             setStatus('loaded');
         } catch (error: any) {
+            if (requestId !== latestRequestId.current) return;
+
             setErrorMessage(error?.message || 'Something went wrong while searching for routes.');
             setStatus('error');
         }
-    }, [origin, destination, travelDate, travelTime]);
+    }, [origin, destination, travelDate, travelTime, selectedRequirements]);
 
     useEffect(() => {
         runSearch();
@@ -77,15 +109,18 @@ export const JourneySearchResults = () => {
     // accessible suitable one is simply first.
     const journeyOptions = useMemo(() => toRecommendedJourneys(routes), [routes]);
 
-    // The passenger's requirements applied to that same ranked list (MOV-91).
-    // Filtering only removes: the order is still MOV-87's, and with nothing
-    // selected this is `journeyOptions` itself.
+    // The same requirements applied again to what came back (MOV-91).
+    //
+    // Not a second filter: it is the same shared rule the API applied, run over
+    // the response as a consistency check. The API decides which departures are
+    // returned; this guarantees that what is on screen always agrees with the
+    // chips currently shown selected, even if a response from a slightly earlier
+    // selection reaches the screen. With nothing selected it returns the list
+    // untouched.
     const visibleJourneys = useMemo(
         () => filterJourneysByAccessibility(journeyOptions, requirements),
         [journeyOptions, requirements]
     );
-
-    const isFiltering = hasSelectedAccessibilityRequirements(requirements);
 
     const handleToggleRequirement = (key: AccessibilityRequirementKey) => {
         setRequirements((previous) => toggleAccessibilityRequirement(previous, key));
@@ -103,11 +138,12 @@ export const JourneySearchResults = () => {
     // A route can match without having any upcoming departure, so the two empty
     // cases need different explanations.
     const hasMatchedRoutes = routes.length > 0;
-    const isEmpty = status === 'loaded' && journeyOptions.length === 0;
-    // Departures exist, but none of them meet the stated needs. A different
-    // situation from having nothing to show, and it has its own way out.
-    const isFilteredEmpty =
-        status === 'loaded' && journeyOptions.length > 0 && visibleJourneys.length === 0;
+    const isEmpty = status === 'loaded' && visibleJourneys.length === 0;
+    // Nothing to show BECAUSE of the stated needs. A different situation from
+    // having no route or no departure at all: the search itself excluded the
+    // unsuitable departures, so neither of the other two explanations is true,
+    // and this one has its own way out.
+    const isFilteredEmpty = isEmpty && isFiltering;
 
     return (
         <View style={styles.container}>
@@ -163,13 +199,11 @@ export const JourneySearchResults = () => {
                 </View>
 
                 {/* Accessibility requirements (MOV-91) */}
-                {status === 'loaded' && journeyOptions.length > 0 && (
+                {status !== 'error' && (journeyOptions.length > 0 || isFiltering) && (
                     <AccessibilityFilterPanel
                         selection={requirements}
                         onToggle={handleToggleRequirement}
                         onClear={handleClearRequirements}
-                        matchingCount={visibleJourneys.length}
-                        totalCount={journeyOptions.length}
                     />
                 )}
 
@@ -182,7 +216,7 @@ export const JourneySearchResults = () => {
                 )}
 
                 {/* Empty */}
-                {isEmpty && (
+                {isEmpty && !isFiltering && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
                         <View style={styles.stateIconBadge}>
                             <Ionicons
@@ -218,9 +252,8 @@ export const JourneySearchResults = () => {
                         </View>
                         <Text style={styles.stateTitle}>No matching journeys</Text>
                         <Text style={styles.stateDescription}>
-                            {journeyOptions.length} departure{journeyOptions.length > 1 ? 's were' : ' was'} found
-                            between {origin} and {destination}, but none record everything you selected.
-                            Try removing a requirement.
+                            No departure between {origin} and {destination} records everything you
+                            selected. Try removing a requirement.
                         </Text>
                         <TouchableOpacity
                             style={styles.stateButton}

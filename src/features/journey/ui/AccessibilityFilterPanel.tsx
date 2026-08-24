@@ -30,18 +30,12 @@ interface AccessibilityFilterPanelProps {
     selection: AccessibilityRequirementSelection;
     onToggle: (key: AccessibilityRequirementKey) => void;
     onClear: () => void;
-    /** How many journeys the current selection leaves, for the summary line. */
-    matchingCount: number;
-    /** How many journeys the search returned before filtering. */
-    totalCount: number;
 }
 
 export function AccessibilityFilterPanel({
     selection,
     onToggle,
     onClear,
-    matchingCount,
-    totalCount,
 }: AccessibilityFilterPanelProps) {
     const selectedCount = ACCESSIBILITY_REQUIREMENTS.filter(
         (requirement) => selection[requirement.key]
@@ -96,9 +90,15 @@ export function AccessibilityFilterPanel({
 
             {selectedCount > 0 && (
                 <View style={styles.footerRow}>
+                    {/*
+                      * How many journeys are left is stated once, by the results
+                      * count below this card. Since the search itself now applies
+                      * these requirements (MOV-92), a total to compare against is
+                      * no longer returned — and a count that said "3 of 3" would
+                      * be true but useless.
+                      */}
                     <Text style={styles.footerText} accessibilityLiveRegion="polite">
-                        {matchingCount} of {totalCount} journey{totalCount > 1 ? 's' : ''} match
-                        {' '}{selectedCount} requirement{selectedCount > 1 ? 's' : ''}
+                        Filtering by {selectedCount} requirement{selectedCount > 1 ? 's' : ''}
                     </Text>
                     <TouchableOpacity
                         style={styles.clearButton}

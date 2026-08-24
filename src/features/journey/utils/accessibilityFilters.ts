@@ -1,31 +1,28 @@
 // The accessibility requirements a passenger can filter their results by
 // (MOV-91).
 //
-// The five requirements are the ones the story names, and each maps onto a
-// field the bus record already stores — nothing here invents a facility, a name
-// or a shape. `prioritySeats` is a counted facility on the bus, so it is read
-// through its `available` flag while the other four are plain booleans; that
-// asymmetry belongs to the data model and is absorbed here rather than in a
-// screen.
+// The RULE — which stored field each requirement reads, and how strictly — is
+// not here. It is `shared/utils/accessibility`, so the search API (MOV-92) and
+// this screen decide suitability with one function rather than with two that
+// can drift apart. What is here is everything only a screen needs: how the five
+// requirements are worded, how a selection is held and toggled, and how the
+// journeys already on screen are narrowed by it.
 //
-// Availability is tested against `true` rather than for truthiness, exactly as
-// `listAccessibilityFacilities` does. A stored value of `'no'` is truthy, and a
-// passenger who filters for a ramp must never be handed a bus whose record was
-// written in the wrong shape. Filtering is the strictest reading of that rule:
-// anything not recorded as exactly `true` does not match.
-//
-// Kept out of the screen so all of it is testable without a renderer.
+// Kept out of the component so all of it is testable without a renderer.
 
 import { BusAccessibilityFacilities } from '../../../entities/bus/model/types';
 import { JourneySearchOption } from '../../../entities/route/model/types';
+import {
+    ACCESSIBILITY_REQUIREMENT_KEYS,
+    AccessibilityRequirementKey,
+    meetsAccessibilityRequirement,
+    meetsAccessibilityRequirements as meetsRequiredFacilities,
+} from '../../../shared/utils/accessibility';
 
-/** Field names are the bus record's own — never an alternative naming. */
-export type AccessibilityRequirementKey =
-    | 'wheelchairRamp'
-    | 'prioritySeats'
-    | 'audioAnnouncement'
-    | 'lowFloorVehicle'
-    | 'walkingAssistance';
+// Re-exported so a screen importing the selection helpers gets the key type and
+// the matching rule from the same place, without a second definition of either.
+export type { AccessibilityRequirementKey };
+export { meetsAccessibilityRequirement };
 
 export interface AccessibilityRequirement {
     key: AccessibilityRequirementKey;
@@ -36,38 +33,38 @@ export interface AccessibilityRequirement {
 }
 
 /**
- * The five requirements, in the order they are offered.
+ * How each requirement is worded for a passenger.
  *
- * One list, so the controls, the screen-reader wording and the filtering all
- * read from the same place and cannot drift apart.
+ * Keyed by the shared list rather than repeating it, so the compiler rejects a
+ * requirement that gains no wording and wording for a requirement that does not
+ * exist.
  */
-export const ACCESSIBILITY_REQUIREMENTS: readonly AccessibilityRequirement[] = [
-    {
-        key: 'wheelchairRamp',
+const REQUIREMENT_WORDING: Record<AccessibilityRequirementKey, Omit<AccessibilityRequirement, 'key'>> = {
+    wheelchairRamp: {
         label: 'Wheelchair ramp',
         description: 'A ramp for boarding in a wheelchair',
     },
-    {
-        key: 'prioritySeats',
+    prioritySeats: {
         label: 'Priority seat',
         description: 'Seats kept for passengers who need them',
     },
-    {
-        key: 'audioAnnouncement',
+    audioAnnouncement: {
         label: 'Audio announcements',
         description: 'Stops announced out loud on board',
     },
-    {
-        key: 'lowFloorVehicle',
+    lowFloorVehicle: {
         label: 'Low floor vehicle',
         description: 'A step-free entrance at the door',
     },
-    {
-        key: 'walkingAssistance',
+    walkingAssistance: {
         label: 'Walking assistance',
         description: 'Help from the crew to board and get off',
     },
-];
+};
+
+/** The five requirements, in the order they are offered. */
+export const ACCESSIBILITY_REQUIREMENTS: readonly AccessibilityRequirement[] =
+    ACCESSIBILITY_REQUIREMENT_KEYS.map((key) => ({ key, ...REQUIREMENT_WORDING[key] }));
 
 /** Which requirements the passenger has selected. */
 export type AccessibilityRequirementSelection = Record<AccessibilityRequirementKey, boolean>;
@@ -105,33 +102,16 @@ export function hasSelectedAccessibilityRequirements(
 }
 
 /**
- * Whether one recorded facility set satisfies one requirement.
+ * Whether a vehicle meets every requirement the passenger has selected.
  *
- * A bus with no facilities recorded satisfies nothing — it is unknown, and an
- * unknown cannot be offered to a passenger who said they need this.
+ * The selection is the screen's own shape; the decision itself is the shared
+ * rule, unchanged.
  */
-export function meetsAccessibilityRequirement(
-    facilities: BusAccessibilityFacilities | null | undefined,
-    key: AccessibilityRequirementKey
-): boolean {
-    if (!facilities) return false;
-
-    if (key === 'prioritySeats') {
-        const prioritySeats = facilities.prioritySeats;
-        return typeof prioritySeats === 'object' && prioritySeats?.available === true;
-    }
-
-    return facilities[key] === true;
-}
-
-/** Every selected requirement must be met — they narrow, they do not widen. */
 export function meetsAccessibilityRequirements(
     facilities: BusAccessibilityFacilities | null | undefined,
     selection: AccessibilityRequirementSelection
 ): boolean {
-    return selectedAccessibilityRequirements(selection).every((key) =>
-        meetsAccessibilityRequirement(facilities, key)
-    );
+    return meetsRequiredFacilities(facilities, selectedAccessibilityRequirements(selection));
 }
 
 /**
