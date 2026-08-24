@@ -7,6 +7,7 @@
 // be hiding evidence from the person reviewing it.
 
 import { AccessibilityReport } from '../../../src/entities/report/model/types';
+import { formatReportDateTime } from '../../../src/features/reports/utils/reportFormat';
 import {
     galleryColumnsForWidth,
     hasBeenEdited,
@@ -14,6 +15,7 @@ import {
     reportCardVisibleText,
     reportGalleryPhotos,
     reportJourneyEntries,
+    reportReviewOutcome,
     reportTimelineRows,
 } from '../../../src/features/reports/utils/reportSummary';
 
@@ -396,5 +398,95 @@ describe('how wide the gallery grid is', () => {
         [280, 320, 360, 390, 430, 768].forEach((width) => {
             expect(galleryColumnsForWidth(width)).toBeGreaterThanOrEqual(2);
         });
+    });
+});
+
+// ==================================================================
+// What the admin decided
+//
+// The passenger who filed a report is the one person entitled to learn what
+// became of it — including that it was rejected. These pin down that a report
+// nobody has looked at shows no decision at all, that one that has been shows
+// the wording rather than the stored value, and that the reviewing admin's uid
+// never travels with it.
+// ==================================================================
+describe('the admin review shown to the passenger', () => {
+    const REVIEWED_AT = '2026-08-23T11:00:00.000Z';
+
+    it('is absent on a freshly submitted report', () => {
+        // Nothing has been decided, and the Pending badge already says so.
+        expect(reportReviewOutcome(report())).toBeNull();
+    });
+
+    it('shows the decision in words, not as a stored value', () => {
+        const outcome = reportReviewOutcome(
+            report({ status: 'VERIFIED', reviewedAt: REVIEWED_AT })
+        );
+
+        expect(outcome?.statusLabel).toBe('Verified');
+    });
+
+    it('shows a rejection to the passenger who filed it', () => {
+        const outcome = reportReviewOutcome(
+            report({
+                status: 'REJECTED',
+                reviewedAt: REVIEWED_AT,
+                adminRemark: 'Duplicate of REP-00003.',
+            })
+        );
+
+        expect(outcome?.statusLabel).toBe('Rejected');
+        expect(outcome?.remark).toBe('Duplicate of REP-00003.');
+    });
+
+    it('formats when it was reviewed the way every other date is formatted', () => {
+        const outcome = reportReviewOutcome(
+            report({ status: 'VERIFIED', reviewedAt: REVIEWED_AT })
+        );
+
+        expect(outcome?.reviewedAt).toBe(formatReportDateTime(REVIEWED_AT));
+    });
+
+    it('carries the remark even when no decision was recorded with it', () => {
+        // REMARK leaves the report where it stood, so a pending report can
+        // carry something an admin wrote about it.
+        const outcome = reportReviewOutcome(
+            report({ adminRemark: 'Chasing the depot for a repair date.' })
+        );
+
+        expect(outcome?.statusLabel).toBe('Pending');
+        expect(outcome?.remark).toBe('Chasing the depot for a repair date.');
+        expect(outcome?.reviewedAt).toBeNull();
+    });
+
+    it('treats a blank remark as no remark', () => {
+        expect(reportReviewOutcome(report({ adminRemark: '   ' }))).toBeNull();
+
+        const outcome = reportReviewOutcome(
+            report({ status: 'VERIFIED', reviewedAt: REVIEWED_AT, adminRemark: '  ' })
+        );
+
+        expect(outcome?.remark).toBeNull();
+    });
+
+    it('never carries the reviewing admin uid', () => {
+        const outcome = reportReviewOutcome(
+            report({
+                status: 'VERIFIED',
+                reviewedAt: REVIEWED_AT,
+                reviewedBy: 'UID-ADMIN-0001',
+                adminRemark: 'Depot confirmed the ramp motor had failed.',
+            })
+        );
+
+        expect(JSON.stringify(outcome)).not.toContain('UID-ADMIN-0001');
+    });
+
+    it('falls back to an unknown status rather than inventing wording', () => {
+        const outcome = reportReviewOutcome(
+            report({ status: 'ESCALATED', reviewedAt: REVIEWED_AT })
+        );
+
+        expect(outcome?.statusLabel).toBe('ESCALATED');
     });
 });

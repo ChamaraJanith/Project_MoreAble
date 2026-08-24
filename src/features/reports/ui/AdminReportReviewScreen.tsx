@@ -451,7 +451,7 @@ export const AdminReportReviewScreen = () => {
                             value={remark}
                             onChangeText={setRemark}
                             placeholder="Record what you found when reviewing this report..."
-                            helper="Visible to administrators. Saving a remark does not change the report's status."
+                            helper="Shown to the passenger who filed this report. Saving a remark does not change the report's status."
                             maxLength={MAX_ADMIN_REMARK_LENGTH}
                             editable={!busy}
                         />

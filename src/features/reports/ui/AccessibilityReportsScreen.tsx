@@ -17,7 +17,7 @@ import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
-import { reportDetailsPath } from '../utils/reportRoutes';
+import { reportDetailsPath, reportFormPath } from '../utils/reportRoutes';
 import {
     FetchableReportScope,
     isFetchableReportScope,
@@ -199,7 +199,10 @@ export const AccessibilityReportsScreen = () => {
         fetchReports(scope);
     }, [scope, fetchReports]);
 
-    const goToReportForm = () => router.push('/reports');
+    // Addressed through reportFormPath rather than as a bare '/reports': the
+    // admin review queue answers that same URL, and an unqualified push lands
+    // on it instead of on the form.
+    const goToReportForm = () => router.push(reportFormPath() as Href);
 
     const renderBody = () => {
         // Checked first so the placeholder tab never shows a loading skeleton
