@@ -3,13 +3,10 @@ import { Href, router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import React, { useCallback, useState } from 'react';
 import {
     Alert,
-    Image,
-    Modal,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
-    useWindowDimensions,
     View,
 } from 'react-native';
 import { AccessibilityReport } from '../../../entities/report/model/types';
@@ -22,14 +19,10 @@ import {
     AdminListSkeleton,
     ConfirmDialog,
 } from '../../admin/ui/AdminStates';
-import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { canDeleteReport, canEditReport } from '../utils/reportOwnership';
 import { reportApiPath, reportEditPath } from '../utils/reportRoutes';
 import {
-    ReportGalleryPhoto,
-    ReportJourneyEntry,
-    galleryColumnsForWidth,
     hasBeenEdited,
     reportCardSummary,
     reportGalleryPhotos,
@@ -37,6 +30,15 @@ import {
     reportTimelineRows,
 } from '../utils/reportSummary';
 import { CommunityFeedback } from './CommunityFeedback';
+import {
+    ReportEmptySection,
+    ReportHero,
+    ReportJourneyRow,
+    ReportPhotoGallery,
+    ReportPhotoViewer,
+    ReportSectionTitle,
+    reportDetailStyles,
+} from './ReportDetailSections';
 
 /**
  * One accessibility report in full.
@@ -45,6 +47,10 @@ import { CommunityFeedback } from './CommunityFeedback';
  * which is the only place that id appears. Everything stored on the report is
  * shown here: what went wrong, on which bus and route, when, and every photo
  * that was attached as evidence.
+ *
+ * The sections themselves live in ReportDetailSections, because the admin
+ * review page (MOV-160) draws the same report and has to be looking at the same
+ * thing the passenger filed rather than at a second rendering of it.
  *
  * Edit and Delete are drawn only for the passenger who filed it, and only here:
  * they are decisions worth a screen of context rather than a control on a list
@@ -190,35 +196,26 @@ export const ReportDetailsScreen = () => {
         return (
             <>
                 {/* ---------------- Hero ---------------- */}
-                <View style={styles.hero}>
-                    <View style={styles.heroIconCircle}>
-                        <Ionicons name={summary.icon} size={30} color={adminColors.primary} />
-                    </View>
-
-                    <Text style={styles.heroTitle} accessibilityRole="header">
-                        {summary.title}
-                    </Text>
-
-                    <View style={styles.heroBadge}>
-                        <StatusBadge status={report.status} />
-                    </View>
-
-                    <Text style={styles.heroDate}>{summary.submittedLabel}</Text>
-                </View>
+                <ReportHero
+                    icon={summary.icon}
+                    title={summary.title}
+                    status={report.status}
+                    submittedLabel={summary.submittedLabel}
+                />
 
                 {/* ---------------- Issue ---------------- */}
-                <SectionTitle>Issue Description</SectionTitle>
+                <ReportSectionTitle>Issue Description</ReportSectionTitle>
 
-                <View style={styles.card}>
-                    <Text style={styles.descriptionText}>{report.description}</Text>
+                <View style={reportDetailStyles.card}>
+                    <Text style={reportDetailStyles.descriptionText}>{report.description}</Text>
                 </View>
 
                 {/* ---------------- Journey ---------------- */}
-                <SectionTitle>Journey Details</SectionTitle>
+                <ReportSectionTitle>Journey Details</ReportSectionTitle>
 
-                <View style={styles.card}>
+                <View style={reportDetailStyles.card}>
                     {journey.map((entry, index) => (
-                        <JourneyRow
+                        <ReportJourneyRow
                             key={entry.label}
                             entry={entry}
                             isFirst={index === 0}
@@ -227,13 +224,13 @@ export const ReportDetailsScreen = () => {
                 </View>
 
                 {/* ---------------- Photo evidence ---------------- */}
-                <SectionTitle>Photo Evidence</SectionTitle>
+                <ReportSectionTitle>Photo Evidence</ReportSectionTitle>
 
-                <View style={styles.card}>
+                <View style={reportDetailStyles.card}>
                     {photos.length > 0 ? (
-                        <PhotoGallery photos={photos} onOpen={setViewerIndex} />
+                        <ReportPhotoGallery photos={photos} onOpen={setViewerIndex} />
                     ) : (
-                        <EmptySection
+                        <ReportEmptySection
                             icon="images-outline"
                             message="No photos attached to this report."
                         />
@@ -243,21 +240,28 @@ export const ReportDetailsScreen = () => {
                 {/* ---------------- Timeline ---------------- */}
                 {timelineRows.length > 0 && (
                     <>
-                        <SectionTitle>Report Timeline</SectionTitle>
+                        <ReportSectionTitle>Report Timeline</ReportSectionTitle>
 
-                        <View style={styles.card}>
+                        <View style={reportDetailStyles.card}>
                             {timelineRows.map((row, index) => (
                                 <View
                                     key={row.label}
-                                    style={[styles.timelineRow, index > 0 && styles.divided]}
+                                    style={[
+                                        reportDetailStyles.timelineRow,
+                                        index > 0 && reportDetailStyles.divided,
+                                    ]}
                                 >
                                     <Ionicons
                                         name={row.icon}
                                         size={16}
                                         color={adminColors.textSecondary}
                                     />
-                                    <Text style={styles.timelineLabel}>{row.label}</Text>
-                                    <Text style={styles.timelineValue}>{row.value}</Text>
+                                    <Text style={reportDetailStyles.timelineLabel}>
+                                        {row.label}
+                                    </Text>
+                                    <Text style={reportDetailStyles.timelineValue}>
+                                        {row.value}
+                                    </Text>
                                 </View>
                             ))}
                         </View>
@@ -319,7 +323,7 @@ export const ReportDetailsScreen = () => {
                 {renderBody()}
             </ScrollView>
 
-            <PhotoViewer
+            <ReportPhotoViewer
                 photos={photos}
                 index={viewerIndex}
                 onChangeIndex={setViewerIndex}
@@ -340,411 +344,9 @@ export const ReportDetailsScreen = () => {
     );
 };
 
-// ------------------------------------------------------------------
-function SectionTitle({ children }: { children: string }) {
-    return (
-        <Text style={styles.sectionTitle} accessibilityRole="header">
-            {children}
-        </Text>
-    );
-}
-
-/**
- * The bus, or the route.
- *
- * Both rows are always drawn. One the passenger did not fill in reads as "Not
- * provided" rather than vanishing, so the section keeps its shape and the
- * absence is stated instead of implied by a gap.
- */
-function JourneyRow({ entry, isFirst }: { entry: ReportJourneyEntry; isFirst: boolean }) {
-    const isMissing = !entry.primary;
-
-    return (
-        <View style={[styles.journeyRow, !isFirst && styles.divided]}>
-            <View style={[styles.journeyIcon, isMissing && styles.journeyIconMuted]}>
-                <Ionicons
-                    name={entry.icon}
-                    size={20}
-                    color={isMissing ? adminColors.textPlaceholder : adminColors.primary}
-                />
-            </View>
-
-            <View style={styles.journeyText}>
-                <Text style={styles.journeyLabel}>{entry.label}</Text>
-
-                {isMissing ? (
-                    <Text style={styles.journeyMissing}>Not provided</Text>
-                ) : (
-                    <>
-                        <Text style={styles.journeyPrimary}>{entry.primary}</Text>
-
-                        {!!entry.secondary && (
-                            <Text style={styles.journeySecondary}>{entry.secondary}</Text>
-                        )}
-                    </>
-                )}
-            </View>
-        </View>
-    );
-}
-
-/** Shown where a report simply has nothing recorded for a section. */
-function EmptySection({
-    icon,
-    message,
-}: {
-    icon: keyof typeof Ionicons.glyphMap;
-    message: string;
-}) {
-    return (
-        <View style={styles.emptySection}>
-            <View style={styles.emptySectionIcon}>
-                <Ionicons name={icon} size={20} color={adminColors.textPlaceholder} />
-            </View>
-            <Text style={styles.emptySectionText}>{message}</Text>
-        </View>
-    );
-}
-
-// ------------------------------------------------------------------
-const GALLERY_GAP = 10;
-
-// The grid sits inside a card, itself inside a padded screen: 20pt of screen
-// padding and 16pt of card padding on each side.
-const GALLERY_HORIZONTAL_INSET = 2 * 20 + 2 * 16;
-
-/** Every attached photo, as square tiles that reflow with the screen width. */
-function PhotoGallery({
-    photos,
-    onOpen,
-}: {
-    photos: ReportGalleryPhoto[];
-    onOpen: (index: number) => void;
-}) {
-    const { width } = useWindowDimensions();
-
-    const columns = galleryColumnsForWidth(width);
-    const tileSize = Math.floor(
-        (width - GALLERY_HORIZONTAL_INSET - GALLERY_GAP * (columns - 1)) / columns
-    );
-
-    return (
-        <>
-            <View style={styles.galleryGrid}>
-                {photos.map((photo, index) => (
-                    <TouchableOpacity
-                        key={photo.url}
-                        style={[styles.galleryTile, { width: tileSize }]}
-                        onPress={() => onOpen(index)}
-                        activeOpacity={0.8}
-                        accessibilityRole="imagebutton"
-                        accessibilityLabel={photo.accessibilityLabel}
-                    >
-                        {/* Square and cropped to fill, so a portrait photo and
-                            a landscape one sit in the grid the same way. */}
-                        <Image
-                            source={{ uri: photo.url }}
-                            style={styles.galleryImage}
-                            resizeMode="cover"
-                        />
-                    </TouchableOpacity>
-                ))}
-            </View>
-
-            <Text style={styles.galleryHint}>Tap a photo to view it full screen.</Text>
-        </>
-    );
-}
-
-/**
- * One photo, full screen.
- *
- * `index` doubles as the open/closed state: there is no separate visible flag
- * to fall out of step with which photo is being shown.
- */
-function PhotoViewer({
-    photos,
-    index,
-    onChangeIndex,
-    onClose,
-}: {
-    photos: ReportGalleryPhoto[];
-    index: number | null;
-    onChangeIndex: (index: number) => void;
-    onClose: () => void;
-}) {
-    const photo = index !== null ? photos[index] : undefined;
-
-    return (
-        <Modal
-            visible={!!photo}
-            transparent
-            animationType="fade"
-            onRequestClose={onClose}
-            supportedOrientations={['portrait', 'landscape']}
-        >
-            <View style={styles.viewerBackdrop}>
-                <View style={styles.viewerBar}>
-                    <Text style={styles.viewerCounter}>
-                        {photo ? `Photo ${photo.position} of ${photo.total}` : ''}
-                    </Text>
-
-                    <TouchableOpacity
-                        style={styles.viewerCloseButton}
-                        onPress={onClose}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close photo"
-                    >
-                        <Ionicons name="close" size={24} color="#FFFFFF" />
-                    </TouchableOpacity>
-                </View>
-
-                {!!photo && (
-                    <Image
-                        source={{ uri: photo.url }}
-                        style={styles.viewerImage}
-                        resizeMode="contain"
-                        accessibilityLabel={`Photo evidence ${photo.position} of ${photo.total}`}
-                    />
-                )}
-
-                {photos.length > 1 && index !== null && (
-                    <View style={styles.viewerNav}>
-                        <TouchableOpacity
-                            style={[
-                                styles.viewerNavButton,
-                                index === 0 && styles.viewerNavButtonDisabled,
-                            ]}
-                            onPress={() => onChangeIndex(index - 1)}
-                            disabled={index === 0}
-                            accessibilityRole="button"
-                            accessibilityLabel="Previous photo"
-                            accessibilityState={{ disabled: index === 0 }}
-                        >
-                            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={[
-                                styles.viewerNavButton,
-                                index === photos.length - 1 && styles.viewerNavButtonDisabled,
-                            ]}
-                            onPress={() => onChangeIndex(index + 1)}
-                            disabled={index === photos.length - 1}
-                            accessibilityRole="button"
-                            accessibilityLabel="Next photo"
-                            accessibilityState={{ disabled: index === photos.length - 1 }}
-                        >
-                            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-                        </TouchableOpacity>
-                    </View>
-                )}
-            </View>
-        </Modal>
-    );
-}
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
     content: { padding: 20, paddingBottom: 40 },
-
-    card: {
-        backgroundColor: adminColors.surface,
-        borderRadius: 14,
-        padding: 16,
-        ...adminShadow.card,
-    },
-
-    sectionTitle: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: adminColors.textMuted,
-        letterSpacing: 0.6,
-        textTransform: 'uppercase',
-        marginTop: 24,
-        marginBottom: 10,
-    },
-
-    // ---- Hero ----
-    hero: {
-        backgroundColor: adminColors.surface,
-        borderRadius: 16,
-        paddingVertical: 24,
-        paddingHorizontal: 20,
-        alignItems: 'center',
-        ...adminShadow.card,
-    },
-    heroIconCircle: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: adminColors.primarySoft,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    heroTitle: {
-        fontSize: 20,
-        fontWeight: '800',
-        color: adminColors.textPrimary,
-        textAlign: 'center',
-        marginTop: 14,
-    },
-    heroBadge: { marginTop: 12 },
-    heroDate: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: adminColors.textMuted,
-        marginTop: 12,
-    },
-
-    descriptionText: {
-        fontSize: 15,
-        color: adminColors.textSecondary,
-        lineHeight: 23,
-    },
-
-    // ---- Journey ----
-    divided: {
-        borderTopWidth: 1,
-        borderTopColor: adminColors.borderSubtle,
-        marginTop: 14,
-        paddingTop: 14,
-    },
-    journeyRow: { flexDirection: 'row', alignItems: 'center' },
-    journeyIcon: {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        backgroundColor: adminColors.primarySoft,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    journeyIconMuted: { backgroundColor: adminColors.surfaceMuted },
-    journeyText: { flex: 1, marginLeft: 14 },
-    journeyLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: adminColors.textMuted,
-        letterSpacing: 0.4,
-        textTransform: 'uppercase',
-    },
-    journeyPrimary: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: adminColors.textPrimary,
-        marginTop: 4,
-    },
-    journeySecondary: {
-        fontSize: 13,
-        color: adminColors.textSecondary,
-        marginTop: 3,
-    },
-    journeyMissing: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: adminColors.textPlaceholder,
-        marginTop: 4,
-    },
-
-    // ---- Timeline ----
-    timelineRow: { flexDirection: 'row', alignItems: 'center' },
-    timelineLabel: {
-        flex: 1,
-        fontSize: 14,
-        fontWeight: '600',
-        color: adminColors.textSecondary,
-        marginLeft: 10,
-    },
-    timelineValue: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: adminColors.textPrimary,
-    },
-
-    // ---- Empty section ----
-    emptySection: { flexDirection: 'row', alignItems: 'center' },
-    emptySectionIcon: {
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        backgroundColor: adminColors.surfaceMuted,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    emptySectionText: {
-        flex: 1,
-        fontSize: 14,
-        color: adminColors.textPlaceholder,
-        marginLeft: 14,
-        lineHeight: 20,
-    },
-
-    // ---- Gallery ----
-    galleryGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: GALLERY_GAP,
-    },
-    galleryTile: {
-        aspectRatio: 1,
-        borderRadius: 12,
-        overflow: 'hidden',
-        backgroundColor: adminColors.borderSubtle,
-    },
-    galleryImage: { width: '100%', height: '100%' },
-    galleryHint: {
-        fontSize: 12,
-        color: adminColors.textMuted,
-        marginTop: 12,
-    },
-
-    // ---- Full-screen viewer ----
-    viewerBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.92)',
-        justifyContent: 'center',
-    },
-    viewerBar: {
-        position: 'absolute',
-        top: 44,
-        left: 16,
-        right: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        zIndex: 1,
-    },
-    viewerCounter: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#FFFFFF',
-    },
-    viewerCloseButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    },
-    viewerImage: { width: '100%', height: '78%' },
-    viewerNav: {
-        position: 'absolute',
-        bottom: 44,
-        left: 16,
-        right: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-    },
-    viewerNavButton: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    },
-    viewerNavButtonDisabled: { opacity: 0.3 },
 
     // ---- Owner actions ----
     actions: { marginTop: 28 },

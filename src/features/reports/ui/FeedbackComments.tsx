@@ -132,8 +132,15 @@ function CommentsError({ message }: { message: string }) {
     );
 }
 
-/** One passenger's comment: who said it, what they said, and when. */
-function CommentRow({ comment, isFirst }: { comment: ReportCommentRecord; isFirst: boolean }) {
+/**
+ * One passenger's comment: who said it, what they said, and when.
+ *
+ * Exported because the admin review page (MOV-160) shows the same thread
+ * without a composer under it: a reviewer reads what the community said, they
+ * do not join the conversation. Drawing that thread from this row rather than
+ * from a second one is what keeps the two readings identical.
+ */
+export function CommentRow({ comment, isFirst }: { comment: ReportCommentRecord; isFirst: boolean }) {
     return (
         <View style={[styles.commentRow, !isFirst && styles.divided]}>
             <View style={styles.avatar}>

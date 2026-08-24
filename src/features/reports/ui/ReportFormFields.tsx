@@ -13,6 +13,14 @@ interface ReportTextAreaProps {
     placeholder?: string;
     helper?: string;
     maxLength: number;
+    /**
+     * Whether the field accepts typing.
+     *
+     * Defaults to true, which is every existing caller. The admin remark
+     * composer (MOV-160) turns it off while a remark is on its way to the API,
+     * so the text cannot change out from under the request that is sending it.
+     */
+    editable?: boolean;
 }
 
 export function ReportTextArea({
@@ -22,6 +30,7 @@ export function ReportTextArea({
     placeholder,
     helper,
     maxLength,
+    editable = true,
 }: ReportTextAreaProps) {
     return (
         <View style={styles.fieldBlock}>
@@ -37,6 +46,7 @@ export function ReportTextArea({
                 numberOfLines={5}
                 maxLength={maxLength}
                 textAlignVertical="top"
+                editable={editable}
                 accessibilityLabel={label}
             />
 

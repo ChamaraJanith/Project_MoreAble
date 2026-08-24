@@ -27,6 +27,26 @@ interface FakeQuery {
     get: () => Promise<{ empty: boolean; docs: { id: string; exists: true; data: () => DocData }[] }>;
 }
 
+/**
+ * A write with its undefined fields removed, as Firestore actually stores it.
+ *
+ * getAdminDb() initialises Firestore with `ignoreUndefinedProperties: true`, so
+ * a field written as `undefined` is not rejected — it is DISCARDED, quietly,
+ * and the write still succeeds. Modelling that here is what lets a test tell a
+ * field that was stored from one the handler only thought it stored; assigning
+ * the raw object would leave the key present with an undefined value, which is
+ * a document Firestore would never have produced.
+ */
+function defined(data: DocData): DocData {
+    const stored: DocData = {};
+
+    for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined) stored[key] = value;
+    }
+
+    return stored;
+}
+
 function buildQuery(docs: DocData[]): FakeQuery {
     const query: FakeQuery = {
         where: jest.fn((field: string, op: string, value: unknown) =>
@@ -83,14 +103,14 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
                     })),
                     update: jest.fn(async (data: DocData) => {
                         if (found) {
-                            Object.assign(found, data);
+                            Object.assign(found, defined(data));
                         }
                     }),
                     set: jest.fn(async (data: DocData) => {
                         if (found) {
-                            Object.assign(found, data);
+                            Object.assign(found, defined(data));
                         } else {
-                            docs.push({ id, ...data });
+                            docs.push({ id, ...defined(data) });
                         }
                     }),
                     delete: jest.fn(async () => {

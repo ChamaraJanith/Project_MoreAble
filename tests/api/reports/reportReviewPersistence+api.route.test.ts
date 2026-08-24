@@ -278,6 +278,99 @@ describe('review persistence - the decision', () => {
         expect(stored.status).toBe('PENDING');
     });
 
+    it('stores the remark under adminRemark on the report document itself', async () => {
+        // The field, by name, on reports/{reportId} — not a subcollection and
+        // not a document of its own. A remark belongs to the report it is about.
+        const { db } = trackingFirestore();
+        mockGetAdminDb.mockReturnValue(db);
+
+        const { response, stored } = await review(db, {
+            action: 'REMARK',
+            adminRemark: 'Depot confirmed the ramp motor had failed.',
+        });
+
+        expect(response.status).toBe(200);
+        expect(Object.keys(stored)).toContain('adminRemark');
+        expect(stored.adminRemark).toBe('Depot confirmed the ramp motor had failed.');
+    });
+
+    it('never writes adminRemark as undefined, which Firestore would discard', async () => {
+        // getAdminDb() sets ignoreUndefinedProperties, so an undefined field is
+        // not refused — it is dropped, and the write still answers success.
+        // That is how a remark goes missing from a report that has a reviewedBy
+        // and a reviewedAt, so the update must never carry the key at all
+        // unless there is text to put in it.
+        const { db, writes } = trackingFirestore();
+        mockGetAdminDb.mockReturnValue(db);
+
+        // A decision carrying no remark, and one carrying only whitespace:
+        // both used to reach the update as `adminRemark: undefined`.
+        await review(db, { action: 'VERIFY' });
+        await review(db, { action: 'REMARK', adminRemark: 'Following up.' });
+
+        expect(writes.update.length).toBeGreaterThan(0);
+
+        writes.update.forEach(({ data }) => {
+            if ('adminRemark' in data) {
+                expect(typeof data.adminRemark).toBe('string');
+                expect(data.adminRemark.trim()).not.toBe('');
+            }
+        });
+    });
+
+    it('leaves the status exactly as it was when only a remark is saved', async () => {
+        const { db } = trackingFirestore();
+        mockGetAdminDb.mockReturnValue(db);
+
+        const before = await storedDocument(db);
+
+        const { stored } = await review(db, {
+            action: 'REMARK',
+            adminRemark: 'Chasing the depot for a date.',
+        });
+
+        expect(stored.status).toBe(before.status);
+        expect(stored.status).toBe('PENDING');
+    });
+
+    it('does not touch the report fields a remark has no business changing', async () => {
+        const { db } = trackingFirestore();
+        mockGetAdminDb.mockReturnValue(db);
+
+        const before = await storedDocument(db);
+
+        const { stored } = await review(db, {
+            action: 'REMARK',
+            adminRemark: 'Chasing the depot for a date.',
+        });
+
+        expect(stored.description).toBe(before.description);
+        expect(stored.agreeCount).toBe(before.agreeCount);
+        expect(stored.disagreeCount).toBe(before.disagreeCount);
+        expect(stored.requiresAdminReview).toBe(before.requiresAdminReview);
+        expect(stored.photoUrls).toEqual(before.photoUrls);
+        expect(stored.passengerId).toBe(before.passengerId);
+    });
+
+    it('answers with the remark that was stored, not the one that was sent', async () => {
+        // The response is what the screen draws immediately after saving, so it
+        // has to come from the document rather than from an in-memory merge of
+        // what the handler believed it wrote — otherwise a field Firestore
+        // discarded is still reported back as saved.
+        const { db } = trackingFirestore();
+        mockGetAdminDb.mockReturnValue(db);
+
+        const { response, stored } = await review(db, {
+            action: 'REMARK',
+            adminRemark: 'Depot has scheduled the repair.',
+        });
+
+        const payload = await response.json();
+
+        expect(payload.report.adminRemark).toBe(stored.adminRemark);
+        expect(payload.review.adminRemark).toBe(stored.adminRemark);
+    });
+
     it('refuses to persist a remark beyond the existing cap', async () => {
         const { db } = trackingFirestore();
         mockGetAdminDb.mockReturnValue(db);

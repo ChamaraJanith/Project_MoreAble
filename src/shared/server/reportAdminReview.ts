@@ -386,7 +386,7 @@ export async function applyReviewDecision(
     instruction: ReviewInstruction,
     reviewerId: string
 ): Promise<{ update: Record<string, any>; report: Record<string, any> }> {
-    return adminDb.runTransaction(async (transaction: any) => {
+    const applied = await adminDb.runTransaction(async (transaction: any) => {
         const snapshot = await transaction.get(reportRef);
 
         // The report was there when the route loaded it. If it is not there
@@ -412,6 +412,27 @@ export async function applyReviewDecision(
 
         return { update, report: { ...current, ...update } };
     });
+
+    // What the route answers with is re-read from Firestore rather than taken
+    // from the merge above.
+    //
+    // The merge is what this process BELIEVES it wrote. Those two can differ —
+    // `ignoreUndefinedProperties` drops a field without complaint, and a rule
+    // or a converter could reshape one — and when they do, the in-memory answer
+    // is a report that says the remark was saved while the stored document has
+    // none. The screen then draws that answer and the admin is told their
+    // remark persisted when it did not.
+    //
+    // A read cannot happen after a write inside the same transaction, so it
+    // happens after it commits. If the re-read comes back empty the merged
+    // report is still returned: the write did succeed, and answering with
+    // nothing would be a worse lie than answering with what was sent.
+    const stored = await reportRef.get();
+
+    return {
+        update: applied.update,
+        report: stored?.exists ? (stored.data() ?? applied.report) : applied.report,
+    };
 }
 
 /**
@@ -433,11 +454,23 @@ export function buildReviewUpdate(
     reviewerId: string,
     now: Date = new Date()
 ): Record<string, any> {
+    // Included only for a remark that is actually text. The test is positive on
+    // purpose: `!== null` would let an `undefined` through, and this project
+    // initialises Firestore with `ignoreUndefinedProperties: true`, which does
+    // not reject such a field — it DISCARDS it, silently, and the write still
+    // reports success. A remark lost that way leaves a report carrying
+    // reviewedBy and reviewedAt with nothing written against them, which is
+    // indistinguishable from a decision nobody explained.
+    const remark =
+        typeof instruction.adminRemark === 'string' && instruction.adminRemark.trim()
+            ? instruction.adminRemark
+            : null;
+
     return {
         ...(instruction.status ? { status: instruction.status } : {}),
         reviewedBy: reviewerId,
         reviewedAt: now.toISOString(),
-        ...(instruction.adminRemark === null ? {} : { adminRemark: instruction.adminRemark }),
+        ...(remark === null ? {} : { adminRemark: remark }),
         updatedAt: now,
     };
 }
