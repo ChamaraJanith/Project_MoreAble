@@ -4,7 +4,7 @@ import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { searchJourneys } from '../api/journeySearchApi';
 import { setSelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
-import { listAccessibilityFacilities } from '../utils/accessibilityFacilities';
+import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
 import { resolveJourneyTiming } from '../utils/journeyTiming';
 import { formatLocationAge, resolveVehiclePosition } from '../utils/liveStatus';
@@ -150,7 +150,7 @@ export const RouteDetailsScreen = () => {
         travelsWholeRoute,
         hasIncompleteTimes,
     } = describeJourneyForDisplay(route, journeyTiming);
-    const facilities = listAccessibilityFacilities(bus?.accessibilityFacilities);
+    const facilities = describeAccessibilityFacilities(bus?.accessibilityFacilities);
     const mapStops = resolveIntermediateStops(route.journeyStops, geo);
 
     // The live vehicle (MOV-119). Optional-chained because a selection held from
@@ -344,10 +344,10 @@ export const RouteDetailsScreen = () => {
                 <View style={styles.card}>
                     <SectionHeading icon="accessibility-outline" title="Accessibility" />
 
-                    {facilities.length > 0 ? (
+                    {facilities.status === 'AVAILABLE' ? (
                         <>
                             <View style={styles.facilityWrap}>
-                                {facilities.map((facility) => (
+                                {facilities.items.map((facility) => (
                                     <View
                                         key={facility.key}
                                         style={styles.facilityChip}
@@ -364,14 +364,19 @@ export const RouteDetailsScreen = () => {
                                 ))}
                             </View>
                             <Text style={styles.mutedFootnote}>
-                                Only the facilities recorded for this bus are listed.
+                                Only the facilities recorded for this bus are listed. A number shows
+                                how the bus is fitted out, not how many are free on this departure.
                             </Text>
                         </>
                     ) : (
                         <Text style={styles.mutedText}>
-                            {bus
-                                ? 'No accessibility facilities are recorded for this bus.'
-                                : 'Accessibility details are not available for this departure.'}
+                            {!bus
+                                ? 'Accessibility details are not available for this departure.'
+                                : facilities.status === 'NONE_AVAILABLE'
+                                  ? 'This bus is recorded as having none of the accessibility facilities MoreAble tracks.'
+                                  : // Nobody has assessed this vehicle. Saying it has no
+                                    // facilities would assert something the record does not.
+                                    'Accessibility information has not been recorded for this bus yet.'}
                         </Text>
                     )}
                 </View>
@@ -420,7 +425,9 @@ function SectionHeading({
     return (
         <View style={styles.sectionHeadingRow}>
             <Ionicons name={icon} size={16} color="#0F172A" />
-            <Text style={styles.sectionHeadingText}>{title}</Text>
+            <Text style={styles.sectionHeadingText} accessibilityRole="header">
+                {title}
+            </Text>
         </View>
     );
 }
