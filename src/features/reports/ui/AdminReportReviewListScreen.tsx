@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    Image,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
+import { AdminSearchField } from '../../admin/ui/AdminSearchField';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
@@ -25,6 +27,10 @@ import {
     reviewErrorMessage,
 } from '../utils/reportReview';
 import { adminReviewDetailsPath } from '../utils/reportRoutes';
+import {
+    REPORT_SEARCH_PLACEHOLDER,
+    filterReportsBySearch,
+} from '../utils/reportSearch';
 import { ReportFeedbackStats } from './ReportFeedbackStats';
 
 /**
@@ -48,6 +54,12 @@ export const AdminReportReviewListScreen = () => {
 
     const [reports, setReports] = useState<AdminReviewReport[]>([]);
     const [filter, setFilter] = useState<AdminReviewFilter>('ALL');
+
+    // Applied on top of the filter rather than instead of it: the filter is a
+    // parameter on the review scope the API answers, and the search narrows
+    // the queue that came back. Needs Review + "138" is the flagged reports
+    // about route 138, not a second filtering system.
+    const [search, setSearch] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -105,7 +117,17 @@ export const AdminReportReviewListScreen = () => {
         load(next);
     };
 
-    const summary = useMemo(() => adminReviewQueueSummary(reports), [reports]);
+    const visibleReports = useMemo(
+        () => filterReportsBySearch(reports, search),
+        [reports, search]
+    );
+
+    // Counted over what is actually on screen, so the line above the list
+    // describes the queue the admin is looking at.
+    const summary = useMemo(() => adminReviewQueueSummary(visibleReports), [visibleReports]);
+
+    // The box is only worth drawing over a queue there is something to search.
+    const canSearch = !isLoading && !error && reports.length > 0;
 
     const renderBody = () => {
         if (isLoading) return <AdminListSkeleton count={3} />;
@@ -139,11 +161,28 @@ export const AdminReportReviewListScreen = () => {
             );
         }
 
+        // Told apart from the empty queue above: there are reports here, the
+        // search is simply not finding them, so the way out is different words
+        // rather than a different filter.
+        if (visibleReports.length === 0) {
+            return (
+                <AdminEmptyState
+                    icon="search-outline"
+                    title="No matching reports"
+                    description="No reports match your search. Try an issue, a bus, a route or a word from the description."
+                />
+            );
+        }
+
         return (
             <>
                 <View style={styles.summaryRow}>
                     <Text style={styles.resultCount}>
-                        {summary.total} report{summary.total === 1 ? '' : 's'}
+                        {search.trim()
+                            ? `${summary.total} of ${reports.length} report${
+                                  reports.length === 1 ? '' : 's'
+                              }`
+                            : `${summary.total} report${summary.total === 1 ? '' : 's'}`}
                     </Text>
 
                     {summary.flagged > 0 && (
@@ -153,7 +192,7 @@ export const AdminReportReviewListScreen = () => {
                     )}
                 </View>
 
-                {reports.map((report) => (
+                {visibleReports.map((report) => (
                     <ReviewQueueCard
                         key={report.documentId || report.reportId}
                         report={report}
@@ -185,6 +224,9 @@ export const AdminReportReviewListScreen = () => {
             <ScrollView
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
+                // So a card can be opened on the first tap while the search
+                // keyboard is up, rather than the tap only dismissing it.
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
@@ -222,6 +264,18 @@ export const AdminReportReviewListScreen = () => {
                     })}
                 </View>
 
+                {/* Below the filters, so it reads as searching the slice
+                    that is open — which is exactly what it does. */}
+                {canSearch && (
+                    <AdminSearchField
+                        value={search}
+                        onChangeText={setSearch}
+                        placeholder={REPORT_SEARCH_PLACEHOLDER}
+                        accessibilityLabel="Search reports"
+                        resultLabel={`${visibleReports.length}/${reports.length}`}
+                    />
+                )}
+
                 {renderBody()}
             </ScrollView>
         </View>
@@ -250,6 +304,11 @@ function ReviewQueueCard({
     // fact that the report id is not part of it.
     const summary = adminReviewCardSummary(report);
 
+    // The first photo filed with the report stands in as the card's thumbnail,
+    // exactly as it does on the passenger list. A report without photos keeps
+    // the category icon, and the count of the rest stays in the meta line.
+    const thumbnailUrl = report.photoUrls?.[0];
+
     return (
         <TouchableOpacity
             style={[styles.card, summary.needsReview && styles.cardFlagged]}
@@ -270,18 +329,53 @@ function ReviewQueueCard({
             )}
 
             <View style={styles.cardTop}>
-                <View style={styles.categoryIconCircle}>
-                    <Ionicons name={summary.icon} size={22} color={adminColors.primary} />
+                {/* Decorative either way: everything it stands for — the issue
+                    and the photos — is already in the card's one label. */}
+                <View
+                    style={styles.thumbnail}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                >
+                    {thumbnailUrl ? (
+                        <Image
+                            source={{ uri: thumbnailUrl }}
+                            style={styles.thumbnailImage}
+                            resizeMode="cover"
+                        />
+                    ) : (
+                        <Ionicons name={summary.icon} size={26} color={adminColors.primary} />
+                    )}
                 </View>
 
                 <View style={styles.cardHeadings}>
-                    <Text style={styles.categoryText} numberOfLines={2}>
-                        {summary.title}
-                    </Text>
+                    <View style={styles.titleRow}>
+                        <Text style={styles.categoryText} numberOfLines={2}>
+                            {summary.title}
+                        </Text>
 
-                    <View style={styles.statusRow}>
                         <StatusBadge status={summary.status} size="small" />
                     </View>
+
+                    {summary.chips.length > 0 && (
+                        <View style={styles.chipWrap}>
+                            {summary.chips.map((chip) => (
+                                <View key={chip.label} style={styles.metaChip}>
+                                    <Ionicons
+                                        name={chip.icon}
+                                        size={12}
+                                        color={adminColors.textSecondary}
+                                    />
+                                    <Text style={styles.metaChipText} numberOfLines={1}>
+                                        {chip.label}
+                                    </Text>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
+                    <Text style={styles.descriptionText} numberOfLines={2}>
+                        {summary.description}
+                    </Text>
                 </View>
 
                 {/* Decorative: the card itself is the control, so the arrow
@@ -293,39 +387,29 @@ function ReviewQueueCard({
                 >
                     <Ionicons
                         name="chevron-forward"
-                        size={20}
+                        size={18}
                         color={adminColors.textPlaceholder}
                     />
                 </View>
             </View>
 
-            <Text style={styles.descriptionText} numberOfLines={2}>
-                {summary.description}
-            </Text>
-
-            {summary.chips.length > 0 && (
-                <View style={styles.chipWrap}>
-                    {summary.chips.map((chip) => (
-                        <View key={chip.label} style={styles.metaChip}>
-                            <Ionicons
-                                name={chip.icon}
-                                size={12}
-                                color={adminColors.textSecondary}
-                            />
-                            <Text style={styles.metaChipText}>{chip.label}</Text>
-                        </View>
-                    ))}
-                </View>
-            )}
-
             <View style={styles.cardFooter}>
-                <Ionicons name="calendar-outline" size={14} color={adminColors.textMuted} />
-                <Text style={styles.footerText}>{summary.submittedLabel}</Text>
-            </View>
+                <View style={styles.submittedGroup}>
+                    <Ionicons name="calendar-outline" size={13} color={adminColors.textMuted} />
+                    <Text style={styles.footerText} numberOfLines={1}>
+                        {summary.submittedLabel}
+                    </Text>
+                </View>
 
-            {/* The comment count and both vote tallies, all off the list
-                response — the same row the passenger cards carry. */}
-            <ReportFeedbackStats counts={summary.feedbackCounts} />
+                <View style={styles.footerActions}>
+                    {/* The comment count and both vote tallies, all off the
+                        list response — the same row the passenger cards
+                        carry. */}
+                    <ReportFeedbackStats counts={summary.feedbackCounts} variant="inline" />
+
+                    <Text style={styles.viewReport}>View Report</Text>
+                </View>
+            </View>
         </TouchableOpacity>
     );
 }
@@ -376,10 +460,14 @@ const styles = StyleSheet.create({
         color: adminColors.warning,
     },
 
+    // The same row the passenger cards draw: the thumbnail leads, everything
+    // read about the report sits beside it, and the footer closes the card
+    // off — so one report describes itself identically on both sides of the
+    // app. What stays admin-only is the review flag and "View Report".
     card: {
         backgroundColor: adminColors.surface,
-        borderRadius: 12,
-        padding: 16,
+        borderRadius: 14,
+        padding: 14,
         marginBottom: 12,
         ...adminShadow.card,
     },
@@ -395,8 +483,8 @@ const styles = StyleSheet.create({
         backgroundColor: adminColors.warningSoft,
         borderRadius: 8,
         paddingHorizontal: 9,
-        paddingVertical: 5,
-        marginBottom: 12,
+        paddingVertical: 4,
+        marginBottom: 10,
     },
     needsReviewText: {
         fontSize: 11,
@@ -406,71 +494,104 @@ const styles = StyleSheet.create({
         letterSpacing: 0.2,
     },
 
-    cardTop: { flexDirection: 'row', alignItems: 'center' },
-    statusRow: { flexDirection: 'row', marginTop: 6 },
-    chevron: {
-        width: 28,
-        height: 28,
-        justifyContent: 'center',
-        alignItems: 'flex-end',
-    },
-    categoryIconCircle: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
+    cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
+    thumbnail: {
+        width: 64,
+        height: 64,
+        borderRadius: 12,
         backgroundColor: adminColors.primarySoft,
         justifyContent: 'center',
         alignItems: 'center',
+        // Keeps a photo inside the rounded corner on Android.
+        overflow: 'hidden',
     },
-    cardHeadings: { flex: 1, marginLeft: 14, marginRight: 8 },
+    thumbnailImage: { width: '100%', height: '100%' },
+    cardHeadings: { flex: 1, marginLeft: 12, marginRight: 6 },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
     categoryText: {
+        flex: 1,
         fontSize: 15,
         fontWeight: '800',
         color: adminColors.textPrimary,
+        lineHeight: 20,
+    },
+    chevron: {
+        width: 20,
+        // Aligned to the title beside it rather than centred on a row whose
+        // height changes with the description.
+        paddingTop: 4,
+        alignItems: 'flex-end',
     },
 
     descriptionText: {
         fontSize: 13,
         color: adminColors.textSecondary,
-        lineHeight: 19,
-        marginTop: 12,
+        lineHeight: 18,
+        marginTop: 6,
     },
 
+    // The bus, the route and the photo count read as one scannable line of
+    // metadata, so they carry their icons without a pill each.
     chipWrap: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 8,
-        marginTop: 12,
+        alignItems: 'center',
+        rowGap: 4,
+        columnGap: 10,
+        marginTop: 5,
     },
     metaChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: adminColors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: adminColors.border,
-        borderRadius: 8,
-        paddingHorizontal: 9,
-        paddingVertical: 5,
+        flexShrink: 1,
     },
     metaChipText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         color: adminColors.textSecondary,
         marginLeft: 4,
+        flexShrink: 1,
     },
 
     cardFooter: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        rowGap: 6,
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,
-        marginTop: 14,
-        paddingTop: 12,
+        marginTop: 10,
+        paddingTop: 9,
+    },
+    // Shrinks before the tallies do, so a narrow phone trims the date rather
+    // than pushing a count off the card.
+    submittedGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 1,
+        marginRight: 10,
     },
     footerText: {
         fontSize: 12,
         fontWeight: '600',
         color: adminColors.textMuted,
-        marginLeft: 6,
+        marginLeft: 5,
+        flexShrink: 1,
+    },
+    footerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    viewReport: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: adminColors.primary,
+        letterSpacing: 0.2,
     },
 });

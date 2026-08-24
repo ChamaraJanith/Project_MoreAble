@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Image,
     RefreshControl,
@@ -14,11 +14,16 @@ import { AccessibilityReport, ReportScope } from '../../../entities/report/model
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
+import { AdminSearchField } from '../../admin/ui/AdminSearchField';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
 import { reportDetailsPath, reportFormPath } from '../utils/reportRoutes';
+import {
+    REPORT_SEARCH_PLACEHOLDER,
+    filterReportsBySearch,
+} from '../utils/reportSearch';
 import { reportsRequestPath } from '../utils/reportScopes';
 import { reportCardSummary } from '../utils/reportSummary';
 import { ReportFeedbackStats } from './ReportFeedbackStats';
@@ -88,6 +93,11 @@ export const AccessibilityReportsScreen = () => {
         verified: INITIAL_FEED,
     });
     const [scope, setScope] = useState<ReportScope>('all');
+
+    // What has been typed into the search box, kept for the screen rather than
+    // per tab: a passenger looking for one route wants the same words applied
+    // as they move between All, My and Verified, not three boxes to retype.
+    const [search, setSearch] = useState('');
 
     // Which scopes have had a request fired for them. A ref rather than state
     // because it is read to decide whether to start a fetch, and has to be
@@ -184,9 +194,20 @@ export const AccessibilityReportsScreen = () => {
     // on it instead of on the form.
     const goToReportForm = () => router.push(reportFormPath() as Href);
 
-    const renderBody = () => {
-        const feed = feeds[scope];
+    const feed = feeds[scope];
 
+    // Narrowed here, against the tab's own reports, because they are already
+    // on the device: the scope is what the API was asked for, and searching
+    // within it is not another question to ask it.
+    const visibleReports = useMemo(
+        () => filterReportsBySearch(feed.reports, search),
+        [feed.reports, search]
+    );
+
+    // The box is only worth drawing over a list there is something to search.
+    const canSearch = !feed.isLoading && !feed.error && feed.reports.length > 0;
+
+    const renderBody = () => {
         if (feed.isLoading) return <AdminListSkeleton count={3} />;
 
         if (feed.error) {
@@ -214,13 +235,30 @@ export const AccessibilityReportsScreen = () => {
             );
         }
 
+        // Told apart from the empty tab above on purpose: there are reports
+        // here, the search is simply not finding them, so the way out is to
+        // change the words rather than to file a report.
+        if (visibleReports.length === 0) {
+            return (
+                <AdminEmptyState
+                    icon="search-outline"
+                    title="No matching reports"
+                    description="No reports match your search. Try an issue, a bus, a route or a word from the description."
+                />
+            );
+        }
+
         return (
             <>
                 <Text style={styles.resultCount}>
-                    {feed.reports.length} report{feed.reports.length === 1 ? '' : 's'}
+                    {search.trim()
+                        ? `${visibleReports.length} of ${feed.reports.length} report${
+                              feed.reports.length === 1 ? '' : 's'
+                          }`
+                        : `${feed.reports.length} report${feed.reports.length === 1 ? '' : 's'}`}
                 </Text>
 
-                {feed.reports.map((report) => (
+                {visibleReports.map((report) => (
                     <ReportCard
                         key={report.reportId}
                         report={report}
@@ -252,9 +290,12 @@ export const AccessibilityReportsScreen = () => {
             <ScrollView
                 contentContainerStyle={styles.content}
                 showsVerticalScrollIndicator={false}
+                // So a card can be opened on the first tap while the search
+                // keyboard is up, rather than the tap only dismissing it.
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl
-                        refreshing={feeds[scope].isRefreshing}
+                        refreshing={feed.isRefreshing}
                         onRefresh={() => fetchReports(scope, 'refresh')}
                     />
                 }
@@ -264,10 +305,29 @@ export const AccessibilityReportsScreen = () => {
                     invites, with the line that says why, instead of as a bar
                     sitting on top of the list. The action itself is unchanged. */}
                 <View style={styles.ctaCard}>
-                    <Text style={styles.ctaTitle}>Spot an accessibility issue?</Text>
-                    <Text style={styles.ctaSubtitle}>
-                        Tell us what you found so other passengers know what to expect.
-                    </Text>
+                    <View style={styles.ctaHeader}>
+                        {/* Decorative: the heading beside it already says what
+                            the card is for. */}
+                        <View
+                            style={styles.ctaIconCircle}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                        >
+                            <Ionicons
+                                name="megaphone-outline"
+                                size={20}
+                                color={adminColors.primary}
+                            />
+                        </View>
+
+                        <View style={styles.ctaHeaderText}>
+                            <Text style={styles.ctaTitle}>Spot an accessibility issue?</Text>
+                            <Text style={styles.ctaSubtitle}>
+                                Tell us what you found so other passengers know what to
+                                expect.
+                            </Text>
+                        </View>
+                    </View>
 
                     <TouchableOpacity
                         style={styles.createButton}
@@ -306,6 +366,19 @@ export const AccessibilityReportsScreen = () => {
                         );
                     })}
                 </View>
+
+                {/* Below the tabs, so it reads as searching the tab that is
+                    open rather than the whole collection — which is exactly
+                    what it does. */}
+                {canSearch && (
+                    <AdminSearchField
+                        value={search}
+                        onChangeText={setSearch}
+                        placeholder={REPORT_SEARCH_PLACEHOLDER}
+                        accessibilityLabel="Search reports"
+                        resultLabel={`${visibleReports.length}/${feed.reports.length}`}
+                    />
+                )}
 
                 {renderBody()}
             </ScrollView>
@@ -362,7 +435,7 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
                             resizeMode="cover"
                         />
                     ) : (
-                        <Ionicons name={summary.icon} size={24} color={adminColors.primary} />
+                        <Ionicons name={summary.icon} size={26} color={adminColors.primary} />
                     )}
                 </View>
 
@@ -462,6 +535,19 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         ...adminShadow.card,
     },
+    // Icon and words side by side, button underneath: the card stays two
+    // short lines tall on a narrow phone, where a button on the same row as
+    // the text would have had nowhere to go.
+    ctaHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+    ctaIconCircle: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: adminColors.primarySoft,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    ctaHeaderText: { flex: 1, marginLeft: 12 },
     ctaTitle: {
         fontSize: 15,
         fontWeight: '800',
@@ -469,9 +555,9 @@ const styles = StyleSheet.create({
     },
     ctaSubtitle: {
         marginTop: 4,
-        fontSize: 12,
+        fontSize: 13,
         color: adminColors.textMuted,
-        lineHeight: 17,
+        lineHeight: 18,
     },
     createButton: {
         flexDirection: 'row',
@@ -532,9 +618,9 @@ const styles = StyleSheet.create({
     // padding than the old stacked card, because there is less stacked.
     card: {
         backgroundColor: adminColors.surface,
-        borderRadius: 12,
-        padding: 12,
-        marginBottom: 10,
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 12,
         ...adminShadow.card,
     },
     cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -546,9 +632,9 @@ const styles = StyleSheet.create({
         alignItems: 'flex-end',
     },
     thumbnail: {
-        width: 60,
-        height: 60,
-        borderRadius: 10,
+        width: 64,
+        height: 64,
+        borderRadius: 12,
         backgroundColor: adminColors.primarySoft,
         justifyContent: 'center',
         alignItems: 'center',
@@ -564,16 +650,16 @@ const styles = StyleSheet.create({
     },
     categoryText: {
         flex: 1,
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '800',
         color: adminColors.textPrimary,
-        lineHeight: 19,
+        lineHeight: 20,
     },
 
     descriptionText: {
-        fontSize: 12,
+        fontSize: 13,
         color: adminColors.textSecondary,
-        lineHeight: 17,
+        lineHeight: 18,
         marginTop: 6,
     },
 
@@ -600,7 +686,7 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
     },
     metaChipText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         color: adminColors.textSecondary,
         marginLeft: 4,
@@ -626,7 +712,7 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
     footerText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         color: adminColors.textMuted,
         marginLeft: 5,
