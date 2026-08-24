@@ -219,6 +219,51 @@ describe('POST /api/reports - passenger identity', () => {
         expect(stored.passengerId).toBe(PASSENGER_A);
         expect(stored.passengerId).not.toBe(PASSENGER_B);
     });
+
+    // A report's status is the server's to set, exactly as its author is. The
+    // submission route hardcodes PENDING, so a passenger cannot file a report
+    // that is already verified — and cannot arrive carrying a review either,
+    // which would read as a decision an admin never made.
+    it('ignores a status supplied in the request body', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(validPayload({ status: 'VERIFIED' }), SESSION_A)
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+        expect(json.report.status).toBe('PENDING');
+        expect((await storedReport(firestore, json.report.reportId)).status).toBe('PENDING');
+    });
+
+    it('ignores a review supplied in the request body', async () => {
+        const firestore = seededFirestore();
+        mockGetAdminDb.mockReturnValue(firestore);
+
+        const response = await createReport(
+            reportRequest(
+                validPayload({
+                    status: 'REJECTED',
+                    reviewedBy: 'UID-ADMIN',
+                    reviewedAt: '2026-08-21T09:00:00.000Z',
+                    adminRemark: 'Approved by me, the person filing this.',
+                }),
+                SESSION_A
+            )
+        );
+        const json = await response.json();
+
+        expect(response.status).toBe(201);
+
+        const stored = await storedReport(firestore, json.report.reportId);
+
+        expect(stored.status).toBe('PENDING');
+        expect(stored).not.toHaveProperty('reviewedBy');
+        expect(stored).not.toHaveProperty('reviewedAt');
+        expect(stored).not.toHaveProperty('adminRemark');
+    });
 });
 
 // ==================================================================
