@@ -1,11 +1,22 @@
 import { JourneyGeoInformation, JourneySearchMatch } from '../../../entities/route/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
+import { AccessibilityRequirementKey } from '../../../shared/utils/accessibility';
 
 export interface JourneySearchCriteria {
     origin: string;
     destination: string;
     travelDate: string;
     travelTime: string;
+    /**
+     * The accessibility requirements the passenger has stated (MOV-92).
+     *
+     * Optional, and omitted entirely when none are selected, so a search with
+     * no stated need is byte-for-byte the request this app has always sent. The
+     * endpoint applies them itself and returns only suitable departures; it
+     * echoes the list back on `searchCriteria` so a caller can see what was
+     * filtered by.
+     */
+    accessibilityRequirements?: AccessibilityRequirementKey[];
 }
 
 export interface JourneySearchResponse {
