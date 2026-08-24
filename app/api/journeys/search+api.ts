@@ -12,6 +12,7 @@ import {
   RoadRoute,
 } from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { sumSegmentDistances } from '../../../src/shared/server/routeDistance';
 import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
 import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
 import { normalizeLocation } from '../../../src/shared/utils/location';
@@ -274,6 +275,54 @@ export function buildRouteWaypoints(
 }
 
 /**
+ * Measures how far this passenger actually travels on this route (MOV-88).
+ *
+ * A journey covering the whole route reports the route's own recorded total —
+ * the operator entered it and it is authoritative for exactly that span. Any
+ * shorter journey is measured over `journeyStops`, which is already the
+ * passenger's own slice of the route in travel order, using the coordinates
+ * this request has loaded anyway. That is the same measurement the fare
+ * calculation bills on, so the distance shown and the fare charged agree.
+ *
+ * Returns null when a stop on the path has no stored coordinates. The
+ * proportional fallback inside `computeRouteSegmentDistance` is deliberately not
+ * reused here: it exists so a fare is always chargeable, and it is flagged as an
+ * estimate when it is used. A figure a passenger reads as their journey distance
+ * should be measured or absent, not apportioned.
+ */
+export function resolveJourneyDistanceKm(
+  match: JourneySearchMatch,
+  stopCoordinates: Map<string, Coordinates>
+): number | null {
+  const journeyStops = Array.isArray(match.journeyStops) ? match.journeyStops : [];
+
+  // Fewer than two stops is not a journey; the search never produces one.
+  if (journeyStops.length < 2) return null;
+
+  // `journeyStops` is a contiguous slice of `stops`, so equal lengths mean the
+  // passenger boards at the first stop and alights at the last.
+  const travelsWholeRoute =
+    Array.isArray(match.stops) && journeyStops.length === match.stops.length;
+
+  if (travelsWholeRoute) {
+    return typeof match.distanceKm === 'number' && Number.isFinite(match.distanceKm)
+      ? match.distanceKm
+      : null;
+  }
+
+  const { distanceKm, isPrecise } = sumSegmentDistances(journeyStops, stopCoordinates);
+
+  return isPrecise ? distanceKm : null;
+}
+
+function attachJourneyDistance(
+  match: JourneySearchMatch,
+  stopCoordinates: Map<string, Coordinates>
+): JourneySearchMatch {
+  return { ...match, journeyDistanceKm: resolveJourneyDistanceKm(match, stopCoordinates) };
+}
+
+/**
  * Attaches the road path that follows this route's own stop sequence.
  *
  * Without the intermediate waypoints OSRM would return its preferred road
@@ -294,6 +343,39 @@ async function attachRoadRoute(
   const road = await getRouteThroughCoordinates(waypoints);
 
   return road ? { ...match, road } : match;
+}
+
+/**
+ * The route's configured stop-to-stop timings, made safe to send (MOV-88).
+ *
+ * Firestore is schema-less, so a stored value can be anything. Each entry is
+ * kept only when it is a finite, non-negative number — an entry that is not
+ * becomes null, meaning "nobody has timed this gap", which the consumer treats
+ * as unknown rather than as zero. Length is held to `stops.length - 1` so an
+ * entry can never be read against the wrong pair of stops.
+ *
+ * Returns null when nothing usable is stored, so an untimed route is plainly
+ * untimed instead of arriving as an array of nulls.
+ */
+export function normalizeSegmentDurations(
+  value: unknown,
+  stopCount: number
+): (number | null)[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const gapCount = Math.max(stopCount - 1, 0);
+  if (gapCount === 0) return null;
+
+  const durations: (number | null)[] = [];
+
+  for (let i = 0; i < gapCount; i++) {
+    const entry = value[i];
+    durations.push(
+      typeof entry === 'number' && Number.isFinite(entry) && entry >= 0 ? entry : null
+    );
+  }
+
+  return durations.some((entry) => entry !== null) ? durations : null;
 }
 
 // A route matches only when both origin and destination are stops on it and the
@@ -331,6 +413,19 @@ export function findMatchingRoutes(
       journeyStops: route.stops.slice(originIndex, destinationIndex + 1),
       distanceKm: route.distanceKm ?? null,
       estimatedDuration: route.estimatedDuration ?? null,
+      // Filled in by attachJourneyDistance once stop coordinates are to hand.
+      // Null here rather than absent so the field's meaning does not depend on
+      // whether the enrichment pass reached this route.
+      journeyDistanceKm: null,
+      // Passed through aligned to the FULL `stops` list, not sliced to
+      // `journeyStops` (MOV-88). A passenger's boarding time depends on the
+      // timings before they board, which the slice deliberately excludes, so
+      // narrowing it here would leave their duration right and their departure
+      // time wrong. Null on a route the operator has not timed.
+      segmentDurationsMinutes: normalizeSegmentDurations(
+        route.segmentDurationsMinutes,
+        route.stops.length
+      ),
       // Populated afterwards by attachUpcomingTrips — a route can match without
       // any currently-available trip.
       trips: [],
@@ -641,7 +736,10 @@ export async function POST(request: Request) {
     const enrichedRoutes = await Promise.all(
       matchedRoutes.map(async (match) =>
         attachRoadRoute(
-          await attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now),
+          attachJourneyDistance(
+            await attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now),
+            stopCoordinates
+          ),
           stopCoordinates,
           geo
         )

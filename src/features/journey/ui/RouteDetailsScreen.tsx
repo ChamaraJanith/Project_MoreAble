@@ -5,7 +5,8 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { searchJourneys } from '../api/journeySearchApi';
 import { setSelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
 import { listAccessibilityFacilities } from '../utils/accessibilityFacilities';
-import { formatDurationBetween, formatFriendlyTime, parseApiTimeString } from '../utils/dateTime';
+import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
+import { resolveJourneyTiming } from '../utils/journeyTiming';
 import { formatLocationAge, resolveVehiclePosition } from '../utils/liveStatus';
 import { resolveIntermediateStops } from '../utils/routeMapStops';
 import { LiveStatusCard } from './LiveStatusCard';
@@ -124,14 +125,31 @@ export const RouteDetailsScreen = () => {
     }
 
     const { route, option, geo } = selection;
-    const { trip, bus } = option;
+    const { bus } = option;
 
-    const departureLabel = formatFriendlyTime(parseApiTimeString(trip.departureTime));
-    const arrivalLabel = formatFriendlyTime(parseApiTimeString(trip.estimatedArrivalTime));
-    const duration = formatDurationBetween(trip.departureTime, trip.estimatedArrivalTime);
+    // The same passenger-journey timing the results card shows, from the same
+    // function on the same data (MOV-88) — so the duration a passenger chose a
+    // route by does not change when they open its details. Boarding and
+    // alighting times are theirs when the route's configured stop-to-stop
+    // timings can place them; otherwise the trip's own whole-route times stand
+    // in and are labelled as such below.
+    const journeyTiming = resolveJourneyTiming(buildJourneyLegs(route, option));
 
-    const stopCount = route.journeyStops.length;
-    const distanceLabel = route.distanceKm != null ? `${route.distanceKm} km` : null;
+    // The same derivation the results card uses, so a passenger who picked a
+    // journey by its duration sees that same duration here. Nothing falls back
+    // to the trip's or the route's own whole-route figures: on a
+    // Kaduwela -> Malabe journey the trip's arrival is when the bus reaches
+    // Kollupitiya and `route.distanceKm` is the full 20 km, neither of which
+    // this passenger travels.
+    const {
+        departureLabel,
+        arrivalLabel,
+        durationLabel: duration,
+        distanceLabel,
+        stopCount,
+        travelsWholeRoute,
+        hasIncompleteTimes,
+    } = describeJourneyForDisplay(route, journeyTiming);
     const facilities = listAccessibilityFacilities(bus?.accessibilityFacilities);
     const mapStops = resolveIntermediateStops(route.journeyStops, geo);
 
@@ -191,8 +209,12 @@ export const RouteDetailsScreen = () => {
                     {/* Departure → arrival: the key decision information */}
                     <View style={styles.timeRow}>
                         <View style={styles.timeBlock}>
-                            <Text style={styles.timeValue}>{departureLabel}</Text>
-                            <Text style={styles.timeCaption}>Departs</Text>
+                            <Text style={departureLabel ? styles.timeValue : styles.timeValueUnknown}>
+                                {departureLabel ?? NOT_AVAILABLE}
+                            </Text>
+                            <Text style={styles.timeCaption} numberOfLines={2}>
+                                Departs {route.origin}
+                            </Text>
                         </View>
 
                         <View style={styles.timeConnector}>
@@ -208,20 +230,35 @@ export const RouteDetailsScreen = () => {
                         </View>
 
                         <View style={[styles.timeBlock, styles.timeBlockEnd]}>
-                            <Text style={styles.timeValue}>{arrivalLabel}</Text>
-                            <Text style={styles.timeCaption}>Est. arrival</Text>
+                            <Text style={arrivalLabel ? styles.timeValue : styles.timeValueUnknown}>
+                                {arrivalLabel ?? NOT_AVAILABLE}
+                            </Text>
+                            <Text
+                                style={[styles.timeCaption, styles.timeCaptionEnd]}
+                                numberOfLines={2}
+                            >
+                                Arrives {route.destination}
+                            </Text>
                         </View>
                     </View>
+
+                    {hasIncompleteTimes && (
+                        <Text style={styles.timesScopeNote}>
+                            {travelsWholeRoute
+                                ? 'Some timings are not recorded for this route yet.'
+                                : `Stop-by-stop timings are not recorded for this route yet, so the times for ${route.origin} to ${route.destination} are not known. The route's own end-to-end times are not shown here because they cover stops beyond your journey.`}
+                        </Text>
+                    )}
 
                     <View style={styles.metaRow}>
                         <MetaItem
                             icon="time-outline"
-                            label="Duration"
+                            label="Your journey"
                             value={duration ?? NOT_AVAILABLE}
                         />
                         <MetaItem
                             icon="navigate-outline"
-                            label="Route distance"
+                            label={travelsWholeRoute ? 'Route distance' : 'Journey distance'}
                             value={distanceLabel ?? NOT_AVAILABLE}
                         />
                         <MetaItem
@@ -535,6 +572,23 @@ const styles = StyleSheet.create({
         height: 2,
         backgroundColor: '#E2E8F0',
         borderRadius: 1,
+    },
+    timeValueUnknown: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#64748B',
+        letterSpacing: -0.2,
+    },
+    timeCaptionEnd: {
+        textAlign: 'right',
+    },
+    timesScopeNote: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#64748B',
+        lineHeight: 17,
+        marginTop: -4,
+        marginBottom: 12,
     },
     durationPill: {
         backgroundColor: '#F1F5F9',

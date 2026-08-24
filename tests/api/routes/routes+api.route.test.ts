@@ -354,6 +354,129 @@ describe('POST /api/routes - create route', () => {
         });
     });
 
+    // ------------------------------------------------------------------
+    // Stop-to-stop timings (MOV-88)
+    //
+    // The route's `estimatedDuration` above describes the whole route, so it
+    // cannot say how long a passenger boarding partway along travels for. These
+    // timings can: one entry per gap between consecutive stops, entered against
+    // real timings. What they must never do is admit a value that could be
+    // mistaken for a measurement.
+    // ------------------------------------------------------------------
+    describe('stop-to-stop timings', () => {
+        it('stores one timing per gap between the stops', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            // Six stops, so five gaps.
+            const response = await createRoute(
+                buildRequest(
+                    '/api/routes',
+                    'POST',
+                    validRoutePayload({ segmentDurationsMinutes: [8, 6, 12, 15, 9] })
+                )
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(201);
+            expect(json.route.segmentDurationsMinutes).toEqual([8, 6, 12, 15, 9]);
+        });
+
+        it('accepts a partly timed route, with the untimed gaps left null', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            const response = await createRoute(
+                buildRequest(
+                    '/api/routes',
+                    'POST',
+                    validRoutePayload({ segmentDurationsMinutes: [8, null, 12, null, 9] })
+                )
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(201);
+            expect(json.route.segmentDurationsMinutes).toEqual([8, null, 12, null, 9]);
+        });
+
+        it('stores null when the route has not been timed', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            const payload = validRoutePayload();
+            delete (payload as any).segmentDurationsMinutes;
+
+            const response = await createRoute(buildRequest('/api/routes', 'POST', payload));
+            const json = await response.json();
+
+            expect(response.status).toBe(201);
+            expect(json.route.segmentDurationsMinutes).toBeNull();
+        });
+
+        it('rejects a value that is not an array', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            const response = await createRoute(
+                buildRequest(
+                    '/api/routes',
+                    'POST',
+                    validRoutePayload({ segmentDurationsMinutes: '8,6,12' })
+                )
+            );
+
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects more timings than there are gaps between stops', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            // Six stops allow five timings; a sixth could only be read against a
+            // pair of stops that does not exist.
+            const response = await createRoute(
+                buildRequest(
+                    '/api/routes',
+                    'POST',
+                    validRoutePayload({ segmentDurationsMinutes: [8, 6, 12, 15, 9, 4] })
+                )
+            );
+            const json = await response.json();
+
+            expect(response.status).toBe(400);
+            expect(json.success).toBe(false);
+        });
+
+        it('rejects a negative or non-numeric timing', async () => {
+            // NaN is deliberately absent: JSON has no NaN, so it arrives as
+            // null and is a legitimate "untimed" entry by the time the endpoint
+            // sees it. A NaN already sitting in Firestore is caught on the way
+            // out instead — see `normalizeSegmentDurations`.
+            for (const bad of [[-5, 6], ['8', 6], [{}, 6], [true, 6]]) {
+                mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+                const response = await createRoute(
+                    buildRequest(
+                        '/api/routes',
+                        'POST',
+                        validRoutePayload({ segmentDurationsMinutes: bad })
+                    )
+                );
+
+                expect(response.status).toBe(400);
+            }
+        });
+
+        it('accepts a zero, which is a measurement rather than a missing value', async () => {
+            mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));
+
+            const response = await createRoute(
+                buildRequest(
+                    '/api/routes',
+                    'POST',
+                    validRoutePayload({ segmentDurationsMinutes: [0, 6] })
+                )
+            );
+
+            expect(response.status).toBe(201);
+        });
+    });
+
     describe('status validation', () => {
         it('rejects an unsupported status', async () => {
             mockGetAdminDb.mockReturnValue(createFakeFirestore({ routes: [] }));

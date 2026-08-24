@@ -10,8 +10,11 @@
 // belong to the Journey Planner, not Route Details.
 
 import {
+    addMinutesToApiTime,
     formatDurationBetween,
+    formatDurationMinutes,
     formatFriendlyTime,
+    minutesBetweenApiTimes,
     parseApiTimeString,
 } from '../../../src/features/journey/utils/dateTime';
 
@@ -90,5 +93,93 @@ describe('the journey duration between departure and estimated arrival', () => {
         expect(displayed(departureTime)).toBe('9:00 AM');
         expect(displayed(estimatedArrivalTime)).toBe('10:10 AM');
         expect(formatDurationBetween(departureTime, estimatedArrivalTime)).toBe('1h 10m');
+    });
+});
+
+// ==================================================================
+// A DURATION MEASURED IN MINUTES (MOV-88)
+//
+// A passenger's journey time is arrived at by summing configured stop-to-stop
+// timings, so it starts life as a number of minutes rather than as a pair of
+// clock times. It must read exactly like the durations above — the same
+// formatter produces both, and these cases hold that to the existing format.
+// ==================================================================
+describe('a duration given in minutes', () => {
+    it('formats minutes under an hour on their own', () => {
+        expect(formatDurationMinutes(33)).toBe('33m');
+        expect(formatDurationMinutes(45)).toBe('45m');
+    });
+
+    it('formats hours and minutes together', () => {
+        expect(formatDurationMinutes(70)).toBe('1h 10m');
+    });
+
+    it('formats a whole number of hours without a stray zero', () => {
+        expect(formatDurationMinutes(120)).toBe('2h');
+    });
+
+    it('agrees with the clock-time formatter for the same span', () => {
+        // The two must never disagree: one delegates to the other.
+        expect(formatDurationMinutes(70)).toBe(formatDurationBetween('09:00', '10:10'));
+        expect(formatDurationMinutes(45)).toBe(formatDurationBetween('23:30', '00:15'));
+    });
+
+    it('reports nothing for a duration there is no point showing', () => {
+        expect(formatDurationMinutes(0)).toBeNull();
+        expect(formatDurationMinutes(-10)).toBeNull();
+        expect(formatDurationMinutes(null)).toBeNull();
+        expect(formatDurationMinutes(undefined)).toBeNull();
+        expect(formatDurationMinutes(Number.NaN)).toBeNull();
+        expect(formatDurationMinutes(Number.POSITIVE_INFINITY)).toBeNull();
+    });
+});
+
+// ==================================================================
+// PLACING A PASSENGER'S OWN STOP INSIDE A TRIP (MOV-88)
+// ==================================================================
+describe('moving a stored time on by a number of minutes', () => {
+    it('adds minutes within the hour', () => {
+        expect(addMinutesToApiTime('09:00', 8)).toBe('09:08');
+    });
+
+    it('carries over into the next hour', () => {
+        expect(addMinutesToApiTime('09:50', 26)).toBe('10:16');
+    });
+
+    it('wraps past midnight rather than producing a 25th hour', () => {
+        expect(addMinutesToApiTime('23:50', 26)).toBe('00:16');
+    });
+
+    it('keeps the zero-padded form the API stores', () => {
+        expect(addMinutesToApiTime('08:05', 0)).toBe('08:05');
+        expect(addMinutesToApiTime('00:00', 5)).toBe('00:05');
+    });
+
+    it('reports nothing when the time or the offset is unusable', () => {
+        expect(addMinutesToApiTime('later', 10)).toBeNull();
+        expect(addMinutesToApiTime('', 10)).toBeNull();
+        expect(addMinutesToApiTime('09:00', Number.NaN)).toBeNull();
+    });
+});
+
+describe('minutes between two stored times', () => {
+    it('measures a same-day gap', () => {
+        expect(minutesBetweenApiTimes('09:00', '09:41')).toBe(41);
+    });
+
+    it('treats a wrap as crossing midnight', () => {
+        expect(minutesBetweenApiTimes('23:30', '00:15')).toBe(45);
+    });
+
+    it('reports zero for two identical times, leaving the label to decide', () => {
+        // The measurement is zero; whether that is worth printing is the
+        // formatter's call, which is why they are separate functions.
+        expect(minutesBetweenApiTimes('09:00', '09:00')).toBe(0);
+        expect(formatDurationBetween('09:00', '09:00')).toBeNull();
+    });
+
+    it('reports nothing when a time is unusable', () => {
+        expect(minutesBetweenApiTimes('', '10:10')).toBeNull();
+        expect(minutesBetweenApiTimes('09:00', 'later')).toBeNull();
     });
 });

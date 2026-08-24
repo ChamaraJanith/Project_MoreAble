@@ -38,6 +38,45 @@ export interface RouteSegmentDistanceResult {
 }
 
 /**
+ * Sums the distance between each CONSECUTIVE pair of stops along a path.
+ *
+ * The measuring half of `computeRouteSegmentDistance`, lifted out so a caller
+ * that has already loaded stop coordinates can measure a journey without a
+ * second read of the `stops` collection — the journey search does exactly that
+ * (MOV-88). Pure, and deliberately free of any fallback: it reports what the
+ * coordinates say and sets `isPrecise` to false when a stop on the path has
+ * none, leaving each caller to decide what an imprecise figure is worth.
+ *
+ * Consecutive pairs rather than a straight line end to end, so a winding route
+ * is not under-counted by cutting the corner at every stop it serves.
+ */
+export function sumSegmentDistances(
+    pathStops: string[],
+    coordinateMap: Map<string, Coordinates>
+): RouteSegmentDistanceResult {
+    if (!Array.isArray(pathStops) || pathStops.length < 2) {
+        return { distanceKm: 0, isPrecise: true };
+    }
+
+    let distanceKm = 0;
+    let isPrecise = true;
+
+    for (let i = 0; i < pathStops.length - 1; i++) {
+        const from = coordinateMap.get(normalizeLocation(pathStops[i]));
+        const to = coordinateMap.get(normalizeLocation(pathStops[i + 1]));
+
+        if (!from || !to) {
+            isPrecise = false;
+            continue;
+        }
+
+        distanceKm += haversineDistanceKm(from, to);
+    }
+
+    return { distanceKm: Math.round(distanceKm * 10) / 10, isPrecise };
+}
+
+/**
  * Computes the real travelled distance between two stops on a route by
  * summing the great-circle distance between each *consecutive* pair of
  * stops along the actual path — not a straight line from origin to
@@ -64,20 +103,7 @@ export async function computeRouteSegmentDistance(
 
     const coordinateMap = await loadStopCoordinateMap(adminDb);
 
-    let distanceKm = 0;
-    let isPrecise = true;
-
-    for (let i = 0; i < pathStops.length - 1; i++) {
-        const from = coordinateMap.get(normalizeLocation(pathStops[i]));
-        const to = coordinateMap.get(normalizeLocation(pathStops[i + 1]));
-
-        if (!from || !to) {
-            isPrecise = false;
-            continue;
-        }
-
-        distanceKm += haversineDistanceKm(from, to);
-    }
+    const { distanceKm, isPrecise } = sumSegmentDistances(pathStops, coordinateMap);
 
     if (!isPrecise) {
         const fraction = (destinationIndex - originIndex) / Math.max(1, routeStops.length - 1);

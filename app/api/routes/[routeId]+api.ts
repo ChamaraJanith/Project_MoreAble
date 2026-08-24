@@ -6,6 +6,39 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+/**
+ * Validates the configured stop-to-stop timings for a route (MOV-88).
+ *
+ * The array runs alongside `stops`: entry `i` is the travelling time from
+ * `stops[i]` to `stops[i + 1]`, so it holds at most `stops.length - 1` entries.
+ * A gap the operator has not timed yet is null — the field records real,
+ * entered timings and never a placeholder that could be mistaken for one.
+ *
+ * Returns an error message, or null when the value is acceptable. Absent is
+ * always acceptable: every route created before this field existed stays valid.
+ */
+function validateSegmentDurations(value: unknown, stopCount: number): string | null {
+  if (value === undefined || value === null) return null;
+
+  if (!Array.isArray(value)) {
+    return 'Segment durations must be an array of minutes, one per pair of consecutive stops.';
+  }
+
+  if (value.length > Math.max(stopCount - 1, 0)) {
+    return 'Segment durations cannot have more entries than there are gaps between stops.';
+  }
+
+  const isUsable = (entry: unknown) =>
+    entry === null ||
+    (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0);
+
+  if (!value.every(isUsable)) {
+    return 'Each segment duration must be a non-negative number of minutes, or null when untimed.';
+  }
+
+  return null;
+}
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -137,6 +170,7 @@ export async function PUT(request: Request) {
       stops,
       distanceKm,
       estimatedDuration,
+      segmentDurationsMinutes,
       status,
     } = body;
 
@@ -250,6 +284,38 @@ export async function PUT(request: Request) {
     }
 
     // --------------------------------------------------------
+    // Validate stop-to-stop timings (MOV-88)
+    //
+    // Checked against the stop list this request will leave behind: the stops
+    // being sent when they are, otherwise the ones already stored. Validating
+    // against the incoming stops alone would let an update that changes only the
+    // timings be measured against nothing.
+    // --------------------------------------------------------
+
+    if (segmentDurationsMinutes !== undefined) {
+      const effectiveStops = stops !== undefined ? stops : routeDoc.data()?.stops;
+      const effectiveStopCount = Array.isArray(effectiveStops) ? effectiveStops.length : 0;
+
+      const segmentDurationsError = validateSegmentDurations(
+        segmentDurationsMinutes,
+        effectiveStopCount
+      );
+
+      if (segmentDurationsError) {
+        return Response.json(
+          {
+            success: false,
+            message: segmentDurationsError,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          }
+        );
+      }
+    }
+
+    // --------------------------------------------------------
     // Validate status
     // --------------------------------------------------------
 
@@ -315,6 +381,10 @@ export async function PUT(request: Request) {
 
     if (estimatedDuration !== undefined) {
       updateData.estimatedDuration = estimatedDuration;
+    }
+
+    if (segmentDurationsMinutes !== undefined) {
+      updateData.segmentDurationsMinutes = segmentDurationsMinutes;
     }
 
     if (status !== undefined) {

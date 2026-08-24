@@ -6,6 +6,39 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+/**
+ * Validates the configured stop-to-stop timings for a route (MOV-88).
+ *
+ * The array runs alongside `stops`: entry `i` is the travelling time from
+ * `stops[i]` to `stops[i + 1]`, so it holds at most `stops.length - 1` entries.
+ * A gap the operator has not timed yet is null — the field records real,
+ * entered timings and never a placeholder that could be mistaken for one.
+ *
+ * Returns an error message, or null when the value is acceptable. Absent is
+ * always acceptable: every route created before this field existed stays valid.
+ */
+function validateSegmentDurations(value: unknown, stopCount: number): string | null {
+  if (value === undefined || value === null) return null;
+
+  if (!Array.isArray(value)) {
+    return 'Segment durations must be an array of minutes, one per pair of consecutive stops.';
+  }
+
+  if (value.length > Math.max(stopCount - 1, 0)) {
+    return 'Segment durations cannot have more entries than there are gaps between stops.';
+  }
+
+  const isUsable = (entry: unknown) =>
+    entry === null ||
+    (typeof entry === 'number' && Number.isFinite(entry) && entry >= 0);
+
+  if (!value.every(isUsable)) {
+    return 'Each segment duration must be a non-negative number of minutes, or null when untimed.';
+  }
+
+  return null;
+}
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -30,6 +63,7 @@ export async function POST(request: Request) {
       stops,
       distanceKm,
       estimatedDuration,
+      segmentDurationsMinutes,
       status,
     } = body;
 
@@ -122,6 +156,28 @@ export async function POST(request: Request) {
         {
           success: false,
           message: 'Distance must be a valid positive number.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    // --------------------------------------------------
+    // Validate stop-to-stop timings (MOV-88)
+    // --------------------------------------------------
+
+    const segmentDurationsError = validateSegmentDurations(
+      segmentDurationsMinutes,
+      stops.length
+    );
+
+    if (segmentDurationsError) {
+      return Response.json(
+        {
+          success: false,
+          message: segmentDurationsError,
         },
         {
           status: 400,
@@ -238,6 +294,13 @@ export async function POST(request: Request) {
       // Optional route information
       distanceKm: distanceKm ?? null,
       estimatedDuration: estimatedDuration ?? null,
+
+      // Real travelling minutes between each consecutive pair of the stops
+      // above, entered by the operator. This is what lets a passenger boarding
+      // mid-route be shown their own journey time rather than the whole
+      // route's (MOV-88). Example for the five stops A..E:
+      //   [8, 6, 12, 15]
+      segmentDurationsMinutes: segmentDurationsMinutes ?? null,
 
       // Route status
       status,
