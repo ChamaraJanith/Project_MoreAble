@@ -40,6 +40,21 @@ export interface AccessibilityProfile {
   accessibilityNeeds: string[];    // ['wheelchair', 'low_vision', 'hearing_impairment', 'walking_difficulty', 'other']
   otherDescription?: string | null;
   requestedServices?: AccessibilityRequestedServices;
+  /**
+   * The journey-search accessibility filters this passenger last applied
+   * (MOV-93), under the canonical keys in `shared/utils/accessibility`.
+   *
+   * Deliberately NOT folded into `requestedServices` above. That field records
+   * the services a passenger asks the operator for and defaults to all-true;
+   * this records which filters they want the journey search to apply and
+   * defaults to none. Only two of the five keys even appear there, and reusing
+   * it would turn every existing passenger's all-true defaults into five active
+   * search filters overnight.
+   *
+   * Optional: a profile saved before this existed simply has no preference,
+   * which reads as an empty selection and filters nothing.
+   */
+  journeyAccessibilityRequirements?: string[];
   createdAt: string;
   updatedAt: string;
 }

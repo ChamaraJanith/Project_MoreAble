@@ -95,6 +95,26 @@ export function selectedAccessibilityRequirements(
     );
 }
 
+/**
+ * The selection a saved list of requirements restores to (MOV-93).
+ *
+ * The inverse of `selectedAccessibilityRequirements`, so a preference written
+ * from one screen reads back as the same chips on the next. Anything the list
+ * does not name is simply not selected, which makes an empty list — and a
+ * passenger with nothing saved — the untouched default.
+ */
+export function accessibilityRequirementSelection(
+    requirements: readonly AccessibilityRequirementKey[]
+): AccessibilityRequirementSelection {
+    const selection = { ...NO_ACCESSIBILITY_REQUIREMENTS };
+
+    for (const key of requirements) {
+        selection[key] = true;
+    }
+
+    return selection;
+}
+
 export function hasSelectedAccessibilityRequirements(
     selection: AccessibilityRequirementSelection
 ): boolean {
