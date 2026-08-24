@@ -347,6 +347,43 @@ export const REPORT_REVIEW_ACTION_STATUS: Record<ReportReviewAction, ReportStatu
 export const REPORT_REVIEW_REQUIRED_STATUS: ReportStatus = 'PENDING';
 
 /**
+ * The status a report is in, for the purpose of deciding what may still be
+ * done to it.
+ *
+ * A report with nothing stored reads as PENDING: POST /api/reports is the only
+ * thing that creates one and it always writes PENDING, so a record without a
+ * status is one written before that was always true — unreviewed, rather than
+ * in a state nobody can name.
+ *
+ * Lives in the entity model rather than beside any one of its callers because
+ * three separate rules are asked in terms of it — whether an admin may still
+ * decide the report, whether its author may still edit it, and whether the API
+ * will accept that edit — and a second copy of "what counts as still pending"
+ * is a second place for those three to drift apart.
+ */
+export function reportDecisionStatus(
+    report: { status?: unknown } | null | undefined
+): ReportStatus | string {
+    return typeof report?.status === 'string' && report.status
+        ? report.status
+        : REPORT_REVIEW_REQUIRED_STATUS;
+}
+
+/**
+ * Whether an admin has already decided this report.
+ *
+ * True once it has moved off PENDING — VERIFIED or REJECTED through the review
+ * route, or any later state the backend introduces. A decided report is a
+ * record of what was found: the review is not made twice, and the account it
+ * was made about is not edited out from under it.
+ */
+export function isReportDecided(
+    report: { status?: unknown } | null | undefined
+): boolean {
+    return reportDecisionStatus(report) !== REPORT_REVIEW_REQUIRED_STATUS;
+}
+
+/**
  * Long enough for a finding, short enough to stay a remark.
  *
  * Enforced by the API, and the number an admin composer should cap typing at

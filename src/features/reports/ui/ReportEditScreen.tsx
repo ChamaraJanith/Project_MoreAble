@@ -7,7 +7,7 @@ import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { adminColors } from '../../admin/ui/adminTheme';
-import { canEditReport } from '../utils/reportOwnership';
+import { canEditReport, isReportOwnedBy } from '../utils/reportOwnership';
 import { reportApiPath } from '../utils/reportRoutes';
 import { ReportFormScreen } from './ReportFormScreen';
 
@@ -18,10 +18,11 @@ import { ReportFormScreen } from './ReportFormScreen';
  * every field opens pre-filled rather than filling in underneath the passenger
  * as the request lands.
  *
- * Ownership is checked here too, for the case where this screen is reached
- * directly by its path rather than through the details screen's Edit button.
- * It is still not the rule — PUT /api/reports/[reportId] refuses anybody but
- * the author whatever this screen decides to render.
+ * Ownership and the report's review state are checked here too, for the case
+ * where this screen is reached directly by its path rather than through the
+ * details screen's Edit button. Neither is the rule — PUT
+ * /api/reports/[reportId] refuses anybody but the author, and refuses even the
+ * author once an admin has decided the report, whatever this screen renders.
  */
 export const ReportEditScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
@@ -110,6 +111,15 @@ export const ReportEditScreen = () => {
                         message={`${error} Please check your connection and try again.`}
                         retryLabel="Try Again"
                         onRetry={loadReport}
+                    />
+                ) : isReportOwnedBy(report, user?.passengerId) ? (
+                    // Theirs, but decided. Worth saying so plainly: the report
+                    // has not gone anywhere, it has simply been answered.
+                    <AdminEmptyState
+                        icon="shield-checkmark-outline"
+                        title="This report has been reviewed"
+                        description="An administrator has already decided this report, so its details can no longer be changed."
+                        secondaryDescription="You can still open the report to read the decision and the community's feedback."
                     />
                 ) : (
                     <AdminEmptyState
