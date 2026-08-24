@@ -330,6 +330,91 @@ export function canApplyReview(
 // ------------------------------------------------------------------
 
 /**
+ * Raised from inside the review transaction when the report moved underneath
+ * it — decided by another admin, or deleted outright.
+ *
+ * A tagged Error rather than a returned result because it has to travel out of
+ * a transaction callback, which is the same reason POST /api/booking/confirm
+ * throws SEAT_TAKEN from inside its own. The status rides along so the route
+ * answers 409 for a report already decided and 404 for one that has gone,
+ * rather than flattening both into a 500.
+ */
+export const REVIEW_CONFLICT_CODE = 'REPORT_REVIEW_CONFLICT';
+
+export function reviewConflictError(message: string, status = 409): Error {
+    const error = new Error(message);
+
+    (error as any).code = REVIEW_CONFLICT_CODE;
+    (error as any).status = status;
+
+    return error;
+}
+
+/** Whether a thrown value is this module's conflict rather than a real fault. */
+export function isReviewConflict(error: any): boolean {
+    return error?.code === REVIEW_CONFLICT_CODE;
+}
+
+/** The status a conflict should be answered with. */
+export function reviewConflictStatus(error: any): number {
+    const status = Number(error?.status);
+
+    return Number.isFinite(status) && status >= 400 ? status : 409;
+}
+
+/**
+ * Records the decision, atomically.
+ *
+ * The check that a report is still PENDING and the write that decides it have
+ * to be the same operation. Read first and write after, and two admins opening
+ * the same flagged report both see PENDING, both pass the check, and both
+ * write — the second silently overwriting who decided it and when. The 409
+ * would be a promise the route keeps only when nobody is racing it, which is
+ * exactly the guarantee an audit field must not have.
+ *
+ * So the status is re-read INSIDE the transaction and the update is made
+ * against that read. This is the pattern POST /api/booking/confirm already uses
+ * to stop two passengers taking one seat; a decision on a report is the same
+ * shape of problem.
+ *
+ * A remark is transacted too, though it contends with nothing, so that every
+ * review write goes through one path rather than two that could drift.
+ */
+export async function applyReviewDecision(
+    adminDb: any,
+    reportRef: any,
+    instruction: ReviewInstruction,
+    reviewerId: string
+): Promise<{ update: Record<string, any>; report: Record<string, any> }> {
+    return adminDb.runTransaction(async (transaction: any) => {
+        const snapshot = await transaction.get(reportRef);
+
+        // The report was there when the route loaded it. If it is not there
+        // now, it was deleted while the admin was deciding it, and a review
+        // must not resurrect the document by writing to a dead reference.
+        if (!snapshot.exists) {
+            throw reviewConflictError('Report not found.', 404);
+        }
+
+        const current = snapshot.data() ?? {};
+        const applicable = canApplyReview(instruction, current);
+
+        if (!applicable.ok) {
+            throw reviewConflictError(applicable.message, applicable.status);
+        }
+
+        const update = buildReviewUpdate(instruction, reviewerId);
+
+        // A partial update naming only the review's own keys — never `set`,
+        // which would replace the document and take the description, the
+        // photos and the community's tallies with it.
+        transaction.update(reportRef, update);
+
+        return { update, report: { ...current, ...update } };
+    });
+}
+
+/**
  * The fields a review writes, and no others.
  *
  * This is an allow-list, which is the whole of requirement "preserve existing
