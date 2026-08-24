@@ -478,13 +478,26 @@ export async function GET(request: Request) {
     // Narrowing happens after the read for the same reason the sort does: an
     // equality filter on `status` combined with the orderBy above needs a
     // composite index, and the queue is a screen's worth of reports either way.
+    //
+    // `scope=all` is the browsable feed every passenger sees, and a report an
+    // admin has REJECTED is one they found not to hold. Leaving it in that feed
+    // publishes a finding nobody stands behind, beside the reports that were
+    // upheld, and makes a rejection the one review outcome that changes nothing
+    // a passenger can see.
+    //
+    // It is dropped from that scope alone. `scope=my` deliberately keeps it:
+    // the passenger who filed the report is exactly who ought to learn it was
+    // rejected, and hiding it there would answer their own report with silence.
+    // `scope=verified` already asks for VERIFIED and so never held one.
     const visibleReports = isReviewScope
       ? reports.filter(
           (report: any) =>
             (statusFilter === null || report.status === statusFilter) &&
             (!flaggedOnly || report.flagged === true)
         )
-      : reports;
+      : scope === 'my'
+        ? reports
+        : reports.filter((report: any) => report.status !== 'REJECTED');
 
     // --------------------------------
     // Success response
