@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    Image,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -258,16 +259,28 @@ export const AccessibilityReportsScreen = () => {
                     />
                 }
             >
-                {/* Primary action */}
-                <TouchableOpacity
-                    style={styles.createButton}
-                    onPress={goToReportForm}
-                    accessibilityRole="button"
-                    accessibilityLabel="Report Accessibility Issue"
-                >
-                    <Ionicons name="add-circle-outline" size={22} color="#FFFFFF" />
-                    <Text style={styles.createButtonText}>Report Accessibility Issue</Text>
-                </TouchableOpacity>
+                {/* Primary action, inside a card rather than as a bare
+                    full-width button: it reads as the one thing this screen
+                    invites, with the line that says why, instead of as a bar
+                    sitting on top of the list. The action itself is unchanged. */}
+                <View style={styles.ctaCard}>
+                    <Text style={styles.ctaTitle}>Spot an accessibility issue?</Text>
+                    <Text style={styles.ctaSubtitle}>
+                        Tell us what you found so other passengers know what to expect.
+                    </Text>
+
+                    <TouchableOpacity
+                        style={styles.createButton}
+                        onPress={goToReportForm}
+                        accessibilityRole="button"
+                        accessibilityLabel="Report Accessibility Issue"
+                    >
+                        <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
+                        <Text style={styles.createButtonText} numberOfLines={1}>
+                            Report Accessibility Issue
+                        </Text>
+                    </TouchableOpacity>
+                </View>
 
                 {/* Scope tabs */}
                 <View style={styles.segmentedControl} accessibilityRole="tablist">
@@ -320,6 +333,11 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
     // fact that the report id is not part of it.
     const summary = reportCardSummary(report, { isOwnReport });
 
+    // The first photo filed with the report stands in as the card's thumbnail.
+    // A report without photos keeps the category icon it has always shown, and
+    // the count of the rest stays in the meta line where it already was.
+    const thumbnailUrl = report.photoUrls?.[0];
+
     return (
         <TouchableOpacity
             style={styles.card}
@@ -330,18 +348,49 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
             accessibilityHint="Opens the full report"
         >
             <View style={styles.cardTop}>
-                <View style={styles.categoryIconCircle}>
-                    <Ionicons name={summary.icon} size={22} color={adminColors.primary} />
+                {/* Decorative either way: everything it stands for — the issue
+                    and the photos — is already in the card's one label. */}
+                <View
+                    style={styles.thumbnail}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                >
+                    {thumbnailUrl ? (
+                        <Image
+                            source={{ uri: thumbnailUrl }}
+                            style={styles.thumbnailImage}
+                            resizeMode="cover"
+                        />
+                    ) : (
+                        <Ionicons name={summary.icon} size={24} color={adminColors.primary} />
+                    )}
                 </View>
 
                 <View style={styles.cardHeadings}>
-                    <Text style={styles.categoryText} numberOfLines={2}>
-                        {summary.title}
-                    </Text>
+                    <View style={styles.titleRow}>
+                        <Text style={styles.categoryText} numberOfLines={2}>
+                            {summary.title}
+                        </Text>
 
-                    <View style={styles.statusRow}>
                         <StatusBadge status={report.status} size="small" />
                     </View>
+
+                    {summary.chips.length > 0 && (
+                        <View style={styles.chipWrap}>
+                            {summary.chips.map((chip) => (
+                                <MetaChip
+                                    key={chip.label}
+                                    icon={chip.icon}
+                                    label={chip.label}
+                                    highlighted={chip.highlighted}
+                                />
+                            ))}
+                        </View>
+                    )}
+
+                    <Text style={styles.descriptionText} numberOfLines={2}>
+                        {summary.description}
+                    </Text>
                 </View>
 
                 {/* Decorative: the card itself is the control, so the arrow
@@ -353,35 +402,22 @@ function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
                 >
                     <Ionicons
                         name="chevron-forward"
-                        size={20}
+                        size={18}
                         color={adminColors.textPlaceholder}
                     />
                 </View>
             </View>
 
-            <Text style={styles.descriptionText} numberOfLines={2}>
-                {summary.description}
-            </Text>
-
-            {summary.chips.length > 0 && (
-                <View style={styles.chipWrap}>
-                    {summary.chips.map((chip) => (
-                        <MetaChip
-                            key={chip.label}
-                            icon={chip.icon}
-                            label={chip.label}
-                            highlighted={chip.highlighted}
-                        />
-                    ))}
-                </View>
-            )}
-
             <View style={styles.cardFooter}>
-                <Ionicons name="calendar-outline" size={14} color={adminColors.textMuted} />
-                <Text style={styles.footerText}>{summary.submittedLabel}</Text>
-            </View>
+                <View style={styles.submittedGroup}>
+                    <Ionicons name="calendar-outline" size={13} color={adminColors.textMuted} />
+                    <Text style={styles.footerText} numberOfLines={1}>
+                        {summary.submittedLabel}
+                    </Text>
+                </View>
 
-            <ReportFeedbackStats counts={summary.feedbackCounts} />
+                <ReportFeedbackStats counts={summary.feedbackCounts} variant="inline" />
+            </View>
         </TouchableOpacity>
     );
 }
@@ -402,7 +438,10 @@ function MetaChip({
                 size={12}
                 color={highlighted ? adminColors.primary : adminColors.textSecondary}
             />
-            <Text style={[styles.metaChipText, highlighted && styles.metaChipTextHighlighted]}>
+            <Text
+                style={[styles.metaChipText, highlighted && styles.metaChipTextHighlighted]}
+                numberOfLines={1}
+            >
                 {label}
             </Text>
         </View>
@@ -413,22 +452,47 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
     content: { padding: 20, paddingBottom: 40 },
 
+    // The call to action, as a section of the screen rather than a bar across
+    // it: same surface, radius and shadow as every other card here, so it sits
+    // in the list's visual language instead of on top of it.
+    ctaCard: {
+        backgroundColor: adminColors.surface,
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        ...adminShadow.card,
+    },
+    ctaTitle: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: adminColors.textPrimary,
+    },
+    ctaSubtitle: {
+        marginTop: 4,
+        fontSize: 12,
+        color: adminColors.textMuted,
+        lineHeight: 17,
+    },
     createButton: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        // Sized to its label rather than to the card, which is what keeps it
+        // reading as part of the section instead of as a standalone bar.
+        alignSelf: 'flex-start',
+        maxWidth: '100%',
         backgroundColor: adminColors.primary,
-        minHeight: 54,
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        marginBottom: 16,
-        ...adminShadow.card,
+        minHeight: 44,
+        borderRadius: 10,
+        paddingHorizontal: 14,
+        marginTop: 14,
     },
     createButtonText: {
         color: '#FFFFFF',
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: '700',
         marginLeft: 8,
+        flexShrink: 1,
     },
 
     segmentedControl: {
@@ -463,83 +527,109 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
+    // A row rather than a column: the thumbnail leads, everything read about
+    // the report sits beside it, and the footer closes the card off. Tighter
+    // padding than the old stacked card, because there is less stacked.
     card: {
         backgroundColor: adminColors.surface,
         borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
+        padding: 12,
+        marginBottom: 10,
         ...adminShadow.card,
     },
-    cardTop: { flexDirection: 'row', alignItems: 'center' },
-    statusRow: { flexDirection: 'row', marginTop: 6 },
+    cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
     chevron: {
-        width: 28,
-        height: 28,
-        justifyContent: 'center',
+        width: 20,
+        // Aligned to the title beside it rather than centred on a row whose
+        // height changes with the description.
+        paddingTop: 4,
         alignItems: 'flex-end',
     },
-    categoryIconCircle: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
+    thumbnail: {
+        width: 60,
+        height: 60,
+        borderRadius: 10,
         backgroundColor: adminColors.primarySoft,
         justifyContent: 'center',
         alignItems: 'center',
+        // Keeps a photo inside the rounded corner on Android.
+        overflow: 'hidden',
     },
-    cardHeadings: { flex: 1, marginLeft: 14, marginRight: 8 },
+    thumbnailImage: { width: '100%', height: '100%' },
+    cardHeadings: { flex: 1, marginLeft: 12, marginRight: 6 },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
     categoryText: {
-        fontSize: 15,
+        flex: 1,
+        fontSize: 14,
         fontWeight: '800',
         color: adminColors.textPrimary,
+        lineHeight: 19,
     },
 
     descriptionText: {
-        fontSize: 13,
+        fontSize: 12,
         color: adminColors.textSecondary,
-        lineHeight: 19,
-        marginTop: 12,
+        lineHeight: 17,
+        marginTop: 6,
     },
 
+    // The bus, the route and the photo count read as one scannable line of
+    // metadata, so they carry their icons without a pill each. Only the
+    // highlighted "Your report" keeps a chip, which is what makes it stand out.
     chipWrap: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 8,
-        marginTop: 12,
+        alignItems: 'center',
+        rowGap: 4,
+        columnGap: 10,
+        marginTop: 5,
     },
     metaChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: adminColors.surfaceMuted,
-        borderWidth: 1,
-        borderColor: adminColors.border,
-        borderRadius: 8,
-        paddingHorizontal: 9,
-        paddingVertical: 5,
+        flexShrink: 1,
     },
     metaChipHighlighted: {
         backgroundColor: adminColors.primarySoft,
-        borderColor: adminColors.primarySoft,
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
     },
     metaChipText: {
         fontSize: 11,
         fontWeight: '600',
         color: adminColors.textSecondary,
         marginLeft: 4,
+        flexShrink: 1,
     },
     metaChipTextHighlighted: { color: adminColors.primary },
 
     cardFooter: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,
-        marginTop: 14,
-        paddingTop: 12,
+        marginTop: 10,
+        paddingTop: 9,
+    },
+    // Shrinks before the tallies do, so a narrow phone trims the date rather
+    // than pushing a count off the card.
+    submittedGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 1,
+        marginRight: 10,
     },
     footerText: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '600',
         color: adminColors.textMuted,
-        marginLeft: 6,
+        marginLeft: 5,
+        flexShrink: 1,
     },
 });
