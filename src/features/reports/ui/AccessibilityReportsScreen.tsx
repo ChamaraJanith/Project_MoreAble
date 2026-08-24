@@ -20,11 +20,11 @@ import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
 import { reportDetailsPath, reportFormPath } from '../utils/reportRoutes';
+import { reportsRequestPath } from '../utils/reportScopes';
 import {
     REPORT_SEARCH_PLACEHOLDER,
     filterReportsBySearch,
 } from '../utils/reportSearch';
-import { reportsRequestPath } from '../utils/reportScopes';
 import { reportCardSummary } from '../utils/reportSummary';
 import { ReportFeedbackStats } from './ReportFeedbackStats';
 
@@ -529,10 +529,12 @@ const styles = StyleSheet.create({
     // it: same surface, radius and shadow as every other card here, so it sits
     // in the list's visual language instead of on top of it.
     ctaCard: {
-        backgroundColor: adminColors.surface,
-        borderRadius: 12,
-        padding: 16,
+        backgroundColor: adminColors.primarySoft,
+        borderRadius: 14,
+        padding: 18,
         marginBottom: 16,
+        borderWidth: 1,
+        borderColor: adminColors.border,
         ...adminShadow.card,
     },
     // Icon and words side by side, button underneath: the card stays two
@@ -563,15 +565,15 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        // Sized to its label rather than to the card, which is what keeps it
-        // reading as part of the section instead of as a standalone bar.
-        alignSelf: 'flex-start',
+        // Keep the CTA centered so the card feels like a compact invitation
+        // rather than a full-width action bar.
+        alignSelf: 'center',
         maxWidth: '100%',
         backgroundColor: adminColors.primary,
         minHeight: 44,
         borderRadius: 10,
-        paddingHorizontal: 14,
-        marginTop: 14,
+        paddingHorizontal: 18,
+        marginTop: 16,
     },
     createButtonText: {
         color: '#FFFFFF',
