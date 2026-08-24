@@ -24,9 +24,9 @@ import {
     MAX_ADMIN_REMARK_LENGTH,
     REPORT_REVIEW_REQUIRED_STATUS,
     ReportReviewAction,
-    ReportStatus,
 } from '../../../entities/report/model/types';
 import { formatCommentCount } from './reportFeedback';
+import { reportStatusLabel } from './reportFormat';
 import { adminReportsRequestPath } from './reportRoutes';
 import { ReportCardSummary, reportCardSummary } from './reportSummary';
 
@@ -180,22 +180,12 @@ export function canRemarkOnReport(report: unknown): boolean {
 /**
  * The wording for a status, for the places a badge cannot go.
  *
- * StatusBadge already draws these on screen, but it is a react-native component
- * and this module has to stay renderer-free — and a screen reader announcing
- * "status PENDING" is reading a database value aloud. An unknown status falls
- * back to itself rather than to a guess.
+ * Defined in reportFormat, which is where the passenger screens read it from
+ * too — a second copy of this table is a second place for a status to be
+ * worded differently. Re-exported so a review screen takes it from the module
+ * it reviews through rather than reaching past it for one helper.
  */
-const STATUS_LABELS: Record<string, string> = {
-    PENDING: 'Pending',
-    VERIFIED: 'Verified',
-    REJECTED: 'Rejected',
-    REVIEWED: 'Reviewed',
-    RESOLVED: 'Resolved',
-};
-
-export function reportStatusLabel(status: ReportStatus | string): string {
-    return STATUS_LABELS[status] ?? status;
-}
+export { reportStatusLabel };
 
 // ------------------------------------------------------------------
 // The queue

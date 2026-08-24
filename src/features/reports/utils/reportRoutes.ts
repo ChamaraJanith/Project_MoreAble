@@ -7,12 +7,30 @@
  * than interpolating them at each call site is what makes that claim checkable.
  */
 
-/** The details screen for one report, e.g. `/reports/REP-00007`. */
-export function reportDetailsPath(reportId: string): string {
-    return `/reports/${encodeURIComponent(reportId)}`;
+/**
+ * The passenger's report screens, grouped under `(passenger)`.
+ *
+ * The group is what makes these paths unambiguous rather than what makes them
+ * different: a group segment is invisible in the URL, so these still resolve to
+ * `/reports` and `/reports/REP-00007`. The admin review queue lives at those
+ * same two URLs — `app/(admin)/reports` — and a bare `/reports` therefore
+ * matches both files and picks whichever the route tree lists first, which is
+ * the admin one. Naming the group says which of the two is meant, exactly as
+ * `adminReviewQueuePath` does for the other.
+ */
+const PASSENGER_GROUP = '/(passenger)';
+
+/** The form for filing a new report: `/(passenger)/reports`. */
+export function reportFormPath(): string {
+    return `${PASSENGER_GROUP}/reports`;
 }
 
-/** The edit form for one report, e.g. `/reports/REP-00007/edit`. */
+/** The details screen for one report, e.g. `/(passenger)/reports/REP-00007`. */
+export function reportDetailsPath(reportId: string): string {
+    return `${reportFormPath()}/${encodeURIComponent(reportId)}`;
+}
+
+/** The edit form for one report, e.g. `/(passenger)/reports/REP-00007/edit`. */
 export function reportEditPath(reportId: string): string {
     return `${reportDetailsPath(reportId)}/edit`;
 }

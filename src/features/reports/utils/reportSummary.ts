@@ -15,7 +15,11 @@
 import { AccessibilityReport } from '../../../entities/report/model/types';
 import { reportCategoryIcon, reportCategoryLabel } from '../ui/reportCategories';
 import { formatCommentCount } from './reportFeedback';
-import { formatPhotoCount, formatReportDateTime } from './reportFormat';
+import {
+    formatPhotoCount,
+    formatReportDateTime,
+    reportStatusLabel,
+} from './reportFormat';
 
 /** The icons the card's chips use. A closed set, so the UI can pass them on. */
 export type ReportChipIcon =
@@ -279,6 +283,64 @@ export function reportTimelineRows(report: AccessibilityReport): ReportTimelineR
 /** Whether the report has been edited since it was filed. */
 export function hasBeenEdited(report: AccessibilityReport): boolean {
     return !!report.updatedAt && report.updatedAt !== report.createdAt;
+}
+
+// ------------------------------------------------------------------
+// Admin review outcome
+// ------------------------------------------------------------------
+
+/**
+ * What an admin decided about the report, as the passenger who filed it reads
+ * it.
+ *
+ * The same three fields the review page shows an admin, drawn from the report
+ * document rather than from the review endpoint: a passenger may not call the
+ * review routes, and GET /api/reports?scope=my and GET /api/reports/:id both
+ * already carry `status`, `reviewedAt` and `adminRemark` on the report itself.
+ *
+ * `reviewedBy` is deliberately not among them. It is an admin account's uid,
+ * which names nobody to the passenger and is not theirs to be told.
+ */
+export interface ReportReviewOutcome {
+    /** The decision, in words — "Verified", "Rejected". */
+    statusLabel: string;
+    /** When it was decided, already formatted. Null when none was stored. */
+    reviewedAt: string | null;
+    /** What the admin wrote, or null when they wrote nothing. */
+    remark: string | null;
+}
+
+/**
+ * The review recorded against this report, or null when there is none.
+ *
+ * Null while the report sits at PENDING with nothing written against it, which
+ * is what a freshly filed report looks like — the status badge already says
+ * "Pending", and a section headed with a decision nobody has made would read as
+ * one that had been.
+ *
+ * A remark on its own is enough to return an outcome: an admin may record what
+ * they found without deciding the report, and the passenger should see it.
+ */
+export function reportReviewOutcome(
+    report: AccessibilityReport
+): ReportReviewOutcome | null {
+    const reviewedAt = textOrNull(report.reviewedAt);
+    const remark = textOrNull(report.adminRemark);
+
+    if (!reviewedAt && !remark) return null;
+
+    return {
+        statusLabel: reportStatusLabel(report.status),
+        reviewedAt: reviewedAt ? formatReportDateTime(reviewedAt) : null,
+        remark,
+    };
+}
+
+/** A stored string with something in it, or null — never a blank line. */
+function textOrNull(value: unknown): string | null {
+    const text = typeof value === 'string' ? value.trim() : '';
+
+    return text ? text : null;
 }
 
 // ------------------------------------------------------------------

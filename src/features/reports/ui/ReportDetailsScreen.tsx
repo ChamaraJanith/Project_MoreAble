@@ -27,6 +27,7 @@ import {
     reportCardSummary,
     reportGalleryPhotos,
     reportJourneyEntries,
+    reportReviewOutcome,
     reportTimelineRows,
 } from '../utils/reportSummary';
 import { CommunityFeedback } from './CommunityFeedback';
@@ -189,6 +190,10 @@ export const ReportDetailsScreen = () => {
         const photos = reportGalleryPhotos(report);
         const isOwner = canEditReport(report, user?.passengerId);
 
+        // What an admin decided, if one has. Null on a report still waiting to
+        // be looked at, where the hero's "Pending" badge is the whole story.
+        const review = reportReviewOutcome(report);
+
         // Only once there is more than one moment to show: on an untouched
         // report the hero's submitted date is the whole timeline already.
         const timelineRows = hasBeenEdited(report) ? reportTimelineRows(report) : [];
@@ -264,6 +269,65 @@ export const ReportDetailsScreen = () => {
                                     </Text>
                                 </View>
                             ))}
+                        </View>
+                    </>
+                )}
+
+                {/* ---------------- Admin review ----------------
+                    The answer to the report the passenger filed: what was
+                    decided, when, and anything the admin wrote about it. Drawn
+                    only once there is a review to show — a heading over an
+                    empty card reads as a decision that has been made. */}
+                {review && (
+                    <>
+                        <ReportSectionTitle>Admin Review</ReportSectionTitle>
+
+                        <View style={reportDetailStyles.card}>
+                            <View style={reportDetailStyles.timelineRow}>
+                                <Ionicons
+                                    name="shield-checkmark-outline"
+                                    size={16}
+                                    color={adminColors.textSecondary}
+                                />
+                                <Text style={reportDetailStyles.timelineLabel}>
+                                    Decision
+                                </Text>
+                                <Text style={reportDetailStyles.timelineValue}>
+                                    {review.statusLabel}
+                                </Text>
+                            </View>
+
+                            {!!review.reviewedAt && (
+                                <View
+                                    style={[
+                                        reportDetailStyles.timelineRow,
+                                        reportDetailStyles.divided,
+                                    ]}
+                                >
+                                    <Ionicons
+                                        name="time-outline"
+                                        size={16}
+                                        color={adminColors.textSecondary}
+                                    />
+                                    <Text style={reportDetailStyles.timelineLabel}>
+                                        Reviewed
+                                    </Text>
+                                    <Text style={reportDetailStyles.timelineValue}>
+                                        {review.reviewedAt}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {!!review.remark && (
+                                <View style={reportDetailStyles.divided}>
+                                    <Text style={styles.remarkLabel}>
+                                        Administrator&apos;s remark
+                                    </Text>
+                                    <Text style={reportDetailStyles.descriptionText}>
+                                        {review.remark}
+                                    </Text>
+                                </View>
+                            )}
                         </View>
                     </>
                 )}
@@ -347,6 +411,16 @@ export const ReportDetailsScreen = () => {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
     content: { padding: 20, paddingBottom: 40 },
+
+    // ---- Admin review ----
+    remarkLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: adminColors.textMuted,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
+        marginBottom: 6,
+    },
 
     // ---- Owner actions ----
     actions: { marginTop: 28 },

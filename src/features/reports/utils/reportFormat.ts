@@ -25,3 +25,24 @@ export function formatReportDateTime(value: string): string {
 export function formatPhotoCount(count: number): string {
     return `${count} photo${count === 1 ? '' : 's'}`;
 }
+
+/**
+ * The wording for a stored status.
+ *
+ * StatusBadge already draws these on screen, but it is a react-native
+ * component and the modules that derive what a screen shows have to stay
+ * renderer-free — and a screen reader announcing "status PENDING" is reading a
+ * database value aloud. An unknown status falls back to itself rather than to a
+ * guess, so a state the backend introduces later still reads as something.
+ */
+const STATUS_LABELS: Record<string, string> = {
+    PENDING: 'Pending',
+    VERIFIED: 'Verified',
+    REJECTED: 'Rejected',
+    REVIEWED: 'Reviewed',
+    RESOLVED: 'Resolved',
+};
+
+export function reportStatusLabel(status: string): string {
+    return STATUS_LABELS[status] ?? status;
+}
