@@ -1,9 +1,10 @@
 import {
-  buildReviewUpdate,
-  canApplyReview,
   adminReviewerId,
+  applyReviewDecision,
+  isReviewConflict,
   loadAdminReportContext,
   readReviewInstruction,
+  reviewConflictStatus,
   reviewCorsHeaders,
   reviewErrorResponse,
   toAdminReviewReport,
@@ -87,16 +88,19 @@ export async function GET(request: Request, context: any) {
 // The body names an ACTION, never a status. What VERIFY means is decided here,
 // so there is no request that can put a report into a state this route did not
 // choose — and `reportId`, `passengerId`, `createdAt`, `agreeCount`,
-// `disagreeCount` and `requiresAdminReview` are simply never read from it. The
-// write is an `update` naming four keys, so everything else the document holds
-// is untouched by construction rather than by care.
+// `disagreeCount` and `requiresAdminReview` are simply never read from it.
+//
+// The write is a partial `update` naming only the review's own keys, so
+// everything else the document holds is untouched by construction rather than
+// by care, and it is made inside a transaction that re-reads the status, so a
+// report cannot be decided twice by two admins arriving together.
 export async function POST(request: Request, context: any) {
   try {
     const loaded = await loadAdminReportContext(request, context);
 
     if (!loaded.ok) return loaded.response;
 
-    const { admin, adminDb, reportId, reportRef, report } = loaded.value;
+    const { admin, adminDb, reportId, reportRef } = loaded.value;
 
     const body = await request.json().catch(() => null);
 
@@ -108,23 +112,19 @@ export async function POST(request: Request, context: any) {
 
     const instruction = instructionCheck.value;
 
-    // Checked against the STORED status, not one the request claims: whether a
-    // report has already been decided is a fact about the document.
-    const applicable = canApplyReview(instruction, report);
+    // The whole decision — re-reading the status, checking it is still PENDING,
+    // and writing the review against that read — happens in one transaction, so
+    // two admins deciding the same report cannot both succeed. A conflict comes
+    // back as a thrown sentinel and is answered below.
+    const applied = await applyReviewDecision(
+      adminDb,
+      reportRef,
+      instruction,
+      adminReviewerId(admin)
+    );
 
-    if (!applicable.ok) {
-      return reviewErrorResponse(applicable.status, applicable.message);
-    }
-
-    const update = buildReviewUpdate(instruction, adminReviewerId(admin));
-
-    await reportRef.update(update);
-
-    // Read back rather than assumed, so the response describes the document as
-    // it now stands instead of the document the request hoped for.
     const commentCount = (await readReportComments(adminDb, reportId)).length;
-    const updated = { ...report, ...update };
-    const serialized = toAdminReviewReport(updated, reportRef.id, commentCount);
+    const serialized = toAdminReviewReport(applied.report, reportRef.id, commentCount);
 
     return Response.json(
       {
@@ -139,6 +139,14 @@ export async function POST(request: Request, context: any) {
       { status: 200, headers: corsHeaders }
     );
   } catch (error: any) {
+    // The report was decided or deleted while this admin was deciding it. Not a
+    // fault — the transaction did its job — so it is answered rather than
+    // logged as a failure, the way POST /api/booking/confirm answers a seat
+    // taken out from under a passenger.
+    if (isReviewConflict(error)) {
+      return reviewErrorResponse(reviewConflictStatus(error), error.message);
+    }
+
     console.error('Review Report API Error:', error);
 
     return Response.json(

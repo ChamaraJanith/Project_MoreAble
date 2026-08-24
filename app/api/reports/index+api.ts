@@ -356,7 +356,7 @@ export async function GET(request: Request) {
     //
     // `scope=review` is the one slice of this endpoint that is not a
     // passenger's. It is answered by the same handler because it is the same
-    // question - which reports are there - asked by somebody allowed to decide
+    // question — which reports are there — asked by somebody allowed to decide
     // them, and duplicating the query, the comment tally and the serialisation
     // into a second listing route would give the review page a subtly
     // different report than every other screen reads.
@@ -497,7 +497,7 @@ export async function GET(request: Request) {
           : 'Accessibility reports retrieved successfully.',
         count: visibleReports.length,
         // How many of the returned reports the community has pushed over the
-        // review threshold - the number the queue leads with, so the page does
+        // review threshold — the number the queue leads with, so the page does
         // not have to re-derive a rule the backend already owns.
         ...(isReviewScope
           ? {
