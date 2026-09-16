@@ -1,7 +1,9 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import {
     JourneyGeoInformation,
     JourneySearchMatch,
@@ -29,6 +31,7 @@ import { JourneyOptionCard } from './JourneyOptionCard';
 type ResultsStatus = 'loading' | 'loaded' | 'error';
 
 export const JourneySearchResults = () => {
+  const { t } = useTranslation();
     const params = useLocalSearchParams<{
         origin?: string;
         destination?: string;
@@ -253,7 +256,7 @@ export const JourneySearchResults = () => {
                             accessibilityLabel="Edit Search"
                             accessibilityHint="Double tap to go back and change your search"
                         >
-                            <Text style={styles.editSearchText}>Edit Search</Text>
+                            <Text style={styles.editSearchText}>{t('journey.editSearch', 'Edit Search')}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -299,7 +302,7 @@ export const JourneySearchResults = () => {
                             accessibilityRole="button"
                             accessibilityLabel="Edit Search"
                         >
-                            <Text style={styles.stateButtonText}>EDIT SEARCH</Text>
+                            <Text style={styles.stateButtonText}>{t('journey.editSearchUpper', 'EDIT SEARCH')}</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -310,7 +313,7 @@ export const JourneySearchResults = () => {
                         <View style={styles.stateIconBadge}>
                             <Ionicons name="accessibility-outline" size={32} color="#94A3B8" />
                         </View>
-                        <Text style={styles.stateTitle}>No matching journeys</Text>
+                        <Text style={styles.stateTitle}>{t('journey.noMatchesTitle', 'No matching journeys')}</Text>
                         <Text style={styles.stateDescription}>
                             No departure between {origin} and {destination} records everything you
                             selected. Try removing a requirement.
@@ -321,7 +324,7 @@ export const JourneySearchResults = () => {
                             accessibilityRole="button"
                             accessibilityLabel="Clear accessibility requirements"
                         >
-                            <Text style={styles.stateButtonText}>CLEAR REQUIREMENTS</Text>
+                            <Text style={styles.stateButtonText}>{t('journey.clearReq', 'CLEAR REQUIREMENTS')}</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -332,7 +335,7 @@ export const JourneySearchResults = () => {
                         <View style={[styles.stateIconBadge, styles.stateIconBadgeError]}>
                             <Ionicons name="alert-circle-outline" size={32} color="#D32F2F" />
                         </View>
-                        <Text style={styles.stateTitle}>Something went wrong</Text>
+                        <Text style={styles.stateTitle}>{t('journey.errorTitle', 'Something went wrong')}</Text>
                         <Text style={styles.stateDescription}>{errorMessage}</Text>
                         <TouchableOpacity
                             style={styles.stateButton}
@@ -340,7 +343,7 @@ export const JourneySearchResults = () => {
                             accessibilityRole="button"
                             accessibilityLabel="Try Again"
                         >
-                            <Text style={styles.stateButtonText}>TRY AGAIN</Text>
+                            <Text style={styles.stateButtonText}>{t('journey.tryAgain', 'TRY AGAIN')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.stateSecondaryButton}
@@ -348,7 +351,7 @@ export const JourneySearchResults = () => {
                             accessibilityRole="button"
                             accessibilityLabel="Edit Search"
                         >
-                            <Text style={styles.stateSecondaryButtonText}>Edit Search</Text>
+                            <Text style={styles.stateSecondaryButtonText}>{t('journey.editSearch', 'Edit Search')}</Text>
                         </TouchableOpacity>
                     </View>
                 )}

@@ -1,5 +1,6 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet,  View } from 'react-native';
 
 interface RouteStopTimelineProps {
     /** Stops in travel order; the first is boarded and the last is alighted. */

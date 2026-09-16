@@ -1,4 +1,6 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -10,10 +12,10 @@ import {
     ScrollView,
     StyleSheet,
     Switch,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { useAuthStore } from '../../../shared/store/authStore';
 import {
@@ -23,6 +25,7 @@ import {
 } from '../../../shared/utils/tokenStorage';
 
 export const LoginForm = () => {
+  const { t } = useTranslation();
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
@@ -131,7 +134,7 @@ export const LoginForm = () => {
                     {/* App Logo Header */}
                     <View style={styles.logoContainer}>
                         <Image
-                            source={require('../../../../assets/images/moreable-logo.jpg')}
+                            source={require('../../../../assets/images/moreable-logo.png')}
                             style={styles.logo}
                             resizeMode="contain"
                             accessibilityLabel="MoreAble Logo"
@@ -157,7 +160,7 @@ export const LoginForm = () => {
                                     <Ionicons name="key" size={18} color="#0066CC" />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={styles.savedCredsLabel}>Auto-fill Saved Account</Text>
+                                    <Text style={styles.savedCredsLabel}>{t('auth.autoFill', 'Auto-fill Saved Account')}</Text>
                                     <Text style={styles.savedCredsValue} numberOfLines={1}>
                                         {savedCreds.userName ? `${savedCreds.userName} (${savedCreds.identifier})` : savedCreds.identifier}
                                     </Text>
@@ -181,7 +184,7 @@ export const LoginForm = () => {
 
                     {/* Email or NIC Input */}
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Email Address or NIC Number</Text>
+                        <Text style={styles.label}>{t('auth.emailOrNic', 'Email Address or NIC Number')}</Text>
                         <View style={[
                             styles.inputWrapper,
                             errors.identifier ? styles.inputErrorBorder : null
@@ -209,7 +212,7 @@ export const LoginForm = () => {
 
                     {/* Password Input */}
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Password</Text>
+                        <Text style={styles.label}>{t('auth.password', 'Password')}</Text>
                         <View style={[
                             styles.inputWrapper,
                             errors.password ? styles.inputErrorBorder : null
@@ -258,14 +261,14 @@ export const LoginForm = () => {
                                 thumbColor={rememberMe ? '#0066CC' : '#F4F7FB'}
                                 accessibilityLabel="Remember Me"
                             />
-                            <Text style={styles.rememberMeText}>Remember Me</Text>
+                            <Text style={styles.rememberMeText}>{t('auth.rememberMe', 'Remember Me')}</Text>
                         </View>
                         <TouchableOpacity
                             onPress={handleForgotPassword}
                             accessibilityRole="button"
                             accessibilityLabel="Forgot Password"
                         >
-                            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                            <Text style={styles.forgotPasswordText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -280,7 +283,7 @@ export const LoginForm = () => {
                         {isLoading ? (
                             <ActivityIndicator size="large" color="#ffffff" />
                         ) : (
-                            <Text style={styles.buttonText}>SIGN IN</Text>
+                            <Text style={styles.buttonText}>{t('auth.signInUpper', 'SIGN IN')}</Text>
                         )}
                     </TouchableOpacity>
 
@@ -292,18 +295,18 @@ export const LoginForm = () => {
                         accessibilityLabel="Device Login"
                     >
                         <Ionicons name="hardware-chip-outline" size={18} color="#0066CC" style={{ marginRight: 6 }} />
-                        <Text style={styles.deviceLoginText}>Device Login</Text>
+                        <Text style={styles.deviceLoginText}>{t('auth.deviceLogin', 'Device Login')}</Text>
                     </TouchableOpacity>
 
                     {/* Register Link */}
                     <View style={styles.footer}>
-                        <Text style={styles.footerText}>Don't have an account? </Text>
+                        <Text style={styles.footerText}>{t('auth.dontHaveAccount', 'Don\'t have an account? ')}</Text>
                         <TouchableOpacity
                             onPress={() => router.push('/(auth)/register')}
                             accessibilityRole="button"
                             accessibilityLabel="Register Here"
                         >
-                            <Text style={styles.registerLink}>Register Here</Text>
+                            <Text style={styles.registerLink}>{t('auth.registerHere', 'Register Here')}</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -315,7 +318,7 @@ export const LoginForm = () => {
                         accessibilityLabel="Contact Transit Support Hotline"
                     >
                         <Ionicons name="call" size={20} color="#0066CC" style={{ marginRight: 8 }} />
-                        <Text style={styles.supportBannerText}>Need help? 24/7 Transit Helpline (1919)</Text>
+                        <Text style={styles.supportBannerText}>{t('auth.supportHelpline', 'Need help? 24/7 Transit Helpline (1919)')}</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -327,7 +330,7 @@ export const LoginForm = () => {
                     accessibilityLabel="Kiosk and NFC Device Login"
                 >
                     <Ionicons name="qr-code-outline" size={16} color="#5A6E7F" style={{ marginRight: 6 }} />
-                    <Text style={styles.bottomDeviceLoginText}>Kiosk / NFC Device Login</Text>
+                    <Text style={styles.bottomDeviceLoginText}>{t('auth.kioskLogin', 'Kiosk / NFC Device Login')}</Text>
                 </TouchableOpacity>
             </ScrollView>
         </KeyboardAvoidingView>

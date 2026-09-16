@@ -1,7 +1,8 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { Notification } from '../../../entities/notification/model/types';
 import { markNotificationAsRead } from '../api/notificationApi';
 

@@ -5,9 +5,10 @@
 // filter is `accessibilityFilters`, so this file can never grow a second
 // definition of them. It renders the list it is given and reports taps back.
 
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet,  TouchableOpacity, View } from 'react-native';
 import {
     ACCESSIBILITY_REQUIREMENTS,
     AccessibilityRequirementKey,

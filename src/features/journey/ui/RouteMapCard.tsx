@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet,  View } from 'react-native';
 import {
     GeoPoint,
     JourneyGeoInformation,

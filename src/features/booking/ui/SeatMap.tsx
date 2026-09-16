@@ -1,9 +1,10 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import {
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 import {

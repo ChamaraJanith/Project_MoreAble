@@ -1,4 +1,6 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -6,7 +8,7 @@ import {
     ScrollView,
     StyleSheet,
     Switch,
-    Text, TextInput, TouchableOpacity,
+     TextInput, TouchableOpacity,
     View
 } from 'react-native';
 import { UserRegistrationDTO } from '../../../entities/user/model/types';
@@ -14,6 +16,7 @@ import { API_BASE_URL } from '../../../shared/api/config';
 import { parseSriLankanNic } from '../../../shared/utils/nicUtils';
 
 export const RegistrationForm = () => {
+  const { t } = useTranslation();
     const [step, setStep] = useState<1 | 2>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [hasGuardian, setHasGuardian] = useState(false);
@@ -206,7 +209,7 @@ export const RegistrationForm = () => {
                     {/* App Logo Header */}
                     <View style={styles.logoContainer}>
                         <Image
-                            source={require('../../../../assets/images/moreable-logo.jpg')}
+                            source={require('../../../../assets/images/moreable-logo.png')}
                             style={styles.logo}
                             resizeMode="contain"
                             accessibilityLabel="MoreAble Logo"
@@ -240,7 +243,7 @@ export const RegistrationForm = () => {
                         <View>
                             {/* Full Name Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Full Name *</Text>
+                                <Text style={styles.label}>{t('auth.fullName', 'Full Name *')}</Text>
                                 <View style={[styles.inputWrapper, errors.userName ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="person-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -262,7 +265,7 @@ export const RegistrationForm = () => {
 
                             {/* Email Address Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Email Address *</Text>
+                                <Text style={styles.label}>{t('auth.emailAddress', 'Email Address *')}</Text>
                                 <View style={[styles.inputWrapper, errors.email ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="mail-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -286,7 +289,7 @@ export const RegistrationForm = () => {
 
                             {/* NIC Number Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>NIC Number *</Text>
+                                <Text style={styles.label}>{t('auth.nicNumber', 'NIC Number *')}</Text>
                                 <View style={[styles.inputWrapper, errors.nicNo ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="card-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -308,7 +311,7 @@ export const RegistrationForm = () => {
 
                             {/* Primary Phone Number Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Primary Mobile Number *</Text>
+                                <Text style={styles.label}>{t('auth.primaryMobile', 'Primary Mobile Number *')}</Text>
                                 <View style={[styles.inputWrapper, errors.phoneNumber ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="call-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -331,7 +334,7 @@ export const RegistrationForm = () => {
 
                             {/* Secondary Phone Number Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Secondary Mobile Number *</Text>
+                                <Text style={styles.label}>{t('auth.secondaryMobile', 'Secondary Mobile Number *')}</Text>
                                 <View style={[styles.inputWrapper, errors.secondaryPhoneNumber ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="phone-portrait-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -354,7 +357,7 @@ export const RegistrationForm = () => {
 
                             {/* Password Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Password *</Text>
+                                <Text style={styles.label}>{t('auth.passwordField', 'Password *')}</Text>
                                 <View style={[styles.inputWrapper, errors.password ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -389,7 +392,7 @@ export const RegistrationForm = () => {
 
                             {/* Confirm Password Input */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Confirm Password *</Text>
+                                <Text style={styles.label}>{t('auth.confirmPasswordField', 'Confirm Password *')}</Text>
                                 <View style={[styles.inputWrapper, errors.confirmPassword ? styles.inputErrorBorder : null]}>
                                     <Ionicons name="shield-checkmark-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                     <TextInput
@@ -426,7 +429,7 @@ export const RegistrationForm = () => {
                             <View style={styles.ethicalCard}>
                                 <View style={styles.ethicalHeader}>
                                     <Ionicons name="body-outline" size={24} color="#0066CC" style={{ marginRight: 8 }} />
-                                    <Text style={styles.ethicalTitle}>Accessibility Support Inquiry</Text>
+                                    <Text style={styles.ethicalTitle}>{t('auth.accessibilityInquiry', 'Accessibility Support Inquiry')}</Text>
                                 </View>
                                 <Text style={styles.ethicalDescription}>
                                     MoreAble is dedicated to an inclusive transit experience. Asking about your accessibility needs allows us to tailor route recommendations, reserve priority seats/ramps, and inform transport crew for assistance. Sharing this is optional and confidential.
@@ -544,7 +547,7 @@ export const RegistrationForm = () => {
                                         <View style={styles.checkboxContent}>
                                             <View style={styles.checkboxTitleRow}>
                                                 <Text style={styles.checkboxEmoji}>♿</Text>
-                                                <Text style={styles.checkboxLabel}>Wheelchair User</Text>
+                                                <Text style={styles.checkboxLabel}>{t('auth.wheelchairUser', 'Wheelchair User')}</Text>
                                             </View>
                                             <Text style={styles.checkboxSubtext}>
                                                 Requires wheelchair ramp, low-floor vehicle, or priority wheelchair space.
@@ -573,7 +576,7 @@ export const RegistrationForm = () => {
                                         <View style={styles.checkboxContent}>
                                             <View style={styles.checkboxTitleRow}>
                                                 <Text style={styles.checkboxEmoji}>👁️</Text>
-                                                <Text style={styles.checkboxLabel}>Low Vision Person</Text>
+                                                <Text style={styles.checkboxLabel}>{t('auth.lowVision', 'Low Vision Person')}</Text>
                                             </View>
                                             <Text style={styles.checkboxSubtext}>
                                                 Requires audio route announcements, high contrast, or guided boarding assistance.
@@ -602,7 +605,7 @@ export const RegistrationForm = () => {
                                         <View style={styles.checkboxContent}>
                                             <View style={styles.checkboxTitleRow}>
                                                 <Text style={styles.checkboxEmoji}>👂</Text>
-                                                <Text style={styles.checkboxLabel}>Hearing Impairment Person</Text>
+                                                <Text style={styles.checkboxLabel}>{t('auth.hearingImpaired', 'Hearing Impairment Person')}</Text>
                                             </View>
                                             <Text style={styles.checkboxSubtext}>
                                                 Requires visual screen displays, text notifications, or visual stop alerts.
@@ -631,7 +634,7 @@ export const RegistrationForm = () => {
                                         <View style={styles.checkboxContent}>
                                             <View style={styles.checkboxTitleRow}>
                                                 <Text style={styles.checkboxEmoji}>🚶</Text>
-                                                <Text style={styles.checkboxLabel}>Walking Difficulty</Text>
+                                                <Text style={styles.checkboxLabel}>{t('auth.walkingDifficulty', 'Walking Difficulty')}</Text>
                                             </View>
                                             <Text style={styles.checkboxSubtext}>
                                                 Requires minimal stairs, handrail support, or low boarding steps.
@@ -660,7 +663,7 @@ export const RegistrationForm = () => {
                                         <View style={styles.checkboxContent}>
                                             <View style={styles.checkboxTitleRow}>
                                                 <Text style={styles.checkboxEmoji}>✍️</Text>
-                                                <Text style={styles.checkboxLabel}>Other Requirement</Text>
+                                                <Text style={styles.checkboxLabel}>{t('auth.otherRequirement', 'Other Requirement')}</Text>
                                             </View>
                                             <Text style={styles.checkboxSubtext}>
                                                 Specify any custom sensory, mobility, or medical transit requirements.
@@ -706,7 +709,7 @@ export const RegistrationForm = () => {
                             <View style={styles.switchCard}>
                                 <View style={styles.switchTextContainer}>
                                     <Ionicons name="people-outline" size={26} color="#0066CC" style={{ marginRight: 10 }} />
-                                    <Text style={styles.switchLabel}>Register with a Guardian?</Text>
+                                    <Text style={styles.switchLabel}>{t('auth.registerGuardian', 'Register with a Guardian?')}</Text>
                                 </View>
                                 <Switch
                                     value={hasGuardian}
@@ -725,7 +728,7 @@ export const RegistrationForm = () => {
                                     </Text>
 
                                     <View style={styles.inputGroup}>
-                                        <Text style={styles.label}>Guardian Name *</Text>
+                                        <Text style={styles.label}>{t('auth.guardianName', 'Guardian Name *')}</Text>
                                         <View style={[styles.inputWrapper, errors.gFullName ? styles.inputErrorBorder : null]}>
                                             <Ionicons name="person-circle-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                             <TextInput
@@ -746,7 +749,7 @@ export const RegistrationForm = () => {
                                     </View>
 
                                     <View style={styles.inputGroup}>
-                                        <Text style={styles.label}>Guardian NIC *</Text>
+                                        <Text style={styles.label}>{t('auth.guardianNic', 'Guardian NIC *')}</Text>
                                         <View style={[styles.inputWrapper, errors.gNicNo ? styles.inputErrorBorder : null]}>
                                             <Ionicons name="card-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                             <TextInput
@@ -767,7 +770,7 @@ export const RegistrationForm = () => {
                                     </View>
 
                                     <View style={styles.inputGroup}>
-                                        <Text style={styles.label}>Guardian Mobile Number *</Text>
+                                        <Text style={styles.label}>{t('auth.guardianMobile', 'Guardian Mobile Number *')}</Text>
                                         <View style={[styles.inputWrapper, errors.gMobileNo ? styles.inputErrorBorder : null]}>
                                             <Ionicons name="call-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                                             <TextInput
@@ -800,7 +803,7 @@ export const RegistrationForm = () => {
                                     accessibilityLabel="Back to Basic Details"
                                 >
                                     <Ionicons name="arrow-back" size={20} color="#0066CC" style={{ marginRight: 6 }} />
-                                    <Text style={styles.backButtonText}>BACK</Text>
+                                    <Text style={styles.backButtonText}>{t('auth.backBtn', 'BACK')}</Text>
                                 </TouchableOpacity>
 
                                 {/* Submit Button */}
@@ -814,7 +817,7 @@ export const RegistrationForm = () => {
                                     {isLoading ? (
                                         <ActivityIndicator size="large" color="#ffffff" />
                                     ) : (
-                                        <Text style={styles.buttonText}>CREATE ACCOUNT</Text>
+                                        <Text style={styles.buttonText}>{t('auth.createAccountUpper', 'CREATE ACCOUNT')}</Text>
                                     )}
                                 </TouchableOpacity>
                             </View>

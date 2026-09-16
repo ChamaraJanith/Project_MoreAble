@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet,  View } from 'react-native';
 import MapView, { LatLng, Marker, UrlTile } from 'react-native-maps';
 import { OSM_MAX_ZOOM, OSM_TILE_URL, VEHICLE_MARKER_COLOR } from '../../../shared/ui/mapTheme';
 import { BusMapPoint, BusMapFreshness } from '../utils/busMapView';

@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -6,9 +7,9 @@ import {
     RefreshControl,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { AccessibilityReport, ReportScope } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';

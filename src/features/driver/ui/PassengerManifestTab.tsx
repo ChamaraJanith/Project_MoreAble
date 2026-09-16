@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -6,10 +7,10 @@ import {
     Platform,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Booking } from '../../../entities/booking/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';

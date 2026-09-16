@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useRef } from 'react';
@@ -5,9 +6,9 @@ import {
     ActivityIndicator,
     Linking,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { PhoneLocation } from '../../../shared/utils/phoneLocation';
 import { describeBusMap, nextLastKnownLocation } from '../utils/busMapView';
