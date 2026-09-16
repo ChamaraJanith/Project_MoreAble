@@ -2,6 +2,7 @@
 // Handles login, logout, session persistence, and hydration
 
 import { create } from 'zustand';
+import { AppPreferences } from '../../entities/user/model/types';
 import { API_BASE_URL } from '../api/config';
 import {
     clearTokens,
@@ -43,6 +44,7 @@ export interface AuthUser {
     isWalkingDifficultyPerson?: boolean;
     isOtherAccessibilityPerson?: boolean;
     otherDescription?: string;
+    appPreferences?: AppPreferences | null;
     createdAt: string;
     updatedAt: string;
 }
