@@ -34,7 +34,54 @@ export async function GET(request: Request) {
         }
 
         const snapshot = await query.get();
-        const bookings = snapshot.docs.map((doc: any) => doc.data());
+        const bookings = snapshot.docs.map((doc: any) => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+
+        // Fetch user profiles to enrich passenger names if missing
+        const userIdsToFetch = Array.from(
+            new Set(
+                bookings
+                    .map((b: any) => b.userId)
+                    .filter((uid: any) => uid && uid !== 'GUEST')
+            )
+        );
+
+        if (userIdsToFetch.length > 0) {
+            const userMap: Record<string, string> = {};
+            await Promise.all(
+                userIdsToFetch.map(async (uid: any) => {
+                    try {
+                        let uDoc = await adminDb.collection('users').doc(uid).get();
+                        if (!uDoc.exists) {
+                            const qSnap = await adminDb.collection('users').where('passengerId', '==', uid).limit(1).get();
+                            if (!qSnap.empty) {
+                                uDoc = qSnap.docs[0];
+                            }
+                        }
+                        if (uDoc && uDoc.exists) {
+                            const uData = uDoc.data();
+                            userMap[uid] = uData?.userName || uData?.fullName || uData?.name || uid;
+                        }
+                    } catch {}
+                })
+            );
+
+            bookings.forEach((b: any) => {
+                if (b.userId && userMap[b.userId]) {
+                    b.passengerName = userMap[b.userId];
+                } else if (!b.passengerName) {
+                    b.passengerName = b.userId || 'Guest Passenger';
+                }
+            });
+        } else {
+            bookings.forEach((b: any) => {
+                if (!b.passengerName) {
+                    b.passengerName = b.userId || 'Guest Passenger';
+                }
+            });
+        }
 
         bookings.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 

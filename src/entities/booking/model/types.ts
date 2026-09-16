@@ -13,12 +13,14 @@ export interface Seat {
   minAge: number | null;
 }
 
+
 export type SeatSlotKind = 'SEAT' | 'EMPTY';
 
 export interface SeatSlot {
   kind: SeatSlotKind;
   seat: Seat | null;
 }
+
 
 export type SeatRowKind = 'SEATS' | 'WHEELCHAIR_PAIR';
 
@@ -30,9 +32,11 @@ export interface SeatMapRow {
   right: SeatSlot[];
 }
 
+
 export interface SeatLayout {
   rows: SeatMapRow[];
 }
+
 
 // Matches the real Trip + Bus + Route models.
 export interface TransportOption {
@@ -98,9 +102,13 @@ export type AssistanceStatus =
   | 'COMPLETED'
   | 'DECLINED';
 
+export type BoardingStatus = 'NOT_BOARDED' | 'BOARDED';
+export type PaymentStatus = 'PAID' | 'COLLECT_CASH' | 'PENDING';
+
 export interface Booking {
   bookingId: string;
   userId: string;
+  passengerName?: string;
   tripId: string;
   routeId: string;
   busId: string;
@@ -109,6 +117,9 @@ export interface Booking {
   isPrioritySeat: boolean;
   pairedSeatNumber: string | null;
   status: BookingStatus;
+  boardingStatus?: BoardingStatus;
+  boardedAt?: string;
+  paymentStatus?: PaymentStatus;
   journey: BookingJourneyDetails;
   vehicle: BookingVehicleDetails;
   qrPayload: string;
@@ -125,6 +136,8 @@ export interface Booking {
 }
 
 
+
+
 export interface FareBreakdown {
   distanceKm: number;
   baseFare: number;
@@ -134,9 +147,48 @@ export interface FareBreakdown {
   isEstimate: boolean;
 }
 
+
 export interface AssistanceRequested {
   wheelchairAssistance?: boolean;
   boardingAssistance: boolean;
   walkingAssistance: boolean;
   prioritySeatAssistance: boolean;
+}
+
+
+export interface BoardingVerificationResult {
+  valid: boolean;
+  message: string;
+  booking: Booking;
+  passengerName?: string;
+  dropOffHalt: string;
+  boardingHalt: string;
+  seatNumber: string;
+  pairedSeatNumber?: string | null;
+  isPrioritySeat: boolean;
+  isWheelchair: boolean;
+  fareAmount: number;
+  fareCurrency: string;
+  paymentStatus: PaymentStatus;
+  assistanceRequested: AssistanceRequested;
+  specialRequests?: string;
+  alreadyBoarded: boolean;
+  boardedAt?: string;
+  guardianInfo?: {
+    guardianId?: string;
+    fullName?: string;
+    mobileNo?: string;
+    relationship?: string;
+  } | null;
+}
+
+export interface BoardingConfirmationResult {
+  success: boolean;
+  message: string;
+  bookingId: string;
+  boardingStatus: BoardingStatus;
+  boardedAt: string;
+  passengerNotified: boolean;
+  caregiverNotified: boolean;
+  caregiverName?: string;
 }

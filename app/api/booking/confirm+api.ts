@@ -135,6 +135,24 @@ export async function POST(request: Request) {
             }
         }
 
+        // Fetch passenger display name
+        let passengerName = passengerId || 'Guest Passenger';
+        if (passengerId && passengerId !== 'GUEST') {
+            try {
+                let userDoc = await adminDb.collection('users').doc(passengerId).get();
+                if (!userDoc.exists) {
+                    const qSnap = await adminDb.collection('users').where('passengerId', '==', passengerId).limit(1).get();
+                    if (!qSnap.empty) {
+                        userDoc = qSnap.docs[0];
+                    }
+                }
+                if (userDoc && userDoc.exists) {
+                    const uData = userDoc.data();
+                    passengerName = uData?.userName || uData?.fullName || uData?.name || passengerId;
+                }
+            } catch {}
+        }
+
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
         const stops: string[] = route && Array.isArray(route.stops) ? route.stops : [];
@@ -218,6 +236,7 @@ export async function POST(request: Request) {
             const newBooking = {
                 bookingId,
                 userId: passengerId || 'GUEST',
+                passengerName,
                 tripId,
                 routeId: trip.routeId,
                 busId: trip.busId,
@@ -250,6 +269,8 @@ export async function POST(request: Request) {
                 assistanceUpdatedAt: now,
                 specialRequests: typeof specialRequests === 'string' ? specialRequests.trim() : '',
                 reminderSent: false,
+                boardingStatus: 'NOT_BOARDED',
+                paymentStatus: 'COLLECT_CASH',
                 qrPayload,
                 createdAt: now,
             };

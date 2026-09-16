@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node --max-old-space-size=8192 node_modules/expo/bin/cli start",
+    "start:clear": "node --max-old-space-size=8192 node_modules/expo/bin/cli start -c",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "node --max-old-space-size=8192 node_modules/expo/bin/cli start --android",
     "ios": "node --max-old-space-size=8192 node_modules/expo/bin/cli start --ios",
@@ -20,6 +21,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "expo": "~57.0.22",
+    "expo-camera": "~57.0.5",
     "expo-constants": "~57.0.18",
     "expo-font": "~57.0.4",
     "expo-haptics": "~57.0.3",
