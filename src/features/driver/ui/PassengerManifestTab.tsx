@@ -1,4 +1,3 @@
-import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -7,14 +6,23 @@ import {
     Platform,
     ScrollView,
     StyleSheet,
-    
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
-import { Booking } from '../../../entities/booking/model/types';
+import {
+    BoardingVerificationResult,
+    Booking,
+} from '../../../entities/booking/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { updateAssistanceStatus } from '../../booking/api/bookingApi';
+import {
+    confirmPassengerBoarding,
+    verifyTicketQr,
+} from '../api/manifestApi';
+import { ConductorBoardingCard } from './ConductorBoardingCard';
+import { QRManifestScannerModal } from './QRManifestScannerModal';
 
 interface PassengerManifestTabProps {
     busId?: string;
@@ -29,7 +37,7 @@ interface TripTurn {
     status?: string;
 }
 
-type FilterMode = 'ALL' | 'ASSISTANCE_ONLY' | 'WHEELCHAIR_ONLY';
+type FilterMode = 'ALL' | 'PENDING_ONLY' | 'BOARDED_ONLY' | 'ASSISTANCE_ONLY';
 
 export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTabProps) {
     const [bookings, setBookings] = useState<Booking[]>([]);
@@ -41,6 +49,14 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
     const [searchQuery, setSearchQuery] = useState('');
     const [filterMode, setFilterMode] = useState<FilterMode>('ALL');
     const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+    // QR Scanner & Boarding Sheet states (MOV-278, MOV-280)
+    const [isScannerOpen, setIsScannerOpen] = useState(false);
+    const [isVerifyingQr, setIsVerifyingQr] = useState(false);
+    const [verificationResult, setVerificationResult] = useState<BoardingVerificationResult | null>(null);
+    const [isBoardingSheetOpen, setIsBoardingSheetOpen] = useState(false);
+    const [isConfirmingBoarding, setIsConfirmingBoarding] = useState(false);
+    const [recentAlert, setRecentAlert] = useState<{ title: string; message: string } | null>(null);
 
     useEffect(() => {
         loadData();
@@ -66,7 +82,9 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
             const tripsData = await tripsRes.json().catch(() => null);
 
             if (historyData?.success && Array.isArray(historyData.bookings)) {
-                const active = historyData.bookings.filter((b: Booking) => b.status === 'CONFIRMED');
+                const active = historyData.bookings.filter(
+                    (b: Booking) => b.status === 'CONFIRMED'
+                );
                 setBookings(active);
             } else {
                 setBookings([]);
@@ -99,13 +117,84 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
         }
     }
 
-    function handleShowScannerPlaceholder() {
-        const msg =
-            'Passenger QR Ticket Scanner slot is reserved for upcoming update. Currently, conductor verifies passenger tickets and seat numbers manually below.';
-        if (Platform.OS === 'web') {
-            window.alert(msg);
-        } else {
-            Alert.alert('Ticket QR Scanner (Coming Soon)', msg);
+    // --- QR Scanner & Verification Handlers (MOV-278, MOV-279, MOV-280, MOV-281) ---
+    async function handleScanTicket(scannedPayload: string) {
+        try {
+            setIsVerifyingQr(true);
+            const result = await verifyTicketQr({
+                qrPayload: scannedPayload,
+                busId,
+                tripId: selectedTripId && selectedTripId !== 'ALL' ? selectedTripId : undefined,
+            });
+
+            setVerificationResult(result);
+            setIsScannerOpen(false);
+            setIsBoardingSheetOpen(true);
+        } catch (err: any) {
+            const msg = err.message || 'Could not verify ticket QR code.';
+            if (Platform.OS === 'web') {
+                window.alert(`Ticket Verification Error:\n${msg}`);
+            } else {
+                Alert.alert('Verification Error', msg);
+            }
+        } finally {
+            setIsVerifyingQr(false);
+        }
+    }
+
+    async function handleConfirmBoarding(options: {
+        bookingId: string;
+        cashCollected?: boolean;
+        assistanceProgress?: 'IN_PROGRESS' | 'COMPLETED';
+    }) {
+        try {
+            setIsConfirmingBoarding(true);
+            const result = await confirmPassengerBoarding({
+                bookingId: options.bookingId,
+                busId,
+                cashCollected: options.cashCollected,
+                assistanceProgress: options.assistanceProgress,
+            });
+
+            // Update local booking in list
+            setBookings((prev) =>
+                prev.map((b) => {
+                    if (b.bookingId === options.bookingId) {
+                        return {
+                            ...b,
+                            boardingStatus: 'BOARDED',
+                            boardedAt: result.boardedAt,
+                            paymentStatus: options.cashCollected ? 'PAID' : (b.paymentStatus || 'COLLECT_CASH'),
+                            assistanceStatus: options.assistanceProgress || b.assistanceStatus,
+                        };
+                    }
+                    return b;
+                })
+            );
+
+            setIsBoardingSheetOpen(false);
+            setVerificationResult(null);
+
+            const alertTitle = 'Passenger Boarded';
+            const alertMsg = result.caregiverNotified
+                ? `Seat verified. Passenger and caregiver (${result.caregiverName || 'Guardian'}) notified.`
+                : 'Seat verified. Passenger marked as boarded.';
+
+            setRecentAlert({ title: alertTitle, message: alertMsg });
+            setTimeout(() => setRecentAlert(null), 5000);
+
+            if (Platform.OS !== 'web') {
+                Alert.alert(alertTitle, alertMsg);
+            }
+        } catch (err: any) {
+            const msg = err.message || 'Failed to confirm boarding.';
+            if (Platform.OS === 'web') {
+                window.alert(msg);
+            } else {
+                Alert.alert('Confirmation Error', msg);
+            }
+        } finally {
+            setIsConfirmingBoarding(false);
         }
     }
 
@@ -117,16 +206,16 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
 
     // Stats calculation for current trip selection
     const totalPassengers = tripBookings.length;
+    const boardedCount = tripBookings.filter((b) => b.boardingStatus === 'BOARDED').length;
+    const pendingBoardingCount = totalPassengers - boardedCount;
+    const progressPercent = totalPassengers > 0 ? Math.round((boardedCount / totalPassengers) * 100) : 0;
+
     const assistanceCount = tripBookings.filter(
         (b) =>
             b.assistanceRequested?.wheelchairAssistance ||
             b.assistanceRequested?.boardingAssistance ||
             b.assistanceRequested?.walkingAssistance ||
             b.assistanceRequested?.prioritySeatAssistance
-    ).length;
-
-    const wheelchairCount = tripBookings.filter(
-        (b) => b.seatNumber?.startsWith('W') || b.assistanceRequested?.wheelchairAssistance
     ).length;
 
     // Filtered bookings by search and chip filter
@@ -139,19 +228,22 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
                     b.assistanceRequested?.walkingAssistance ||
                     b.assistanceRequested?.prioritySeatAssistance;
                 if (!hasAst) return false;
-            } else if (filterMode === 'WHEELCHAIR_ONLY') {
-                const isW = b.seatNumber?.startsWith('W') || b.assistanceRequested?.wheelchairAssistance;
-                if (!isW) return false;
+            } else if (filterMode === 'BOARDED_ONLY') {
+                if (b.boardingStatus !== 'BOARDED') return false;
+            } else if (filterMode === 'PENDING_ONLY') {
+                if (b.boardingStatus === 'BOARDED') return false;
             }
 
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase().trim();
                 const matchSeat = b.seatNumber?.toLowerCase().includes(q);
+                const matchName = b.passengerName?.toLowerCase().includes(q);
                 const matchUser = b.userId?.toLowerCase().includes(q);
+                const matchBookingId = b.bookingId?.toLowerCase().includes(q);
                 const matchStart = b.journey?.startLocation?.toLowerCase().includes(q);
                 const matchEnd = b.journey?.endLocation?.toLowerCase().includes(q);
                 const matchCompanion = b.pairedSeatNumber?.toLowerCase().includes(q);
-                return matchSeat || matchUser || matchStart || matchEnd || matchCompanion;
+                return matchSeat || matchName || matchUser || matchBookingId || matchStart || matchEnd || matchCompanion;
             }
 
             return true;
@@ -162,329 +254,363 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
         return (
             <View style={styles.centerContainer}>
                 <ActivityIndicator size="large" color="#0066CC" />
-                <Text style={styles.loadingText}>Loading passenger manifest for {numberPlate ?? 'bus'}...</Text>
+                <Text style={styles.loadingText}>Loading passenger manifest...</Text>
             </View>
         );
     }
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 35 }}>
-            {/* Header Title */}
-            <View style={styles.headerTitleRow}>
-                <Ionicons name="clipboard" size={22} color="#0066CC" />
-                <Text style={styles.headerTitle}>Trip Passenger Manifest 👨‍✈️</Text>
-            </View>
-
-            {/* Trip Turn Selector Bar */}
-            {trips.length > 0 && (
-                <View style={styles.tripSelectorSection}>
-                    <Text style={styles.tripSelectorLabel}>Select Bus Trip Turn:</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tripChipsRow}>
-                        <TouchableOpacity
-                            style={[styles.tripChip, selectedTripId === 'ALL' && styles.tripChipActive]}
-                            onPress={() => setSelectedTripId('ALL')}
-                        >
-                            <Text style={[styles.tripChipText, selectedTripId === 'ALL' && styles.tripChipTextActive]}>
-                                All Trips ({bookings.length})
-                            </Text>
+        <View style={styles.screenWrapper}>
+            <ScrollView
+                style={styles.container}
+                contentContainerStyle={{ paddingBottom: 110 }}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Recent Action Success Banner */}
+                {recentAlert && (
+                    <View style={styles.recentAlertBanner}>
+                        <Ionicons name="checkmark-circle" size={18} color="#059669" />
+                        <View style={{ flex: 1, marginLeft: 8 }}>
+                            <Text style={styles.recentAlertTitle}>{recentAlert.title}</Text>
+                            <Text style={styles.recentAlertMessage}>{recentAlert.message}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => setRecentAlert(null)}>
+                            <Ionicons name="close" size={16} color="#065F46" />
                         </TouchableOpacity>
+                    </View>
+                )}
 
-                        {trips.map((t) => {
-                            const isSel = selectedTripId === t.tripId;
-                            const count = bookings.filter((b) => b.tripId === t.tripId).length;
-                            return (
+                {/* Unified Trip & Boarding Overview Card */}
+                <View style={styles.overviewCard}>
+                    {/* Trip Turns Selector Strip */}
+                    {trips.length > 0 && (
+                        <View style={styles.turnSelectorRow}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.turnScrollContent}
+                            >
                                 <TouchableOpacity
-                                    key={t.tripId}
-                                    style={[styles.tripChip, isSel && styles.tripChipActive]}
-                                    onPress={() => setSelectedTripId(t.tripId)}
+                                    style={[
+                                        styles.turnPill,
+                                        selectedTripId === 'ALL' && styles.turnPillActive,
+                                    ]}
+                                    onPress={() => setSelectedTripId('ALL')}
                                 >
-                                    <Ionicons name="time-outline" size={12} color={isSel ? '#FFF' : '#0066CC'} />
-                                    <Text style={[styles.tripChipText, isSel && styles.tripChipTextActive]}>
-                                        Turn {t.turnNumber} ({t.departureTime || 'Trip'}) · {count} booked
+                                    <Text
+                                        style={[
+                                            styles.turnPillText,
+                                            selectedTripId === 'ALL' && styles.turnPillTextActive,
+                                        ]}
+                                    >
+                                        All Turns ({bookings.length})
                                     </Text>
                                 </TouchableOpacity>
-                            );
-                        })}
-                    </ScrollView>
-                </View>
-            )}
 
-            {/* Future QR Ticket Verification Scanner Card */}
-            <TouchableOpacity style={styles.qrScannerPlaceholderCard} onPress={handleShowScannerPlaceholder}>
-                <View style={styles.qrScannerIconBox}>
-                    <Ionicons name="qr-code-outline" size={22} color="#0066CC" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={styles.qrScannerTitle}>Scan Passenger Ticket QR 📷</Text>
-                        <View style={styles.comingSoonBadge}>
-                            <Text style={styles.comingSoonBadgeText}>COMING SOON</Text>
+                                {trips.map((t) => {
+                                    const isSel = selectedTripId === t.tripId;
+                                    const count = bookings.filter((b) => b.tripId === t.tripId).length;
+                                    return (
+                                        <TouchableOpacity
+                                            key={t.tripId}
+                                            style={[
+                                                styles.turnPill,
+                                                isSel && styles.turnPillActive,
+                                            ]}
+                                            onPress={() => setSelectedTripId(t.tripId)}
+                                        >
+                                            <Ionicons
+                                                name="time-outline"
+                                                size={13}
+                                                color={isSel ? '#FFFFFF' : '#64748B'}
+                                            />
+                                            <Text
+                                                style={[
+                                                    styles.turnPillText,
+                                                    isSel && styles.turnPillTextActive,
+                                                ]}
+                                            >
+                                                Turn {t.turnNumber} ({t.departureTime || 'Trip'}) · {count}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+                    )}
+
+                    {/* Boarding Progress Meter */}
+                    <View style={styles.progressSection}>
+                        <View style={styles.progressHeader}>
+                            <Text style={styles.progressLabel}>Boarding Status</Text>
+                            <Text style={styles.progressCounter}>
+                                <Text style={styles.progressBold}>{boardedCount}</Text> of {totalPassengers} Boarded ({progressPercent}%)
+                            </Text>
+                        </View>
+
+                        {/* Progress Line */}
+                        <View style={styles.progressBarTrack}>
+                            <View
+                                style={[
+                                    styles.progressBarFill,
+                                    { width: `${progressPercent}%` },
+                                ]}
+                            />
                         </View>
                     </View>
-                    <Text style={styles.qrScannerSub}>
-                        Tap to preview ticket scanner slot. Conductor manual check active below.
-                    </Text>
-                </View>
-            </TouchableOpacity>
 
-            {/* Quick Stats Banner */}
-            <View style={styles.statsRow}>
-                <View style={styles.statCard}>
-                    <Text style={styles.statValue}>{totalPassengers}</Text>
-                    <Text style={styles.statLabel}>Booked Passengers</Text>
+                    {/* Clean Compact Metrics Grid */}
+                    <View style={styles.metricsRow}>
+                        <View style={styles.metricItem}>
+                            <Text style={styles.metricValue}>{totalPassengers}</Text>
+                            <Text style={styles.metricLabel}>Booked</Text>
+                        </View>
+                        <View style={styles.metricDivider} />
+                        <View style={styles.metricItem}>
+                            <Text style={[styles.metricValue, { color: '#059669' }]}>{boardedCount}</Text>
+                            <Text style={styles.metricLabel}>Boarded</Text>
+                        </View>
+                        <View style={styles.metricDivider} />
+                        <View style={styles.metricItem}>
+                            <Text style={[styles.metricValue, { color: '#D97706' }]}>{pendingBoardingCount}</Text>
+                            <Text style={styles.metricLabel}>Awaiting</Text>
+                        </View>
+                        <View style={styles.metricDivider} />
+                        <View style={styles.metricItem}>
+                            <Text style={[styles.metricValue, { color: '#6D28D9' }]}>{assistanceCount}</Text>
+                            <Text style={styles.metricLabel}>Assistance</Text>
+                        </View>
+                    </View>
                 </View>
 
-                <View style={[styles.statCard, { borderTopColor: '#7C3AED' }]}>
-                    <Text style={[styles.statValue, { color: '#7C3AED' }]}>{assistanceCount}</Text>
-                    <Text style={styles.statLabel}>Assistance Requests</Text>
+                {/* Search Bar */}
+                <View style={styles.searchBox}>
+                    <Ionicons name="search" size={16} color="#64748B" />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search seat, passenger ID, or halt..."
+                        placeholderTextColor="#94A3B8"
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                    {!!searchQuery && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Ionicons name="close-circle" size={16} color="#94A3B8" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
-                <View style={[styles.statCard, { borderTopColor: '#0066CC' }]}>
-                    <Text style={[styles.statValue, { color: '#0066CC' }]}>{wheelchairCount}</Text>
-                    <Text style={styles.statLabel}>Wheelchair Bays</Text>
-                </View>
-            </View>
-
-            {/* Search Input */}
-            <View style={styles.searchBox}>
-                <Ionicons name="search" size={18} color="#94A3B8" />
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search by seat (e.g. W1, 12), passenger ID, or stop..."
-                    placeholderTextColor="#94A3B8"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                />
-                {!!searchQuery && (
-                    <TouchableOpacity onPress={() => setSearchQuery('')}>
-                        <Ionicons name="close-circle" size={18} color="#94A3B8" />
+                {/* Segmented Filter Bar */}
+                <View style={styles.filterBar}>
+                    <TouchableOpacity
+                        style={[styles.filterTab, filterMode === 'ALL' && styles.filterTabActive]}
+                        onPress={() => setFilterMode('ALL')}
+                    >
+                        <Text style={[styles.filterTabText, filterMode === 'ALL' && styles.filterTabTextActive]}>
+                            All ({totalPassengers})
+                        </Text>
                     </TouchableOpacity>
-                )}
-            </View>
 
-            {/* Filter Chips */}
-            <View style={styles.filterChipsRow}>
-                <TouchableOpacity
-                    style={[styles.chip, filterMode === 'ALL' && styles.chipActive]}
-                    onPress={() => setFilterMode('ALL')}
-                >
-                    <Text style={[styles.chipText, filterMode === 'ALL' && styles.chipTextActive]}>
-                        All Passengers ({totalPassengers})
-                    </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.filterTab, filterMode === 'PENDING_ONLY' && styles.filterTabActive]}
+                        onPress={() => setFilterMode('PENDING_ONLY')}
+                    >
+                        <Text style={[styles.filterTabText, filterMode === 'PENDING_ONLY' && styles.filterTabTextActive]}>
+                            Awaiting ({pendingBoardingCount})
+                        </Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                    style={[styles.chip, filterMode === 'ASSISTANCE_ONLY' && styles.chipActive]}
-                    onPress={() => setFilterMode('ASSISTANCE_ONLY')}
-                >
-                    <Text style={[styles.chipText, filterMode === 'ASSISTANCE_ONLY' && styles.chipTextActive]}>
-                        Assistance ♿ ({assistanceCount})
-                    </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.filterTab, filterMode === 'BOARDED_ONLY' && styles.filterTabActive]}
+                        onPress={() => setFilterMode('BOARDED_ONLY')}
+                    >
+                        <Text style={[styles.filterTabText, filterMode === 'BOARDED_ONLY' && styles.filterTabTextActive]}>
+                            Boarded ({boardedCount})
+                        </Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                    style={[styles.chip, filterMode === 'WHEELCHAIR_ONLY' && styles.chipActive]}
-                    onPress={() => setFilterMode('WHEELCHAIR_ONLY')}
-                >
-                    <Text style={[styles.chipText, filterMode === 'WHEELCHAIR_ONLY' && styles.chipTextActive]}>
-                        Wheelchair ♿ ({wheelchairCount})
-                    </Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Passenger List */}
-            {filteredBookings.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                    <Ionicons name="people-outline" size={40} color="#CBD5E1" />
-                    <Text style={styles.emptyTitle}>No matching passengers</Text>
-                    <Text style={styles.emptySub}>
-                        {searchQuery
-                            ? `No bookings match "${searchQuery}".`
-                            : 'There are no passenger bookings recorded for this trip turn yet.'}
-                    </Text>
+                    <TouchableOpacity
+                        style={[styles.filterTab, filterMode === 'ASSISTANCE_ONLY' && styles.filterTabActive]}
+                        onPress={() => setFilterMode('ASSISTANCE_ONLY')}
+                    >
+                        <Text style={[styles.filterTabText, filterMode === 'ASSISTANCE_ONLY' && styles.filterTabTextActive]}>
+                            Assist ({assistanceCount})
+                        </Text>
+                    </TouchableOpacity>
                 </View>
-            ) : (
-                filteredBookings.map((booking) => {
-                    const isWheelchair = booking.seatNumber?.startsWith('W') || booking.assistanceRequested?.wheelchairAssistance;
-                    const hasAssistance =
-                        booking.assistanceRequested?.wheelchairAssistance ||
-                        booking.assistanceRequested?.boardingAssistance ||
-                        booking.assistanceRequested?.walkingAssistance ||
-                        booking.assistanceRequested?.prioritySeatAssistance;
 
-                    const status = booking.assistanceStatus ?? 'PENDING';
-                    const isUpdating = updatingId === booking.bookingId;
+                {/* Passenger Manifest List */}
+                {filteredBookings.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                        <Ionicons name="people-outline" size={36} color="#94A3B8" />
+                        <Text style={styles.emptyTitle}>No passengers found</Text>
+                        <Text style={styles.emptySub}>
+                            {searchQuery
+                                ? `No results matching "${searchQuery}".`
+                                : 'No passenger records for this filter.'}
+                        </Text>
+                    </View>
+                ) : (
+                    filteredBookings.map((booking) => {
+                        const isWheelchair = booking.seatNumber?.startsWith('W') || booking.assistanceRequested?.wheelchairAssistance;
+                        const hasAssistance =
+                            booking.assistanceRequested?.wheelchairAssistance ||
+                            booking.assistanceRequested?.boardingAssistance ||
+                            booking.assistanceRequested?.walkingAssistance ||
+                            booking.assistanceRequested?.prioritySeatAssistance;
 
-                    return (
-                        <View
-                            key={booking.bookingId}
-                            style={[
-                                styles.passengerCard,
-                                isWheelchair && styles.passengerCardWheelchair,
-                            ]}
-                        >
-                            {/* Card Top Row */}
-                            <View style={styles.cardHeader}>
-                                <View style={styles.seatBadgeGroup}>
-                                    <View style={[styles.seatBadge, isWheelchair && styles.seatBadgeWheelchair]}>
-                                        <Text style={styles.seatBadgeText}>Seat {booking.seatNumber}</Text>
-                                    </View>
-                                    {booking.pairedSeatNumber && (
-                                        <View style={styles.companionBadge}>
-                                            <Ionicons name="people" size={12} color="#7C3AED" />
-                                            <Text style={styles.companionBadgeText}>+ Companion {booking.pairedSeatNumber}</Text>
+                        const isBoarded = booking.boardingStatus === 'BOARDED';
+                        const isPaid = booking.paymentStatus === 'PAID';
+
+                        return (
+                            <TouchableOpacity
+                                key={booking.bookingId}
+                                style={[
+                                    styles.passengerCard,
+                                    isBoarded && styles.passengerCardBoarded,
+                                ]}
+                                activeOpacity={0.85}
+                                onPress={() => handleScanTicket(booking.qrPayload || booking.bookingId)}
+                            >
+                                {/* Card Header Row: Seat, Passenger Name & Boarding Status */}
+                                <View style={styles.passengerCardTop}>
+                                    <View style={styles.seatAndIdGroup}>
+                                        <View
+                                            style={[
+                                                styles.seatBadge,
+                                                isWheelchair && styles.seatBadgeWheelchair,
+                                                isBoarded && styles.seatBadgeBoarded,
+                                            ]}
+                                        >
+                                            <Text style={styles.seatBadgeLabel}>SEAT</Text>
+                                            <Text style={styles.seatBadgeText}>{booking.seatNumber}</Text>
                                         </View>
-                                    )}
-                                </View>
 
-                                {hasAssistance && (
-                                    <View style={[styles.statusBadge, { backgroundColor: getStatusBg(status) }]}>
-                                        <Text style={[styles.statusBadgeText, { color: getStatusColor(status) }]}>
-                                            {getStatusLabel(status)}
+                                        <View style={styles.idWrapper}>
+                                            <Text style={styles.passengerNameText} numberOfLines={1}>
+                                                {booking.passengerName || booking.userId || 'Guest Passenger'}
+                                            </Text>
+                                            <Text style={styles.passengerSubIdText} numberOfLines={1}>
+                                                Ref: {booking.bookingId} {booking.userId && booking.userId !== booking.passengerName ? `· ${booking.userId}` : ''}
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Boarding Status Pill (Awaiting vs Boarded) */}
+                                    <View
+                                        style={[
+                                            styles.boardingStatusPill,
+                                            isBoarded ? styles.boardingPillBoarded : styles.boardingPillAwaiting,
+                                        ]}
+                                    >
+                                        <Ionicons
+                                            name={isBoarded ? 'checkmark-circle' : 'time-outline'}
+                                            size={12}
+                                            color={isBoarded ? '#059669' : '#D97706'}
+                                        />
+                                        <Text
+                                            style={[
+                                                styles.boardingStatusPillText,
+                                                { color: isBoarded ? '#065F46' : '#92400E' },
+                                            ]}
+                                        >
+                                            {isBoarded ? 'BOARDED' : 'AWAITING'}
                                         </Text>
                                     </View>
-                                )}
-                            </View>
+                                </View>
 
-                            {/* Passenger info */}
-                            <View style={styles.passengerDetails}>
-                                <Text style={styles.passengerIdText}>Passenger: {booking.userId || 'Guest Commuter'}</Text>
-                                <Text style={styles.routeStopsText}>
-                                    📍 Pickup: <Text style={styles.boldText}>{booking.journey?.startLocation}</Text> ➔ Drop-off: <Text style={styles.boldText}>{booking.journey?.endLocation}</Text>
-                                </Text>
-                            </View>
+                                {/* Route Details (Pickup -> Drop-off Destination) */}
+                                <View style={styles.routeSection}>
+                                    <Text style={styles.routeText}>
+                                        <Text style={styles.pickupText}>{booking.journey?.startLocation || 'Pickup'}</Text>
+                                        <Ionicons name="arrow-forward" size={12} color="#0066CC" />{' '}
+                                        <Text style={styles.dropOffText}>{booking.journey?.endLocation || 'Destination'}</Text>
+                                    </Text>
+                                </View>
 
-                            {/* Assistance Requested Box */}
-                            {hasAssistance && (
-                                <View style={styles.assistanceSection}>
-                                    <Text style={styles.assistanceSectionTitle}>Requested Assistance:</Text>
-
-                                    <View style={styles.assistanceTagsRow}>
-                                        {booking.assistanceRequested?.wheelchairAssistance && (
-                                            <View style={[styles.tag, { backgroundColor: '#F3E8FF' }]}>
-                                                <Ionicons name="body" size={12} color="#7C3AED" />
-                                                <Text style={[styles.tagText, { color: '#7C3AED' }]}>Wheelchair Ramp & Space</Text>
-                                            </View>
-                                        )}
-                                        {booking.assistanceRequested?.boardingAssistance && (
-                                            <View style={[styles.tag, { backgroundColor: '#DBEAFE' }]}>
-                                                <Ionicons name="footsteps" size={12} color="#1D4ED8" />
-                                                <Text style={[styles.tagText, { color: '#1D4ED8' }]}>Boarding Support</Text>
-                                            </View>
-                                        )}
-                                        {booking.assistanceRequested?.walkingAssistance && (
-                                            <View style={[styles.tag, { backgroundColor: '#E0E7FF' }]}>
-                                                <Ionicons name="walk" size={12} color="#4338CA" />
-                                                <Text style={[styles.tagText, { color: '#4338CA' }]}>Walking Escort</Text>
-                                            </View>
-                                        )}
-                                        {booking.assistanceRequested?.prioritySeatAssistance && (
-                                            <View style={[styles.tag, { backgroundColor: '#FEF3C7' }]}>
-                                                <Ionicons name="star" size={12} color="#D97706" />
-                                                <Text style={[styles.tagText, { color: '#D97706' }]}>Priority Seat</Text>
-                                            </View>
-                                        )}
+                                {/* Card Bottom Row: Cash Payment Status & Assistance Badges */}
+                                <View style={styles.cardBottomRow}>
+                                    <View style={[styles.cashBadge, isPaid ? styles.cashBadgePaid : styles.cashBadgePending]}>
+                                        <Ionicons
+                                            name={isPaid ? 'checkmark-circle' : 'cash-outline'}
+                                            size={12}
+                                            color={isPaid ? '#047857' : '#B45309'}
+                                        />
+                                        <Text style={[styles.cashBadgeText, { color: isPaid ? '#065F46' : '#92400E' }]}>
+                                            {isPaid
+                                                ? `LKR ${booking.fare?.totalFare ?? '—'} · Cash Collected`
+                                                : `LKR ${booking.fare?.totalFare ?? '—'} · Cash to Collect`}
+                                        </Text>
                                     </View>
 
-                                    {!!booking.specialRequests && (
-                                        <Text style={styles.specialNoteText}>Note: {booking.specialRequests}</Text>
-                                    )}
-
-                                    {/* Conductor Action Buttons */}
-                                    <View style={styles.conductorActionRow}>
-                                        {isUpdating ? (
-                                            <ActivityIndicator size="small" color="#0066CC" />
-                                        ) : (
-                                            <>
-                                                {status !== 'CONFIRMED' && status !== 'COMPLETED' && (
-                                                    <TouchableOpacity
-                                                        style={[styles.actionBtn, { backgroundColor: '#D1FAE5' }]}
-                                                        onPress={() => handleStatusChange(booking.bookingId, 'CONFIRMED')}
-                                                    >
-                                                        <Text style={[styles.actionBtnText, { color: '#065F46' }]}>
-                                                            Acknowledge Request
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                                {status !== 'IN_PROGRESS' && status !== 'COMPLETED' && (
-                                                    <TouchableOpacity
-                                                        style={[styles.actionBtn, { backgroundColor: '#DBEAFE' }]}
-                                                        onPress={() => handleStatusChange(booking.bookingId, 'IN_PROGRESS')}
-                                                    >
-                                                        <Text style={[styles.actionBtnText, { color: '#1E40AF' }]}>
-                                                            Assisting Boarding
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                                {status !== 'COMPLETED' && (
-                                                    <TouchableOpacity
-                                                        style={[styles.actionBtn, { backgroundColor: '#F3E8FF' }]}
-                                                        onPress={() => handleStatusChange(booking.bookingId, 'COMPLETED')}
-                                                    >
-                                                        <Text style={[styles.actionBtnText, { color: '#6B21A8' }]}>
-                                                            Complete Assistance
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                            </>
+                                    <View style={styles.assistanceTagsRow}>
+                                        {isWheelchair && (
+                                            <View style={styles.miniAssistTag}>
+                                                <Ionicons name="accessibility" size={10} color="#7C3AED" />
+                                                <Text style={styles.miniAssistTagText}>Wheelchair</Text>
+                                            </View>
+                                        )}
+                                        {booking.pairedSeatNumber && (
+                                            <View style={styles.miniAssistTag}>
+                                                <Ionicons name="people" size={10} color="#7C3AED" />
+                                                <Text style={styles.miniAssistTagText}>+ Companion {booking.pairedSeatNumber}</Text>
+                                            </View>
+                                        )}
+                                        {booking.isPrioritySeat && !isWheelchair && (
+                                            <View style={[styles.miniAssistTag, { backgroundColor: '#FEF3C7' }]}>
+                                                <Ionicons name="star" size={10} color="#D97706" />
+                                                <Text style={[styles.miniAssistTagText, { color: '#92400E' }]}>Priority</Text>
+                                            </View>
                                         )}
                                     </View>
                                 </View>
-                            )}
-                        </View>
-                    );
-                })
-            )}
-        </ScrollView>
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
+            </ScrollView>
+
+            {/* Sticky Floating Action Bar for Scanner (One-Tap Access) */}
+            <View style={styles.stickyBottomBar}>
+                <TouchableOpacity
+                    style={styles.floatingScanBtn}
+                    onPress={() => setIsScannerOpen(true)}
+                    activeOpacity={0.9}
+                >
+                    <Ionicons name="qr-code-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.floatingScanBtnText}>Scan Passenger Ticket QR</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* QR Scanner Modal (MOV-278) */}
+            <QRManifestScannerModal
+                visible={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onScanTicket={handleScanTicket}
+                currentBookings={tripBookings}
+                isProcessing={isVerifyingQr}
+            />
+
+            {/* Conductor Boarding Sheet (MOV-280) */}
+            <ConductorBoardingCard
+                visible={isBoardingSheetOpen}
+                verificationResult={verificationResult}
+                onClose={() => {
+                    setIsBoardingSheetOpen(false);
+                    setVerificationResult(null);
+                }}
+                onConfirmBoarding={handleConfirmBoarding}
+                isConfirming={isConfirmingBoarding}
+            />
+        </View>
     );
 }
 
-function getStatusLabel(status: string) {
-    switch (status) {
-        case 'CONFIRMED':
-            return 'ACKNOWLEDGED BY CREW';
-        case 'IN_PROGRESS':
-            return 'ASSISTING BOARDING';
-        case 'COMPLETED':
-            return 'ASSISTANCE COMPLETED';
-        case 'DECLINED':
-            return 'UNAVAILABLE';
-        default:
-            return 'NOTIFIED CONDUCTOR';
-    }
-}
-
-function getStatusBg(status: string) {
-    switch (status) {
-        case 'CONFIRMED':
-            return '#D1FAE5';
-        case 'IN_PROGRESS':
-            return '#DBEAFE';
-        case 'COMPLETED':
-            return '#E0E7FF';
-        case 'DECLINED':
-            return '#FEE2E2';
-        default:
-            return '#FEF3C7';
-    }
-}
-
-function getStatusColor(status: string) {
-    switch (status) {
-        case 'CONFIRMED':
-            return '#065F46';
-        case 'IN_PROGRESS':
-            return '#1E40AF';
-        case 'COMPLETED':
-            return '#3730A3';
-        case 'DECLINED':
-            return '#991B1B';
-        default:
-            return '#92400E';
-    }
-}
-
 const styles = StyleSheet.create({
+    screenWrapper: {
+        flex: 1,
+        position: 'relative',
+    },
     container: {
         flex: 1,
         width: '100%',
@@ -498,121 +624,130 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#64748B',
         marginTop: 10,
+        fontWeight: '600',
     },
-    headerTitleRow: {
+    recentAlertBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 10,
-    },
-    headerTitle: {
-        fontSize: 17,
-        fontWeight: '800',
-        color: '#0F172A',
-        marginLeft: 8,
-    },
-    tripSelectorSection: {
-        marginBottom: 12,
-    },
-    tripSelectorLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#64748B',
-        marginBottom: 6,
-    },
-    tripChipsRow: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    tripChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#EBF3FA',
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: '#BAE6FD',
-    },
-    tripChipActive: {
-        backgroundColor: '#0066CC',
-        borderColor: '#0066CC',
-    },
-    tripChipText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#0066CC',
-        marginLeft: 4,
-    },
-    tripChipTextActive: {
-        color: '#FFFFFF',
-    },
-    qrScannerPlaceholderCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F8FAFC',
-        borderRadius: 14,
-        padding: 12,
-        marginBottom: 14,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-        borderStyle: 'dashed',
-    },
-    qrScannerIconBox: {
-        width: 38,
-        height: 38,
-        borderRadius: 10,
-        backgroundColor: '#EBF3FA',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    qrScannerTitle: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#0F172A',
-    },
-    comingSoonBadge: {
-        backgroundColor: '#FEF3C7',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 6,
-    },
-    comingSoonBadgeText: {
-        fontSize: 9,
-        fontWeight: '800',
-        color: '#92400E',
-    },
-    qrScannerSub: {
-        fontSize: 11,
-        color: '#64748B',
-        marginTop: 2,
-    },
-    statsRow: {
-        flexDirection: 'row',
-        gap: 10,
-        marginBottom: 14,
-    },
-    statCard: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#ECFDF5',
         borderRadius: 12,
         padding: 12,
-        alignItems: 'center',
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#A7F3D0',
+    },
+    recentAlertTitle: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#065F46',
+    },
+    recentAlertMessage: {
+        fontSize: 11,
+        color: '#047857',
+        marginTop: 2,
+    },
+    overviewCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 14,
+        marginBottom: 12,
         borderWidth: 1,
         borderColor: '#E2E8F0',
-        borderTopWidth: 4,
-        borderTopColor: '#0F172A',
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
     },
-    statValue: {
-        fontSize: 20,
+    turnSelectorRow: {
+        marginBottom: 12,
+        paddingBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F1F5F9',
+    },
+    turnScrollContent: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    turnPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F1F5F9',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
+        gap: 4,
+    },
+    turnPillActive: {
+        backgroundColor: '#0066CC',
+    },
+    turnPillText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#475569',
+    },
+    turnPillTextActive: {
+        color: '#FFFFFF',
+    },
+    progressSection: {
+        marginBottom: 12,
+    },
+    progressHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    progressLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#0F172A',
+    },
+    progressCounter: {
+        fontSize: 11,
+        color: '#64748B',
+    },
+    progressBold: {
+        fontWeight: '800',
+        color: '#059669',
+    },
+    progressBarTrack: {
+        height: 6,
+        backgroundColor: '#F1F5F9',
+        borderRadius: 3,
+        overflow: 'hidden',
+    },
+    progressBarFill: {
+        height: '100%',
+        backgroundColor: '#059669',
+        borderRadius: 3,
+    },
+    metricsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-around',
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#F8FAFC',
+    },
+    metricItem: {
+        alignItems: 'center',
+    },
+    metricValue: {
+        fontSize: 16,
         fontWeight: '800',
         color: '#0F172A',
     },
-    statLabel: {
+    metricLabel: {
         fontSize: 10,
         fontWeight: '600',
         color: '#64748B',
-        marginTop: 2,
-        textAlign: 'center',
+        marginTop: 1,
+    },
+    metricDivider: {
+        width: 1,
+        height: 20,
+        backgroundColor: '#E2E8F0',
     },
     searchBox: {
         flexDirection: 'row',
@@ -620,10 +755,10 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
         paddingHorizontal: 12,
-        height: 44,
+        height: 40,
         borderWidth: 1,
-        borderColor: '#CBD5E1',
-        marginBottom: 12,
+        borderColor: '#E2E8F0',
+        marginBottom: 10,
     },
     searchInput: {
         flex: 1,
@@ -631,27 +766,34 @@ const styles = StyleSheet.create({
         color: '#0F172A',
         marginLeft: 8,
     },
-    filterChipsRow: {
+    filterBar: {
         flexDirection: 'row',
-        gap: 8,
-        marginBottom: 16,
+        backgroundColor: '#F1F5F9',
+        borderRadius: 10,
+        padding: 3,
+        marginBottom: 12,
     },
-    chip: {
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 20,
-        backgroundColor: '#E2E8F0',
+    filterTab: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 6,
+        borderRadius: 8,
     },
-    chipActive: {
-        backgroundColor: '#0F172A',
+    filterTabActive: {
+        backgroundColor: '#FFFFFF',
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 1,
     },
-    chipText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#475569',
+    filterTabText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748B',
     },
-    chipTextActive: {
-        color: '#FFFFFF',
+    filterTabTextActive: {
+        color: '#0F172A',
     },
     emptyContainer: {
         backgroundColor: '#FFFFFF',
@@ -662,7 +804,7 @@ const styles = StyleSheet.create({
         borderColor: '#E2E8F0',
     },
     emptyTitle: {
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: '700',
         color: '#0F172A',
         marginTop: 8,
@@ -670,136 +812,181 @@ const styles = StyleSheet.create({
     emptySub: {
         fontSize: 12,
         color: '#64748B',
-        marginTop: 4,
+        marginTop: 2,
         textAlign: 'center',
     },
     passengerCard: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 12,
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 10,
         borderWidth: 1,
         borderColor: '#E2E8F0',
+        gap: 8,
     },
-    passengerCardWheelchair: {
-        borderColor: '#DDD6FE',
-        borderLeftWidth: 4,
-        borderLeftColor: '#7C3AED',
+    passengerCardBoarded: {
+        backgroundColor: '#F8FAFC',
+        borderColor: '#CBD5E1',
     },
-    cardHeader: {
+    passengerCardTop: {
         flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
     },
-    seatBadgeGroup: {
+    seatAndIdGroup: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 10,
+        flex: 1,
     },
     seatBadge: {
         backgroundColor: '#0F172A',
-        paddingHorizontal: 10,
+        paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 46,
     },
     seatBadgeWheelchair: {
-        backgroundColor: '#7C3AED',
+        backgroundColor: '#6D28D9',
+    },
+    seatBadgeBoarded: {
+        backgroundColor: '#059669',
+    },
+    seatBadgeLabel: {
+        color: '#94A3B8',
+        fontSize: 8,
+        fontWeight: '800',
+        letterSpacing: 0.5,
     },
     seatBadgeText: {
         color: '#FFFFFF',
-        fontWeight: '800',
-        fontSize: 12,
+        fontWeight: '900',
+        fontSize: 13,
     },
-    companionBadge: {
+    idWrapper: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    passengerNameText: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#0F172A',
+        marginBottom: 1,
+    },
+    passengerSubIdText: {
+        fontSize: 11,
+        color: '#64748B',
+        fontWeight: '600',
+    },
+    boardingStatusPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F3E8FF',
         paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: 8,
+        borderRadius: 12,
+        gap: 4,
     },
-    companionBadgeText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#7C3AED',
-        marginLeft: 4,
+    boardingPillBoarded: {
+        backgroundColor: '#ECFDF5',
     },
-    statusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
+    boardingPillAwaiting: {
+        backgroundColor: '#FFFBEB',
     },
-    statusBadgeText: {
+    boardingStatusPillText: {
         fontSize: 10,
         fontWeight: '800',
     },
-    passengerDetails: {
-        gap: 4,
-    },
-    passengerIdText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#1E293B',
-    },
-    routeStopsText: {
-        fontSize: 12,
-        color: '#64748B',
-    },
-    boldText: {
-        fontWeight: '700',
-        color: '#0F172A',
-    },
-    assistanceSection: {
-        marginTop: 12,
+    routeSection: {
         backgroundColor: '#F8FAFC',
-        padding: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#F1F5F9',
-    },
-    assistanceSectionTitle: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
-        marginBottom: 6,
-    },
-    assistanceTagsRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 6,
-    },
-    tag: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    tagText: {
-        fontSize: 11,
-        fontWeight: '600',
-        marginLeft: 4,
-    },
-    specialNoteText: {
-        fontSize: 11,
-        color: '#475569',
-        fontStyle: 'italic',
-        marginTop: 6,
-    },
-    conductorActionRow: {
-        flexDirection: 'row',
-        gap: 8,
-        marginTop: 10,
-        justifyContent: 'flex-end',
-    },
-    actionBtn: {
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 8,
     },
-    actionBtnText: {
+    routeText: {
+        fontSize: 12,
+        color: '#475569',
+    },
+    pickupText: {
+        color: '#64748B',
+        fontWeight: '600',
+    },
+    dropOffText: {
+        color: '#0066CC',
+        fontWeight: '800',
+    },
+    cardBottomRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 2,
+    },
+    cashBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        gap: 4,
+    },
+    cashBadgePaid: {
+        backgroundColor: '#ECFDF5',
+    },
+    cashBadgePending: {
+        backgroundColor: '#FFFBEB',
+    },
+    cashBadgeText: {
         fontSize: 11,
         fontWeight: '700',
+    },
+    assistanceTagsRow: {
+        flexDirection: 'row',
+        gap: 4,
+    },
+    miniAssistTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F5F3FF',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        gap: 3,
+    },
+    miniAssistTagText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#6D28D9',
+    },
+    stickyBottomBar: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 16,
+        paddingTop: 10,
+        paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+        borderTopWidth: 1,
+        borderTopColor: '#E2E8F0',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+    },
+    floatingScanBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#0066CC',
+        paddingVertical: 13,
+        borderRadius: 12,
+        gap: 8,
+    },
+    floatingScanBtnText: {
+        color: '#FFFFFF',
+        fontWeight: '800',
+        fontSize: 14,
     },
 });

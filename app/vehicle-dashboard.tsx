@@ -73,13 +73,16 @@ export default function VehicleDashboardScreen() {
             <View style={styles.header}>
                 <View style={styles.headerTitleGroup}>
                     <View style={styles.busIconBox}>
-                        <Ionicons name="bus" size={20} color="#0066CC" />
+                        <Ionicons name="bus" size={18} color="#0066CC" />
                     </View>
                     <View>
                         <Text style={styles.headerTitle}>{t('driver.transitConsole', 'Transit Console')}</Text>
-                        <Text style={styles.headerSubtitle}>
-                            {identity.signedIn ? identity.numberPlate : 'Not Signed In'}
-                        </Text>
+                        <View style={styles.plateRow}>
+                            <View style={styles.activeDot} />
+                            <Text style={styles.headerSubtitle}>
+                                {identity.signedIn ? identity.numberPlate : 'Not Signed In'}
+                            </Text>
+                        </View>
                     </View>
                 </View>
 
@@ -89,8 +92,8 @@ export default function VehicleDashboardScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Sign this bus out"
                 >
-                    <Ionicons name="log-out-outline" size={18} color="#0066CC" />
-                    <Text style={styles.logoutText}>{t('driver.exitBus', 'Exit Bus')}</Text>
+                    <Ionicons name="log-out-outline" size={16} color="#64748B" />
+                    <Text style={styles.logoutText}>{t('driver.exitBus', 'Exit')}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -243,24 +246,37 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#0F172A',
     },
+    plateRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 2,
+    },
+    activeDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#10B981',
+        marginRight: 6,
+    },
     headerSubtitle: {
-        fontSize: 11,
-        color: '#64748B',
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#475569',
     },
     logoutButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F8FAFC',
+        backgroundColor: '#F1F5F9',
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#CBD5E1',
+        borderColor: '#E2E8F0',
     },
     logoutText: {
         fontSize: 12,
         fontWeight: '700',
-        color: '#0066CC',
+        color: '#475569',
         marginLeft: 4,
     },
     container: {
