@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -8,9 +9,9 @@ import {
     SafeAreaView,
     StatusBar,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Notification } from '../../src/entities/notification/model/types';
 import { NotificationCard } from '../../src/features/notifications/ui/NotificationCard';

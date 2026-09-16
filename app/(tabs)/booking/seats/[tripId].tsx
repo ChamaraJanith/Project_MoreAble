@@ -1,4 +1,6 @@
+import { AppText as Text } from '../../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -8,9 +10,9 @@ import {
     SafeAreaView,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 import { Seat } from '../../../../src/entities/booking/model/types';
@@ -27,6 +29,7 @@ import { isEligibleForPrioritySeat } from '../../../../src/shared/utils/priority
 const ELDERLY_MIN_AGE = 60;
 
 export default function SeatSelectionScreen() {
+  const { t } = useTranslation();
     const router = useRouter();
 
     const { tripId, origin, destination } = useLocalSearchParams<{
@@ -288,7 +291,7 @@ export default function SeatSelectionScreen() {
                             <Text
                                 style={styles.selectedLabel}
                             >
-                                Selected Seat:{' '}
+                                {t('booking.selectedSeatLabel', 'Selected Seat: ')}
                                 {isWheelchairSelected
                                     ? `Wheelchair Space (${selectedSeat.seatNumber})`
                                     : selectedSeat.seatNumber}

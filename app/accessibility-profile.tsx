@@ -85,7 +85,7 @@ export default function AccessibilityProfileScreen() {
                     if (data.success && data.profile) {
                         const prof = data.profile;
                         setProfileId(prof.accessibilityProfileId || userObj?.accessibilityProfileId || '');
-                        setHasNeeds(prof.hasAccessibilityNeeds !== false);
+                        
 
                         const needs: string[] = prof.accessibilityNeeds || [];
                         if (needs.length > 0) {

@@ -4,19 +4,17 @@
     "slug": "Project_MoreAble",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/moreable-logo.jpg",
+    "icon": "./assets/images/moreable-logo.png",
     "scheme": "projectmoreable",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/moreable-logo.jpg"
+        "foregroundImage": "./assets/images/moreable-logo.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
       "permissions": [
@@ -29,14 +27,14 @@
     },
     "web": {
       "output": "server",
-      "favicon": "./assets/images/moreable-logo.jpg"
+      "favicon": "./assets/images/moreable-logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/moreable-logo.jpg",
+          "image": "./assets/images/moreable-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -52,7 +50,10 @@
         {
           "locationAlwaysAndWhenInUsePermission": "MoreAble uses this bus location so passengers can see where the bus is."
         }
-      ]
+      ],
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,12 +1,15 @@
+import { useTranslation } from 'react-i18next';
+import { AppText as Text } from '../../../src/shared/ui/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { TransportOption } from '../../../src/entities/booking/model/types';
 import { fetchTransportOptions } from '../../../src/features/booking/api/bookingApi';
 import { setSelectedVehicle } from '../../../src/features/booking/store/selectedVehicleStore';
 import { TransportOptionCard } from '../../../src/features/booking/ui/TransportOptionCard';
 
 export default function BookingOptionsScreen() {
+  const { t } = useTranslation();
     const router = useRouter();
     const { routeId, origin, destination } = useLocalSearchParams<{
         routeId: string; origin?: string; destination?: string;
@@ -57,7 +60,7 @@ export default function BookingOptionsScreen() {
     if (!routeId) {
         return (
             <View style={styles.center}>
-                <Text style={styles.empty}>No route selected. Please search for a route first.</Text>
+                <Text style={styles.empty}>{t('booking.noRoute', 'No route selected. Please search for a route first.')}</Text>
             </View>
         );
     }
@@ -69,7 +72,7 @@ export default function BookingOptionsScreen() {
             <View style={styles.center}>
                 <Text style={styles.error}>{error}</Text>
                 <TouchableOpacity style={styles.retryButton} onPress={loadOptions} accessibilityRole="button" accessibilityLabel="Retry">
-                    <Text style={styles.retryText}>TRY AGAIN</Text>
+                    <Text style={styles.retryText}>{t('booking.tryAgain', 'TRY AGAIN')}</Text>
                 </TouchableOpacity>
             </View>
         );
@@ -77,11 +80,11 @@ export default function BookingOptionsScreen() {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Available Transport Options</Text>
+            <Text style={styles.title}>{t('booking.optionsTitle', 'Available Transport Options')}</Text>
             {origin && destination ? (
                 <Text style={styles.subtitle}>{origin} → {destination}</Text>
             ) : (
-                <Text style={styles.subtitle}>Compare vehicles and pick the one that suits you.</Text>
+                <Text style={styles.subtitle}>{t('booking.optionsSubtitle', 'Compare vehicles and pick the one that suits you.')}</Text>
             )}
 
             <FlatList
@@ -89,7 +92,7 @@ export default function BookingOptionsScreen() {
                 keyExtractor={(item) => item.tripId}
                 renderItem={({ item }) => <TransportOptionCard option={item} onSelect={handleSelect} />}
                 contentContainerStyle={styles.list}
-                ListEmptyComponent={<Text style={styles.empty}>No transport options found for this route right now.</Text>}
+                ListEmptyComponent={<Text style={styles.empty}>{t('booking.noOptions', 'No transport options found for this route right now.')}</Text>}
             />
         </View>
     );

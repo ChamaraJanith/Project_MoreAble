@@ -1,5 +1,28 @@
 // User & Guardian Entity Models and Types
 
+/**
+ * App-level Accessibility & UI Preferences configurable by the passenger.
+ * Stored locally on-device (preferencesStore) and optionally synced to authStore.
+ */
+export interface AppPreferences {
+  /** Font size preference across the app */
+  textSize: 'default' | 'large' | 'extra_large';
+  /** High contrast colour scheme for low vision support */
+  highContrast: boolean;
+  /** Spoken voice guidance for in-journey navigation */
+  voiceGuidance: boolean;
+  /** Voice reminders for upcoming destination stop */
+  voiceDestinationReminders: boolean;
+  /** Vibrate on notifications */
+  notificationVibration: boolean;
+  /** Sound on notifications */
+  notificationSound: boolean;
+  /** Simplified UI mode (fewer elements, larger tap targets) */
+  simpleMode: boolean;
+  /** Preferred application language */
+  language: 'english' | 'sinhala';
+}
+
 export type UserRole = 'PASSENGER' | 'GUARDIAN' | 'ADMIN';
 
 /**
@@ -96,6 +119,7 @@ export interface User {
   isWalkingDifficultyPerson?: boolean;
   isOtherAccessibilityPerson?: boolean;
   otherDescription?: string | null;
+  appPreferences?: AppPreferences | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,4 +168,5 @@ export interface UserRegistrationDTO {
     nicNo: string;
     relationship?: string;
   };
+  appPreferences?: AppPreferences | null;
 }

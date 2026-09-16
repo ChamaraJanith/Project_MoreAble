@@ -11,10 +11,12 @@ import {
   View,
 } from 'react-native';
 import { useAuthStore } from '../../src/shared/store/authStore';
+import { useAppTheme } from '../../src/shared/hooks/useAppTheme';
 import { NotificationHeaderIcon } from '../../src/features/notifications/ui/NotificationHeaderIcon';
 
 export default function HomeScreen() {
   const { user } = useAuthStore();
+  const theme = useAppTheme();
 
   // Fallback demo user details if store user is null
   const displayUser = user || {
@@ -43,7 +45,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.isHighContrast ? theme.colors.background : '#F8FAFC' }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Top Header Bar */}

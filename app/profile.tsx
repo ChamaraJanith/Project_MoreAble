@@ -1,6 +1,8 @@
 // Profile screen for MoreAble app
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { useAppTheme } from '../src/shared/hooks/useAppTheme';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,6 +25,8 @@ import { parseSriLankanNic } from '../src/shared/utils/nicUtils';
 import { getProfileCompletionPercentage, isAccessibilityProfileVerified } from '../src/shared/utils/profileUtils';
 
 export default function ProfileScreen() {
+  const { t } = useTranslation();
+  const theme = useAppTheme();
   const { user, logout, updateGuardianDetails } = useAuthStore();
 
   // Test state toggle for demo preview (disabled by default)
@@ -301,15 +305,15 @@ export default function ProfileScreen() {
     };
 
     if (Platform.OS === 'web') {
-      const confirmed = window.confirm('Are you sure you want to log out?');
+      const confirmed = window.confirm(t('profile.logoutPrompt', 'Are you sure you want to log out?'));
       if (confirmed) {
         await performLogout();
       }
     } else {
-      Alert.alert('Logout', 'Are you sure you want to log out?', [
-        { text: 'Cancel', style: 'cancel' },
+      Alert.alert('Logout', t('profile.logoutPrompt', 'Are you sure you want to log out?'), [
+        { text: t('profile.cancel', 'Cancel'), style: 'cancel' },
         {
-          text: 'Logout',
+          text: t('profile.logoutConfirm', 'Logout'),
           style: 'destructive',
           onPress: performLogout,
         },
@@ -404,7 +408,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.isHighContrast ? theme.colors.background : '#F8FAFC' }]}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Header Navigation */}
@@ -417,7 +421,7 @@ export default function ProfileScreen() {
           >
             <Ionicons name="arrow-back" size={24} color="#1E293B" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>User Profile</Text>
+          <Text style={styles.headerTitle}>{t('profile.title', 'User Profile')}</Text>
           <TouchableOpacity
             style={styles.demoAgeBadge}
             onPress={() => setTestAge60(!testAge60)}
@@ -429,7 +433,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Profile Card Header */}
-        <View style={styles.profileHeaderCard}>
+        <View style={[styles.profileHeaderCard, { backgroundColor: theme.isHighContrast ? theme.colors.surfaceCard : '#FFFFFF' }]}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatarCircle}>
               <Text style={styles.avatarInitials}>{getInitials(displayUser.userName)}</Text>
@@ -440,7 +444,7 @@ export default function ProfileScreen() {
           </View>
 
           <Text style={styles.userName}>{displayUser.userName}</Text>
-          <Text style={styles.passengerIdText}>ID: {displayUser.passengerId}</Text>
+          <Text style={styles.passengerIdText}>{t('profile.id', 'ID')}: {displayUser.passengerId}</Text>
 
           <View style={styles.tagContainer}>
             <View style={[styles.roleTag, displayUser.role === 'ADMIN' ? styles.adminTag : styles.passengerTag]}>
@@ -456,42 +460,42 @@ export default function ProfileScreen() {
             {isElderly && (
               <View style={styles.elderTag}>
                 <Ionicons name="heart" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.roleTagText}>Senior Citizen (60+)</Text>
+                <Text style={styles.roleTagText}>{t('profile.seniorCitizen', 'Senior Citizen (60+)')}</Text>
               </View>
             )}
 
             {isWheelchair && (
               <View style={[styles.roleTag, { backgroundColor: '#7C3AED' }]}>
                 <Text style={{ fontSize: 12, marginRight: 4 }}>♿</Text>
-                <Text style={styles.roleTagText}>Wheelchair User</Text>
+                <Text style={styles.roleTagText}>{t('profile.wheelchair', 'Wheelchair User')}</Text>
               </View>
             )}
 
             {isLowVision && (
               <View style={[styles.roleTag, { backgroundColor: '#D97706' }]}>
                 <Text style={{ fontSize: 12, marginRight: 4 }}>👁️</Text>
-                <Text style={styles.roleTagText}>Low Vision</Text>
+                <Text style={styles.roleTagText}>{t('profile.lowVision', 'Low Vision')}</Text>
               </View>
             )}
 
             {isHearingImpaired && (
               <View style={[styles.roleTag, { backgroundColor: '#2563EB' }]}>
                 <Text style={{ fontSize: 12, marginRight: 4 }}>👂</Text>
-                <Text style={styles.roleTagText}>Hearing Impaired</Text>
+                <Text style={styles.roleTagText}>{t('profile.hearingImpaired', 'Hearing Impaired')}</Text>
               </View>
             )}
 
             {hasAccessibility && !isWheelchair && !isLowVision && !isHearingImpaired && (
               <View style={[styles.roleTag, { backgroundColor: '#0284C7' }]}>
                 <Ionicons name="body" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.roleTagText}>Accessibility Support</Text>
+                <Text style={styles.roleTagText}>{t('profile.accSupport', 'Accessibility Support')}</Text>
               </View>
             )}
 
             {!isElderly && !hasAccessibility && (
               <View style={[styles.roleTag, { backgroundColor: age >= 18 ? '#0284C7' : '#64748B' }]}>
                 <Ionicons name={age >= 18 ? 'checkmark-circle' : 'person'} size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.roleTagText}>{age >= 18 ? 'Citizen' : 'Minor'}</Text>
+                <Text style={styles.roleTagText}>{age >= 18 ? t('profile.citizen', 'Citizen') : t('profile.minor', 'Minor')}</Text>
               </View>
             )}
           </View>
@@ -527,9 +531,9 @@ export default function ProfileScreen() {
               <View style={styles.warningBanner}>
                 <Ionicons name="alert-circle" size={24} color="#D97706" style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.warningTitle}>Accessibility Needs Unverified (80%)</Text>
+                  <Text style={styles.warningTitle}>{t('profile.accNeedsUnverified', 'Accessibility Needs Unverified')} (80%)</Text>
                   <Text style={styles.warningText}>
-                    You requested accessibility assistance during registration. Your profile status is 80% until profile verification is completed.
+                    {t('profile.accNeedsDesc', 'You requested accessibility assistance during registration. Your profile status is 80% until profile verification is completed.')}
                   </Text>
                 </View>
               </View>
@@ -564,9 +568,9 @@ export default function ProfileScreen() {
               <View style={styles.successBanner}>
                 <Ionicons name="checkmark-circle" size={24} color="#059669" style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.successBannerTitle}>Guardian Registered</Text>
+                  <Text style={styles.successBannerTitle}>{t('profile.guardianRegistered', 'Guardian Registered')}</Text>
                   <Text style={styles.successBannerText}>
-                    Emergency contact and guardian details are verified for bus bookings.
+                    {t('profile.guardianRegisteredDesc', 'Emergency contact and guardian details are verified for bus bookings.')}
                   </Text>
                 </View>
               </View>
@@ -587,7 +591,7 @@ export default function ProfileScreen() {
 
                 <View style={styles.stepInfoColumn}>
                   <View style={styles.stepHeaderRow}>
-                    <Text style={styles.stepItemTitle}>Step 1: Guardian Details</Text>
+                    <Text style={styles.stepItemTitle}>{t('profile.step1Guardian', 'Step 1: Guardian Details')}</Text>
                     <View style={[styles.statusBadge, isGuardianCompleted ? styles.statusBadgeDone : styles.statusBadgePending]}>
                       <Text style={[styles.statusBadgeText, isGuardianCompleted ? styles.statusTextDone : styles.statusTextPending]}>
                         {isGuardianCompleted ? 'Completed' : 'Action Required'}
@@ -617,7 +621,7 @@ export default function ProfileScreen() {
                         activeOpacity={0.8}
                       >
                         <Ionicons name="eye-outline" size={18} color="#0066CC" style={{ marginRight: 4 }} />
-                        <Text style={styles.stepViewButtonText}>View Details</Text>
+                        <Text style={styles.stepViewButtonText}>{t('profile.viewDetails', 'View Details')}</Text>
                       </TouchableOpacity>
                     )}
 
@@ -647,7 +651,7 @@ export default function ProfileScreen() {
         )}
 
         {/* Details Section */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, { backgroundColor: theme.isHighContrast ? theme.colors.surfaceCard : '#FFFFFF' }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Personal Information</Text>
             <TouchableOpacity
@@ -657,7 +661,7 @@ export default function ProfileScreen() {
               accessibilityLabel="Edit Personal Profile Details"
             >
               <Ionicons name="create-outline" size={16} color="#0066CC" style={{ marginRight: 4 }} />
-              <Text style={{ color: '#0066CC', fontSize: 13, fontWeight: '700' }}>Edit Details</Text>
+              <Text style={{ color: '#0066CC', fontSize: 13, fontWeight: '700' }}>{t('profile.editDetails', 'Edit Details')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -741,12 +745,12 @@ export default function ProfileScreen() {
         </View>
 
         {/* Quick Settings & Actions */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Account Options</Text>
+        <View style={[styles.sectionCard, { backgroundColor: theme.isHighContrast ? theme.colors.surfaceCard : '#FFFFFF' }]}>
+          <Text style={styles.sectionTitle}>{t('profile.accountOptions', 'Account Options')}</Text>
 
           <TouchableOpacity style={styles.actionRow} onPress={openEditProfileModal}>
             <Ionicons name="create-outline" size={22} color="#0066CC" />
-            <Text style={styles.actionRowText}>Edit Personal Profile Details</Text>
+            <Text style={styles.actionRowText}>{t('profile.editPersonal', 'Edit Personal Profile Details')}</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -778,7 +782,7 @@ export default function ProfileScreen() {
 
           <TouchableOpacity style={styles.actionRow} onPress={() => setIsViewModalOpen(true)}>
             <Ionicons name="eye-outline" size={22} color="#0066CC" />
-            <Text style={styles.actionRowText}>View Guardian Details</Text>
+            <Text style={styles.actionRowText}>{t('profile.viewGuardian', 'View Guardian Details')}</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -786,7 +790,7 @@ export default function ProfileScreen() {
 
           <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/journey' as any)}>
             <Ionicons name="bus-outline" size={22} color="#475569" />
-            <Text style={styles.actionRowText}>My Journeys & Bookings</Text>
+            <Text style={styles.actionRowText}>{t('profile.myJourneys', 'My Journeys & Bookings')}</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
 
@@ -794,7 +798,15 @@ export default function ProfileScreen() {
 
           <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/accessibility-reports')}>
             <Ionicons name="document-text-outline" size={22} color="#0066CC" />
-            <Text style={styles.actionRowText}>Accessibility Reports</Text>
+            <Text style={styles.actionRowText}>{t('profile.accReports', 'Accessibility Reports')}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/accessibility-preferences' as any)}>
+            <Ionicons name="settings-outline" size={22} color="#475569" />
+            <Text style={styles.actionRowText}>{t('profile.appSettings', 'App Settings & Preferences')}</Text>
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
         </View>
@@ -814,11 +826,11 @@ export default function ProfileScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { backgroundColor: theme.isHighContrast ? theme.colors.surface : '#FFFFFF' }]}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="shield-checkmark" size={24} color="#0066CC" style={{ marginRight: 8 }} />
-                <Text style={styles.modalTitle}>Guardian Details</Text>
+                <Text style={styles.modalTitle}>{t('profile.viewGuardianTitle', 'Guardian Details')}</Text>
               </View>
               <TouchableOpacity onPress={() => setIsModalOpen(false)} style={styles.modalCloseButton}>
                 <Ionicons name="close" size={24} color="#64748B" />
@@ -831,7 +843,7 @@ export default function ProfileScreen() {
 
             {/* Guardian Name Input */}
             <View style={styles.modalInputGroup}>
-              <Text style={styles.modalInputLabel}>Guardian Full Name *</Text>
+              <Text style={styles.modalInputLabel}>{t('profile.guardianFullNameReq', 'Guardian Full Name *')}</Text>
               <View style={[styles.modalInputWrapper, formErrors.gName ? styles.modalInputError : null]}>
                 <Ionicons name="person-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
                 <TextInput
@@ -847,7 +859,7 @@ export default function ProfileScreen() {
 
             {/* Guardian NIC Input */}
             <View style={styles.modalInputGroup}>
-              <Text style={styles.modalInputLabel}>Guardian NIC Number *</Text>
+              <Text style={styles.modalInputLabel}>{t('profile.guardianNicReq', 'Guardian NIC Number *')}</Text>
               <View style={[styles.modalInputWrapper, formErrors.gNic ? styles.modalInputError : null]}>
                 <Ionicons name="card-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
                 <TextInput
@@ -863,7 +875,7 @@ export default function ProfileScreen() {
 
             {/* Guardian Mobile Input */}
             <View style={styles.modalInputGroup}>
-              <Text style={styles.modalInputLabel}>Guardian Mobile Phone *</Text>
+              <Text style={styles.modalInputLabel}>{t('profile.guardianMobileReq', 'Guardian Mobile Phone *')}</Text>
               <View style={[styles.modalInputWrapper, formErrors.gMobile ? styles.modalInputError : null]}>
                 <Ionicons name="call-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
                 <TextInput
@@ -880,7 +892,7 @@ export default function ProfileScreen() {
 
             {/* Relationship Input */}
             <View style={styles.modalInputGroup}>
-              <Text style={styles.modalInputLabel}>Relationship to Passenger</Text>
+              <Text style={styles.modalInputLabel}>{t('profile.guardianRel', 'Relationship to Passenger')}</Text>
               <View style={styles.modalInputWrapper}>
                 <Ionicons name="people-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
                 <TextInput
@@ -947,7 +959,7 @@ export default function ProfileScreen() {
                     <Ionicons name="person-outline" size={20} color="#0066CC" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.infoLabel}>Guardian Full Name</Text>
+                    <Text style={styles.infoLabel}>{t('profile.guardianFullName', 'Guardian Full Name')}</Text>
                     <Text style={styles.infoValue}>{currentGuardian.fullName}</Text>
                   </View>
                 </View>
@@ -1004,14 +1016,14 @@ export default function ProfileScreen() {
                     }}
                   >
                     <Ionicons name="create-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.modalSaveBtnText}>Edit Details</Text>
+                    <Text style={styles.modalSaveBtnText}>{t('profile.editDetails', 'Edit Details')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <View style={{ marginTop: 12, alignItems: 'center', paddingVertical: 10 }}>
                 <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ marginBottom: 10 }} />
-                <Text style={styles.noGuardianTitle}>No Guardian Registered</Text>
+                <Text style={styles.noGuardianTitle}>No {t('profile.guardianRegistered', 'Guardian Registered')}</Text>
                 <Text style={styles.noGuardianText}>
                   Passengers aged 60+ are required to register emergency guardian details before making bus seat reservations.
                 </Text>
@@ -1049,11 +1061,11 @@ export default function ProfileScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { backgroundColor: theme.isHighContrast ? theme.colors.surface : '#FFFFFF' }]}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="body" size={24} color="#7C3AED" style={{ marginRight: 8 }} />
-                <Text style={styles.modalTitle}>Manage Accessibility Profile</Text>
+                <Text style={styles.modalTitle}>{t('profile.manageAccTitle', 'Manage Accessibility Profile')}</Text>
               </View>
               <TouchableOpacity onPress={() => setIsAccModalOpen(false)} style={styles.modalCloseButton}>
                 <Ionicons name="close" size={24} color="#64748B" />
@@ -1165,11 +1177,11 @@ export default function ProfileScreen() {
           style={styles.modalOverlay}
         >
           <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} showsVerticalScrollIndicator={false}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, { backgroundColor: theme.isHighContrast ? theme.colors.surface : '#FFFFFF' }]}>
               <View style={styles.modalHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="create-outline" size={24} color="#0066CC" style={{ marginRight: 8 }} />
-                  <Text style={styles.modalTitle}>Edit Profile Details</Text>
+                  <Text style={styles.modalTitle}>{t('profile.editProfileTitle', 'Edit Profile Details')}</Text>
                 </View>
                 <TouchableOpacity onPress={() => setIsEditProfileModalOpen(false)} style={styles.modalCloseButton}>
                   <Ionicons name="close" size={24} color="#64748B" />

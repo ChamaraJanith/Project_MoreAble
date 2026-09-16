@@ -1,4 +1,6 @@
+import { AppText as Text } from '../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -9,9 +11,9 @@ import {
     SafeAreaView,
     StatusBar,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Booking } from '../../../src/entities/booking/model/types';
 import { cancelBooking, getBookingHistory } from '../../../src/features/booking/api/bookingApi';
@@ -20,6 +22,7 @@ import { useAuthStore } from '../../../src/shared/store/authStore';
 type FilterTab = 'UPCOMING' | 'HISTORY';
 
 export default function MyBookingsScreen() {
+  const { t } = useTranslation();
     const { user } = useAuthStore();
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [loading, setLoading] = useState(true);
@@ -94,7 +97,7 @@ export default function MyBookingsScreen() {
                     <View style={styles.lockIconBox}>
                         <Ionicons name="lock-closed" size={36} color="#0066CC" />
                     </View>
-                    <Text style={styles.loginReqTitle}>Access Bookings</Text>
+                    <Text style={styles.loginReqTitle}>{t('booking.loginTitle', 'Access Bookings')}</Text>
                     <Text style={styles.loginReqDesc}>
                         Please sign in with your passenger account to view tickets, travel assistance logs, and reservation details.
                     </Text>
@@ -102,7 +105,7 @@ export default function MyBookingsScreen() {
                         style={styles.loginBtn}
                         onPress={() => router.replace('/(auth)')}
                     >
-                        <Text style={styles.loginBtnText}>GO TO SIGN IN</Text>
+                        <Text style={styles.loginBtnText}>{t('booking.goToSignIn', 'GO TO SIGN IN')}</Text>
                     </TouchableOpacity>
                 </View>
             </SafeAreaView>
@@ -116,8 +119,8 @@ export default function MyBookingsScreen() {
                 {/* Header Row */}
                 <View style={styles.header}>
                     <View>
-                        <Text style={styles.title}>My Trips</Text>
-                        <Text style={styles.subtitle}>Manage your reservations & travel support</Text>
+                        <Text style={styles.title}>{t('booking.myTrips', 'My Trips')}</Text>
+                        <Text style={styles.subtitle}>{t('booking.manageTrips', 'Manage your reservations & travel support')}</Text>
                     </View>
                     <View style={styles.bookingCountBadge}>
                         <Text style={styles.bookingCountText}>
@@ -160,14 +163,14 @@ export default function MyBookingsScreen() {
                 {loading ? (
                     <View style={styles.loadingWrapper}>
                         <ActivityIndicator size="large" color="#0066CC" />
-                        <Text style={styles.loadingText}>Fetching reservation list...</Text>
+                        <Text style={styles.loadingText}>{t('booking.fetchingList', 'Fetching reservation list...')}</Text>
                     </View>
                 ) : error ? (
                     <View style={styles.errorWrapper}>
                         <Ionicons name="warning" size={40} color="#EF4444" />
                         <Text style={styles.errorText}>{error}</Text>
                         <TouchableOpacity style={styles.retryBtn} onPress={load}>
-                            <Text style={styles.retryBtnText}>RETRY</Text>
+                            <Text style={styles.retryBtnText}>{t('booking.retryBtn', 'RETRY')}</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
@@ -194,7 +197,7 @@ export default function MyBookingsScreen() {
                                         style={styles.planBtn}
                                         onPress={() => router.push('/journey')}
                                     >
-                                        <Text style={styles.planBtnText}>BOOK A TICKET NOW</Text>
+                                        <Text style={styles.planBtnText}>{t('booking.bookNow', 'BOOK A TICKET NOW')}</Text>
                                     </TouchableOpacity>
                                 )}
                             </View>
@@ -310,7 +313,7 @@ export default function MyBookingsScreen() {
                                                     style={styles.cancelBtn}
                                                     onPress={() => handleCancel(item)}
                                                 >
-                                                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                                                    <Text style={styles.cancelBtnText}>{t('booking.cancelBtn', 'Cancel')}</Text>
                                                 </TouchableOpacity>
                                             )}
                                             <TouchableOpacity
@@ -322,7 +325,7 @@ export default function MyBookingsScreen() {
                                                     })
                                                 }
                                             >
-                                                <Text style={styles.viewBtnText}>View Ticket</Text>
+                                                <Text style={styles.viewBtnText}>{t('booking.viewTicket', 'View Ticket')}</Text>
                                                 <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
                                             </TouchableOpacity>
                                         </View>

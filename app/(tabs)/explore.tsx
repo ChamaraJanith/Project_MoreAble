@@ -1,12 +1,15 @@
+import { useTranslation } from 'react-i18next';
 //Explore screen of tab
 
+import { AppText as Text } from '../../src/shared/ui/AppText';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet,  View } from 'react-native';
 
 export default function ExploreScreen() {
+  const { t } = useTranslation();
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Explore</Text>
+      <Text style={styles.title}>{t('explore.title', 'Explore')}</Text>
     </View>
   );
 }
@@ -24,3 +27,4 @@ const styles = StyleSheet.create({
     color: '#333',
   },
 });
+

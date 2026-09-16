@@ -1,7 +1,8 @@
+import { AppText as Text } from '../src/shared/ui/AppText';
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
-  Text, 
+   
   StyleSheet, 
   ScrollView, 
   TextInput, 

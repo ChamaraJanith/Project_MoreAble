@@ -3,6 +3,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, LogBox, StyleSheet, View, Platform } from 'react-native';
 import { useAuthStore } from '../src/shared/store/authStore';
+import { usePreferencesStore } from '../src/shared/store/preferencesStore';
+import '../src/shared/i18n'; // Import i18n config
 
 // Intercept and silence expo-notifications warning on Android Expo Go to prevent both RedBox and Terminal console pollution
 if (Platform.OS === 'android') {
@@ -41,13 +43,15 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
   const { isAuthenticated, isHydrated, user, hydrate } = useAuthStore();
+  const { hydrate: hydratePreferences } = usePreferencesStore();
 
   useEffect(() => {
     // Hide native splash screen as soon as JS loads so custom splash screen displays spinner
     SplashScreen.hideAsync();
 
-    // Hydrate auth state from secure storage
+    // Hydrate auth state and preferences from secure storage
     hydrate();
+    hydratePreferences();
 
     // 3 seconds timer for splash screen
     const timer = setTimeout(() => {
@@ -72,7 +76,7 @@ export default function RootLayout() {
     return (
       <View style={styles.splashContainer}>
         <Image
-          source={require('../assets/images/moreable-logo.jpg')}
+          source={require('../assets/images/moreable-logo.png')}
           style={styles.logo}
           resizeMode="contain"
         />
