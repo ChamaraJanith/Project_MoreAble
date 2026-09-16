@@ -11,6 +11,7 @@ import {
 } from '../../../entities/route/model/types';
 import { accessibilityScoreColor } from '../../../shared/utils/accessibility';
 import { setSelectedJourney } from '../store/selectedRouteStore';
+import { ACCESSIBILITY_REQUIREMENTS, meetsAccessibilityRequirement } from '../utils/accessibilityFilters';
 import {
     buildJourneyLegs,
     describeJourneyForDisplay,
@@ -237,6 +238,27 @@ export function JourneyOptionCard({
                         <Text style={styles.busModelText} numberOfLines={1}>
                             {bus.busModel}
                         </Text>
+
+                        <View style={styles.busFacilitiesRow}>
+                            {ACCESSIBILITY_REQUIREMENTS.filter((req) =>
+                                meetsAccessibilityRequirement(bus.accessibilityFacilities, req.key)
+                            ).map((req) => {
+                                let iconName: keyof typeof Ionicons.glyphMap = 'checkmark';
+                                if (req.key === 'wheelchairRamp') iconName = 'accessibility-outline';
+                                if (req.key === 'prioritySeats') iconName = 'people-outline';
+                                if (req.key === 'audioAnnouncement') iconName = 'volume-high-outline';
+                                if (req.key === 'lowFloorVehicle') iconName = 'bus-outline';
+                                if (req.key === 'walkingAssistance') iconName = 'walk-outline';
+                                if (req.key === 'elderlySeats') iconName = 'person-outline';
+                                if (req.key === 'guardianSeats') iconName = 'shield-checkmark-outline';
+
+                                return (
+                                    <View key={req.key} style={styles.busFacilityIcon} accessibilityLabel={req.label}>
+                                        <Ionicons name={iconName} size={12} color="#475569" />
+                                    </View>
+                                );
+                            })}
+                        </View>
                     </View>
                 </View>
             ) : (
@@ -474,6 +496,19 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: '#64748B',
         marginTop: 1,
+    },
+    busFacilitiesRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        marginTop: 6,
+    },
+    busFacilityIcon: {
+        backgroundColor: '#E2E8F0',
+        borderRadius: 4,
+        padding: 4,
+        marginRight: 6,
+        marginBottom: 2,
     },
     busUnavailableText: {
         flex: 1,

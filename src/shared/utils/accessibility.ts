@@ -62,7 +62,9 @@ export type AccessibilityRequirementKey =
     | 'prioritySeats'
     | 'audioAnnouncement'
     | 'lowFloorVehicle'
-    | 'walkingAssistance';
+    | 'walkingAssistance'
+    | 'elderlySeats'
+    | 'guardianSeats';
 
 /** Canonical order, so a normalized list is the same list whatever order it arrived in. */
 export const ACCESSIBILITY_REQUIREMENT_KEYS: readonly AccessibilityRequirementKey[] = [
@@ -71,6 +73,8 @@ export const ACCESSIBILITY_REQUIREMENT_KEYS: readonly AccessibilityRequirementKe
     'audioAnnouncement',
     'lowFloorVehicle',
     'walkingAssistance',
+    'elderlySeats',
+    'guardianSeats',
 ];
 
 export function isAccessibilityRequirementKey(
@@ -105,9 +109,9 @@ export function meetsAccessibilityRequirement(
 ): boolean {
     if (!facilities) return false;
 
-    if (key === 'prioritySeats') {
-        const prioritySeats = facilities.prioritySeats;
-        return typeof prioritySeats === 'object' && prioritySeats?.available === true;
+    if (key === 'prioritySeats' || key === 'elderlySeats' || key === 'guardianSeats') {
+        const seatGroup = facilities[key];
+        return typeof seatGroup === 'object' && seatGroup?.available === true;
     }
 
     return facilities[key] === true;

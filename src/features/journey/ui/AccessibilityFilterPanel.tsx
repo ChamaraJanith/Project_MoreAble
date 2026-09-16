@@ -25,6 +25,8 @@ const REQUIREMENT_ICONS: Record<AccessibilityRequirementKey, keyof typeof Ionico
     audioAnnouncement: 'volume-high-outline',
     lowFloorVehicle: 'bus-outline',
     walkingAssistance: 'walk-outline',
+    elderlySeats: 'person-outline',
+    guardianSeats: 'shield-checkmark-outline',
 };
 
 interface AccessibilityFilterPanelProps {
