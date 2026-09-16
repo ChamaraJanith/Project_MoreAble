@@ -60,6 +60,14 @@ const REQUIREMENT_WORDING: Record<AccessibilityRequirementKey, Omit<Accessibilit
         label: 'Walking assistance',
         description: 'Help from the crew to board and get off',
     },
+    elderlySeats: {
+        label: 'Elderly seat',
+        description: 'Seats specifically designated for elderly passengers',
+    },
+    guardianSeats: {
+        label: 'Guardian seat',
+        description: 'Seats next to priority areas for guardians',
+    },
 };
 
 /** The five requirements, in the order they are offered. */
@@ -76,6 +84,8 @@ export const NO_ACCESSIBILITY_REQUIREMENTS: AccessibilityRequirementSelection = 
     audioAnnouncement: false,
     lowFloorVehicle: false,
     walkingAssistance: false,
+    elderlySeats: false,
+    guardianSeats: false,
 });
 
 /** Selecting and deselecting are the same action, so there is one function. */

@@ -41,10 +41,9 @@ function facilities(
     };
 }
 
-/** The facility set that satisfies exactly one requirement and nothing else. */
 function facilitiesFor(key: AccessibilityRequirementKey): BusAccessibilityFacilities {
-    return key === 'prioritySeats'
-        ? facilities({ prioritySeats: { available: true, count: 4 } })
+    return key === 'prioritySeats' || key === 'elderlySeats' || key === 'guardianSeats'
+        ? facilities({ [key]: { available: true, count: 4 } } as Partial<BusAccessibilityFacilities>)
         : facilities({ [key]: true } as Partial<BusAccessibilityFacilities>);
 }
 
@@ -94,13 +93,15 @@ const REQUIREMENT_KEYS = ACCESSIBILITY_REQUIREMENTS.map((requirement) => require
 // THE FIVE REQUIREMENTS THE STORY NAMES
 // ==================================================================
 describe('the offered accessibility requirements', () => {
-    it('offers exactly the five requirements, under the stored field names', () => {
+    it('offers exactly the seven requirements, under the stored field names', () => {
         expect(REQUIREMENT_KEYS).toEqual([
             'wheelchairRamp',
             'prioritySeats',
             'audioAnnouncement',
             'lowFloorVehicle',
             'walkingAssistance',
+            'elderlySeats',
+            'guardianSeats',
         ]);
     });
 
