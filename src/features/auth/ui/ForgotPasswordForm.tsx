@@ -1,5 +1,7 @@
 // Forgot / Reset Password Form Component for MoreAble app
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -10,14 +12,15 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
+  
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { API_BASE_URL } from '../../../shared/api/config';
 
 export const ForgotPasswordForm = () => {
+  const { t } = useTranslation();
   const [identifier, setIdentifier] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -108,7 +111,7 @@ export const ForgotPasswordForm = () => {
           {/* App Logo Header */}
           <View style={styles.logoContainer}>
             <Image
-              source={require('../../../../assets/images/moreable-logo.jpg')}
+              source={require('../../../../assets/images/moreable-logo.png')}
               style={styles.logo}
               resizeMode="contain"
               accessibilityLabel="MoreAble Logo"
@@ -117,7 +120,7 @@ export const ForgotPasswordForm = () => {
 
           <View style={styles.badgeContainer}>
             <Ionicons name="key-outline" size={20} color="#0066CC" />
-            <Text style={styles.badgeText}>Password Recovery</Text>
+            <Text style={styles.badgeText}>{t('auth.passwordRecovery', 'Password Recovery')}</Text>
           </View>
 
           <Text style={styles.headerTitle} accessibilityRole="header">
@@ -130,7 +133,7 @@ export const ForgotPasswordForm = () => {
           {isSuccess ? (
             <View style={styles.successBox}>
               <Ionicons name="checkmark-circle" size={48} color="#10B981" style={{ marginBottom: 12 }} />
-              <Text style={styles.successTitle}>Password Reset Complete!</Text>
+              <Text style={styles.successTitle}>{t('auth.resetComplete', 'Password Reset Complete!')}</Text>
               <Text style={styles.successMessage}>
                 Your account password has been updated successfully.
               </Text>
@@ -140,14 +143,14 @@ export const ForgotPasswordForm = () => {
                 accessibilityRole="button"
                 accessibilityLabel="Go to Login"
               >
-                <Text style={styles.buttonText}>BACK TO LOGIN</Text>
+                <Text style={styles.buttonText}>{t('auth.backToLoginUpper', 'BACK TO LOGIN')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
               {/* Account Identifier Input */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Account Email, NIC, or Mobile Number *</Text>
+                <Text style={styles.label}>{t('auth.accountIdentifier', 'Account Email, NIC, or Mobile Number *')}</Text>
                 <View style={[styles.inputWrapper, errors.identifier ? styles.inputErrorBorder : null]}>
                   <Ionicons name="person-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                   <TextInput
@@ -170,7 +173,7 @@ export const ForgotPasswordForm = () => {
 
               {/* New Password Input */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>New Password *</Text>
+                <Text style={styles.label}>{t('auth.newPassword', 'New Password *')}</Text>
                 <View style={[styles.inputWrapper, errors.newPassword ? styles.inputErrorBorder : null]}>
                   <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                   <TextInput
@@ -205,7 +208,7 @@ export const ForgotPasswordForm = () => {
 
               {/* Confirm Password Input */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirm New Password *</Text>
+                <Text style={styles.label}>{t('auth.confirmNewPassword', 'Confirm New Password *')}</Text>
                 <View style={[styles.inputWrapper, errors.confirmPassword ? styles.inputErrorBorder : null]}>
                   <Ionicons name="lock-closed-outline" size={24} color="#0066CC" style={styles.inputIcon} />
                   <TextInput
@@ -249,7 +252,7 @@ export const ForgotPasswordForm = () => {
                 {isLoading ? (
                   <ActivityIndicator size="large" color="#ffffff" />
                 ) : (
-                  <Text style={styles.buttonText}>RESET PASSWORD</Text>
+                  <Text style={styles.buttonText}>{t('auth.resetPasswordUpper', 'RESET PASSWORD')}</Text>
                 )}
               </TouchableOpacity>
             </>
@@ -263,7 +266,7 @@ export const ForgotPasswordForm = () => {
             accessibilityLabel="Back to Login"
           >
             <Ionicons name="arrow-back-outline" size={18} color="#0066CC" style={{ marginRight: 6 }} />
-            <Text style={styles.backButtonText}>Back to Sign In</Text>
+            <Text style={styles.backButtonText}>{t('auth.backToSignIn', 'Back to Sign In')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

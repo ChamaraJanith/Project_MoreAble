@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -5,9 +6,9 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { AdminUserSummary } from '../../../entities/user/model/types';
 import { getUserById, updateUserAccountStatus } from '../api/userAdminApi';

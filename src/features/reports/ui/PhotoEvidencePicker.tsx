@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useState } from 'react';
@@ -6,9 +7,9 @@ import {
     Alert,
     Image,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import {
     MAX_REPORT_PHOTOS,

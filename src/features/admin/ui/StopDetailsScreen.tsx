@@ -1,7 +1,8 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { Stop } from '../../../entities/stop/model/types';
 import { deleteStop, getStop } from '../api/stopAdminApi';
 import { AdminScreenHeader } from './AdminScreenHeader';
