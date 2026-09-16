@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet,  TextInput, TouchableOpacity, View } from 'react-native';
 import { adminColors } from '../../admin/ui/adminTheme';
 
 // Field shells styled from the same tokens as the Bus/Route admin forms, so the

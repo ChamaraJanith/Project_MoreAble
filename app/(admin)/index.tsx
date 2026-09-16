@@ -1,4 +1,6 @@
+import { AppText as Text } from '../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useReducer, useState } from 'react';
 import {
@@ -6,9 +8,9 @@ import {
     RefreshControl,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Bus } from '../../src/entities/bus/model/types';
 import { Route } from '../../src/entities/route/model/types';
@@ -34,6 +36,7 @@ import { adminReviewQueuePath } from '../../src/features/reports/utils/reportRou
 import { useAuthStore } from '../../src/shared/store/authStore';
 
 export default function AdminDashboard() {
+  const { t } = useTranslation();
     // The reports tile is the one overview number that needs an admin session:
     // the review scope is admin-only, enforced by the route itself.
     const { token, isAuthenticated } = useAuthStore();
@@ -197,7 +200,7 @@ export default function AdminDashboard() {
             {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>Admin Dashboard</Text>
+                    <Text style={styles.title}>{t('admin.dashboardTitle', 'Admin Dashboard')}</Text>
 
                     <Text style={styles.headerSubtitle}>
                         Manage MoveAble
@@ -261,7 +264,7 @@ export default function AdminDashboard() {
                             accessibilityRole="button"
                             accessibilityLabel="Retry loading dashboard data"
                         >
-                            <Text style={styles.overviewRetryText}>Retry</Text>
+                            <Text style={styles.overviewRetryText}>{t('admin.retry', 'Retry')}</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -295,7 +298,7 @@ export default function AdminDashboard() {
                             </Text>
                         )}
 
-                        <Text style={styles.statLabel}>Total Buses</Text>
+                        <Text style={styles.statLabel}>{t('admin.totalBuses', 'Total Buses')}</Text>
 
                         {!isLoadingOverview && !overviewError && busBreakdown && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
@@ -336,7 +339,7 @@ export default function AdminDashboard() {
                             </Text>
                         )}
 
-                        <Text style={styles.statLabel}>Total Routes</Text>
+                        <Text style={styles.statLabel}>{t('admin.totalRoutes', 'Total Routes')}</Text>
 
                         {!isLoadingOverview && !overviewError && routeBreakdown && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
@@ -370,7 +373,7 @@ export default function AdminDashboard() {
                             </Text>
                         )}
 
-                        <Text style={styles.statLabel}>Total Trips</Text>
+                        <Text style={styles.statLabel}>{t('admin.totalTrips', 'Total Trips')}</Text>
 
                         {!isLoadingOverview && !overviewError && tripBreakdown && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
@@ -402,7 +405,7 @@ export default function AdminDashboard() {
                             </Text>
                         )}
 
-                        <Text style={styles.statLabel}>Total Stops</Text>
+                        <Text style={styles.statLabel}>{t('admin.totalStops', 'Total Stops')}</Text>
 
                         {!isLoadingOverview && !overviewError && stops && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
@@ -429,7 +432,7 @@ export default function AdminDashboard() {
                             <Text style={styles.statNumber}>{reportCountLabel(reportCount)}</Text>
                         )}
 
-                        <Text style={styles.statLabel}>Reports</Text>
+                        <Text style={styles.statLabel}>{t('admin.reports', 'Reports')}</Text>
 
                         {reportCount.count !== null && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
@@ -462,7 +465,7 @@ export default function AdminDashboard() {
                             </Text>
                         )}
 
-                        <Text style={styles.statLabel}>Users</Text>
+                        <Text style={styles.statLabel}>{t('admin.users', 'Users')}</Text>
 
                         {!isLoadingOverview && !overviewError && userBreakdown && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>

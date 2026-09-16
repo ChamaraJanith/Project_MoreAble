@@ -1,13 +1,14 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
     Image,
     Modal,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
     useWindowDimensions,
-    View,
+    View
 } from 'react-native';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';

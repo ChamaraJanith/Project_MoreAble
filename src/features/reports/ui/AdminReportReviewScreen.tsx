@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useReducer, useRef, useState } from 'react';
@@ -5,9 +6,9 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { ReportReviewAction } from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';

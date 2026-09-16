@@ -1,8 +1,10 @@
+import { useTranslation } from 'react-i18next';
 import React from 'react';
 import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import { JourneyPlannerForm } from '../../../src/features/journey/ui/JourneyPlannerForm';
 
 export default function JourneyPlannerScreen() {
+  const { t } = useTranslation();
     return (
         <SafeAreaView style={styles.safeArea}>
             <StatusBar barStyle="dark-content" />
@@ -20,3 +22,4 @@ const styles = StyleSheet.create({
         backgroundColor: '#F0F4F8',
     },
 });
+

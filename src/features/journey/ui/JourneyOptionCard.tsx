@@ -1,7 +1,9 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet,  TouchableOpacity, View } from 'react-native';
 import {
     JourneyGeoInformation,
     JourneySearchMatch,
@@ -54,6 +56,7 @@ export function JourneyOptionCard({
     travelDate,
     travelTime,
 }: JourneyOptionCardProps) {
+  const { t } = useTranslation();
     const { trip, bus } = option;
 
     const journeyTiming = timing ?? resolveJourneyTiming(buildJourneyLegs(route, option));
@@ -154,7 +157,7 @@ export function JourneyOptionCard({
                     <Text style={departureLabel ? styles.timeValue : styles.timeValueUnknown}>
                         {departureLabel ?? 'Not available'}
                     </Text>
-                    <Text style={styles.timeCaption}>Departs {route.origin}</Text>
+                    <Text style={styles.timeCaption}>{t('journey.departs', { origin: route.origin, defaultValue: `Departs ${route.origin}` })}</Text>
                 </View>
 
                 <View style={styles.timeConnector}>
@@ -173,7 +176,7 @@ export function JourneyOptionCard({
                     <Text style={arrivalLabel ? styles.timeValue : styles.timeValueUnknown}>
                         {arrivalLabel ?? 'Not available'}
                     </Text>
-                    <Text style={styles.timeCaption}>Arrives {route.destination}</Text>
+                    <Text style={styles.timeCaption}>{t('journey.arrives', { destination: route.destination, defaultValue: `Arrives ${route.destination}` })}</Text>
                 </View>
             </View>
 
@@ -241,7 +244,7 @@ export function JourneyOptionCard({
                     <View style={styles.busIconBadge}>
                         <Ionicons name="bus-outline" size={17} color="#94A3B8" />
                     </View>
-                    <Text style={styles.busUnavailableText}>Bus details unavailable</Text>
+                    <Text style={styles.busUnavailableText}>{t('journey.busUnavailable', 'Bus details unavailable')}</Text>
                 </View>
             )}
 
@@ -270,7 +273,7 @@ export function JourneyOptionCard({
                     accessibilityLabel={`Book this trip on route ${route.routeNumber}`}
                 >
                     <Ionicons name="ticket-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.bookButtonText}>Book</Text>
+                    <Text style={styles.bookButtonText}>{t('journey.bookBtn', 'Book')}</Text>
                 </TouchableOpacity>
 
 
@@ -282,7 +285,7 @@ export function JourneyOptionCard({
                     accessibilityLabel={`View details for route ${route.routeNumber}`}
                     accessibilityHint="Opens the full route details, including the map, stops and accessibility"
                 >
-                    <Text style={styles.detailsButtonText}>View details</Text>
+                    <Text style={styles.detailsButtonText}>{t('journey.viewDetailsBtn', 'View details')}</Text>
                     <Ionicons
                         name="chevron-forward"
                         size={16}

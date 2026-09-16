@@ -1,11 +1,13 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import React, { useCallback, useState } from 'react';
 import {
     Alert, KeyboardAvoidingView, Platform,
     ScrollView,
     StyleSheet,
-    Text, TextInput, TouchableOpacity,
+     TextInput, TouchableOpacity,
     View
 } from 'react-native';
 import {
@@ -19,6 +21,7 @@ import { TravelTimePickerModal } from './TravelTimePickerModal';
 type FieldName = 'origin' | 'destination';
 
 export const JourneyPlannerForm = () => {
+  const { t } = useTranslation();
     const [focusedInput, setFocusedInput] = useState<FieldName | null>(null);
 
     const [formData, setFormData] = useState({
@@ -158,7 +161,7 @@ export const JourneyPlannerForm = () => {
                     <View style={styles.locationsBlock}>
                         <View style={styles.locationsStack}>
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Starting Location</Text>
+                                <Text style={styles.label}>{t('journey.startLoc', 'Starting Location')}</Text>
                                 <View style={[
                                     styles.inputWrapper,
                                     focusedInput === 'origin' && styles.inputFocused,
@@ -186,7 +189,7 @@ export const JourneyPlannerForm = () => {
                             <View style={styles.locationDivider} />
 
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Destination</Text>
+                                <Text style={styles.label}>{t('journey.destination', 'Destination')}</Text>
                                 <View style={[
                                     styles.inputWrapper,
                                     focusedInput === 'destination' && styles.inputFocused,
@@ -226,7 +229,7 @@ export const JourneyPlannerForm = () => {
                     {/* Travel Date & Time */}
                     <View style={styles.rowTwoCol}>
                         <View style={[styles.inputGroup, styles.halfInputGroup]}>
-                            <Text style={styles.label}>Travel Date</Text>
+                            <Text style={styles.label}>{t('journey.travelDate', 'Travel Date')}</Text>
                             <TouchableOpacity
                                 style={[
                                     styles.inputWrapper,
@@ -253,7 +256,7 @@ export const JourneyPlannerForm = () => {
                         </View>
 
                         <View style={[styles.inputGroup, styles.halfInputGroup]}>
-                            <Text style={styles.label}>Travel Time</Text>
+                            <Text style={styles.label}>{t('journey.travelTime', 'Travel Time')}</Text>
                             <TouchableOpacity
                                 style={[
                                     styles.inputWrapper,
@@ -290,14 +293,14 @@ export const JourneyPlannerForm = () => {
                     >
                         <View style={styles.buttonInner}>
                             <Ionicons name="search" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-                            <Text style={styles.buttonText}>SEARCH ROUTES</Text>
+                            <Text style={styles.buttonText}>{t('journey.searchBtnUpper', 'SEARCH ROUTES')}</Text>
                         </View>
                     </TouchableOpacity>
                 </View>
 
                 {/* Recent Searches */}
                 <View style={styles.recentSection}>
-                    <Text style={styles.sectionTitle}>Recent Searches</Text>
+                    <Text style={styles.sectionTitle}>{t('journey.recentSearches', 'Recent Searches')}</Text>
 
                     {hasLoadedRecentSearches && recentSearches.length === 0 && (
                         <View style={styles.recentEmptyState}>

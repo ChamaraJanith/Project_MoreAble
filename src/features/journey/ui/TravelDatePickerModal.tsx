@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { addDays, isSameDay, MONTH_NAMES, startOfDay, WEEKDAY_SHORT_NAMES } from '../utils/dateTime';
 
 interface TravelDatePickerModalProps {

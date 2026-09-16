@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -5,10 +6,10 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Bus } from '../../../entities/bus/model/types';
 import { Route } from '../../../entities/route/model/types';

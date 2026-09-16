@@ -1,6 +1,8 @@
 
 //Vehicle dashboard Login Form
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -10,7 +12,7 @@ import {
     Platform,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
     View
@@ -19,6 +21,7 @@ import { saveBusSession } from '../../../shared/utils/busSession';
 import { loginBus } from '../api/busAuthApi';
 
 export const BusDeviceLoginForm = () => {
+  const { t } = useTranslation();
     const [numberPlate, setNumberPlate] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -87,7 +90,7 @@ export const BusDeviceLoginForm = () => {
                     {/* App Logo Header */}
                     <View style={styles.logoContainer}>
                         <Image
-                            source={require('../../../../assets/images/moreable-logo.jpg')}
+                            source={require('../../../../assets/images/moreable-logo.png')}
                             style={styles.logo}
                             resizeMode="contain"
                             accessibilityLabel="MoreAble Logo"
@@ -96,7 +99,7 @@ export const BusDeviceLoginForm = () => {
 
                     <View style={styles.badgeContainer}>
                         <Ionicons name="bus-outline" size={20} color="#0066CC" />
-                        <Text style={styles.badgeText}>Vehicle Device Portal</Text>
+                        <Text style={styles.badgeText}>{t('auth.vehicleDevicePortal', 'Vehicle Device Portal')}</Text>
                     </View>
 
                     <Text style={styles.headerTitle} accessibilityRole="header">
@@ -108,7 +111,7 @@ export const BusDeviceLoginForm = () => {
 
                     {/* Bus Number Plate Input */}
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Bus Number Plate</Text>
+                        <Text style={styles.label}>{t('auth.busNumberPlate', 'Bus Number Plate')}</Text>
                         <View style={[
                             styles.inputWrapper,
                             errors.numberPlate ? styles.inputErrorBorder : null
@@ -135,7 +138,7 @@ export const BusDeviceLoginForm = () => {
 
                     {/* Bus Password Input */}
                     <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Bus Password</Text>
+                        <Text style={styles.label}>{t('auth.busPassword', 'Bus Password')}</Text>
                         <View style={[
                             styles.inputWrapper,
                             errors.password ? styles.inputErrorBorder : null
@@ -191,7 +194,7 @@ export const BusDeviceLoginForm = () => {
                         {isLoading ? (
                             <ActivityIndicator size="large" color="#ffffff" />
                         ) : (
-                            <Text style={styles.buttonText}>LOGIN TO VEHICLE</Text>
+                            <Text style={styles.buttonText}>{t('auth.loginToVehicle', 'LOGIN TO VEHICLE')}</Text>
                         )}
                     </TouchableOpacity>
 
@@ -203,7 +206,7 @@ export const BusDeviceLoginForm = () => {
                         accessibilityLabel="Back to User Login"
                     >
                         <Ionicons name="arrow-back-outline" size={18} color="#0066CC" style={{ marginRight: 6 }} />
-                        <Text style={styles.backButtonText}>Back to User Login</Text>
+                        <Text style={styles.backButtonText}>{t('auth.backToUserLogin', 'Back to User Login')}</Text>
                     </TouchableOpacity>
                 </View>
             </ScrollView>

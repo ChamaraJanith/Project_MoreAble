@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { JourneyLiveStatus } from '../../../entities/route/model/types';
 import { formatLocationAge, resolveVehiclePosition } from '../utils/liveStatus';
 

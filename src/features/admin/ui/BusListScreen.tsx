@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -5,10 +6,10 @@ import {
     RefreshControl,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { Bus, BusStatus } from '../../../entities/bus/model/types';
 import { getBuses } from '../api/busAdminApi';

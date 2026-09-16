@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -5,10 +6,10 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 import { FareBreakdown } from '../../../src/entities/booking/model/types';

@@ -1,5 +1,6 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { TransportOption } from '../../../entities/booking/model/types';
 import { accessibilityScoreColor as scoreColor } from '../../../shared/utils/accessibility';
 

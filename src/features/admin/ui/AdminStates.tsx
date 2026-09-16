@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { adminColors, adminShadow } from './adminTheme';
 
 // ------------------------------------------------------------------

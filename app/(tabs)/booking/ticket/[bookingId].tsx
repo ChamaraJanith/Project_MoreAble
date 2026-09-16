@@ -1,13 +1,15 @@
+import { AppText as Text } from '../../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -15,6 +17,7 @@ import { Booking } from '../../../../src/entities/booking/model/types';
 import { getBooking } from '../../../../src/features/booking/api/bookingApi';
 
 export default function BookingTicketScreen() {
+  const { t } = useTranslation();
     const router = useRouter();
 
     const { bookingId } = useLocalSearchParams<{
@@ -50,7 +53,7 @@ export default function BookingTicketScreen() {
         return (
             <View style={styles.center}>
                 <Text style={styles.error}>
-                    {error || 'Booking not found.'}
+                    {error || t('booking.bookingNotFound', 'Booking not found.')}
                 </Text>
             </View>
         );
@@ -73,7 +76,7 @@ export default function BookingTicketScreen() {
             </Text>
 
             <Text style={styles.subtitle}>
-                Booking ID: {booking.bookingId}
+                {t('booking.bookingId', 'Booking ID:')} {booking.bookingId}
             </Text>
 
             {/* Ticket Card */}
@@ -133,7 +136,7 @@ export default function BookingTicketScreen() {
                     <View style={styles.assistanceHeader}>
                         <View style={styles.assistanceTitleRow}>
                             <Ionicons name="hand-left-outline" size={18} color="#0066CC" />
-                            <Text style={styles.assistanceTitle}>Travel Assistance Request</Text>
+                            <Text style={styles.assistanceTitle}>{t('booking.travelAssistance', 'Travel Assistance Request')}</Text>
                         </View>
 
                         <AssistanceBadge status={booking.assistanceStatus ?? 'NOT_REQUIRED'} />
@@ -145,38 +148,38 @@ export default function BookingTicketScreen() {
                         {booking.assistanceRequested.wheelchairAssistance && (
                             <View style={styles.assistanceItem}>
                                 <Ionicons name="checkmark-circle" size={16} color="#7C3AED" />
-                                <Text style={styles.assistanceItemText}>Wheelchair Ramp & Companion Seat (G1)</Text>
+                                <Text style={styles.assistanceItemText}>{t('booking.wheelchairRamp', 'Wheelchair Ramp & Companion Seat (G1)')}</Text>
                             </View>
                         )}
                         {booking.assistanceRequested.boardingAssistance && (
                             <View style={styles.assistanceItem}>
                                 <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
-                                <Text style={styles.assistanceItemText}>Boarding Support & Vehicle Entry</Text>
+                                <Text style={styles.assistanceItemText}>{t('booking.boardingSupport', 'Boarding Support & Vehicle Entry')}</Text>
                             </View>
                         )}
                         {booking.assistanceRequested.walkingAssistance && (
                             <View style={styles.assistanceItem}>
                                 <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
-                                <Text style={styles.assistanceItemText}>Walking Assistance & Escort</Text>
+                                <Text style={styles.assistanceItemText}>{t('booking.walkingAssistance', 'Walking Assistance & Escort')}</Text>
                             </View>
                         )}
                         {booking.assistanceRequested.prioritySeatAssistance && (
                             <View style={styles.assistanceItem}>
                                 <Ionicons name="checkmark-circle" size={16} color="#0066CC" />
-                                <Text style={styles.assistanceItemText}>Priority Seat Support</Text>
+                                <Text style={styles.assistanceItemText}>{t('booking.prioritySeat', 'Priority Seat Support')}</Text>
                             </View>
                         )}
                         {!booking.assistanceRequested.wheelchairAssistance &&
                          !booking.assistanceRequested.boardingAssistance &&
                          !booking.assistanceRequested.walkingAssistance &&
                          !booking.assistanceRequested.prioritySeatAssistance && (
-                            <Text style={styles.noAssistanceText}>No special travel assistance requested.</Text>
+                            <Text style={styles.noAssistanceText}>{t('booking.noSpecialAssistance', 'No special travel assistance requested.')}</Text>
                         )}
                     </View>
 
                     {!!booking.specialRequests && (
                         <View style={styles.specialNotesBox}>
-                            <Text style={styles.specialNotesLabel}>Passenger Notes:</Text>
+                            <Text style={styles.specialNotesLabel}>{t('booking.passengerNotes', 'Passenger Notes:')}</Text>
                             <Text style={styles.specialNotesText}>{booking.specialRequests}</Text>
                         </View>
                     )}

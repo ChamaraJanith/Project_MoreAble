@@ -1,6 +1,7 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet,  View } from 'react-native';
 import MapView, { Callout, LatLng, Marker, Polyline, UrlTile } from 'react-native-maps';
 import {
     GeoPoint,

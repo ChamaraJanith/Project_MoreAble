@@ -1,12 +1,13 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
     ActivityIndicator,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { ReportCommentRecord } from '../../../entities/report/model/types';
 import { adminColors } from '../../admin/ui/adminTheme';

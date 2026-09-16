@@ -1,3 +1,4 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
@@ -5,7 +6,7 @@ import {
     Modal,
     Platform,
     StyleSheet,
-    Text,
+    
     TextInput,
     TouchableOpacity,
     View

@@ -1,7 +1,8 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { searchJourneys } from '../api/journeySearchApi';
 import { setSelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
 import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';

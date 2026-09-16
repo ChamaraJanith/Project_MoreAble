@@ -1,5 +1,7 @@
 // This is for Vehicle Operations Console View (Bus Conductor & Driver Dashboard)
+import { AppText as Text } from '../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -7,9 +9,9 @@ import {
     SafeAreaView,
     StatusBar,
     StyleSheet,
-    Text,
+    
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 import { LocationStatusCard } from '../src/features/driver/ui/LocationStatusCard';
@@ -21,6 +23,7 @@ import { BusSession, clearBusSession, getBusSession } from '../src/shared/utils/
 type VehicleTab = 'PASSENGERS' | 'LOCATION' | 'TRIP';
 
 export default function VehicleDashboardScreen() {
+  const { t } = useTranslation();
     const [session, setSession] = useState<BusSession | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [exitError, setExitError] = useState('');
@@ -73,7 +76,7 @@ export default function VehicleDashboardScreen() {
                         <Ionicons name="bus" size={20} color="#0066CC" />
                     </View>
                     <View>
-                        <Text style={styles.headerTitle}>Transit Console</Text>
+                        <Text style={styles.headerTitle}>{t('driver.transitConsole', 'Transit Console')}</Text>
                         <Text style={styles.headerSubtitle}>
                             {identity.signedIn ? identity.numberPlate : 'Not Signed In'}
                         </Text>
@@ -87,7 +90,7 @@ export default function VehicleDashboardScreen() {
                     accessibilityLabel="Sign this bus out"
                 >
                     <Ionicons name="log-out-outline" size={18} color="#0066CC" />
-                    <Text style={styles.logoutText}>Exit Bus</Text>
+                    <Text style={styles.logoutText}>{t('driver.exitBus', 'Exit Bus')}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -103,13 +106,13 @@ export default function VehicleDashboardScreen() {
                 {isLoading ? (
                     <View style={styles.loadingBox}>
                         <ActivityIndicator size="large" color="#0066CC" />
-                        <Text style={styles.loadingText}>Loading vehicle console session...</Text>
+                        <Text style={styles.loadingText}>{t('driver.loadingConsole', 'Loading vehicle console session...')}</Text>
                     </View>
                 ) : !identity.signedIn ? (
                     /* Unauthenticated Bus Screen */
                     <View style={styles.signInCard}>
                         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
-                        <Text style={styles.signInTitle}>Vehicle Console Locked</Text>
+                        <Text style={styles.signInTitle}>{t('driver.consoleLocked', 'Vehicle Console Locked')}</Text>
                         <Text style={styles.signInDesc}>
                             Please sign in with your bus device credentials to access the Passenger Manifest & Conductor Console.
                         </Text>
@@ -118,7 +121,7 @@ export default function VehicleDashboardScreen() {
                             style={styles.signInBtn}
                             onPress={() => router.replace('/(auth)/device-login' as any)}
                         >
-                            <Text style={styles.signInBtnText}>SIGN IN TO BUS DEVICE</Text>
+                            <Text style={styles.signInBtnText}>{t('driver.signInToBus', 'SIGN IN TO BUS DEVICE')}</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (

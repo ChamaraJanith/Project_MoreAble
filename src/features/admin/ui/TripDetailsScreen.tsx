@@ -1,7 +1,8 @@
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
 import { Bus, CountedFacility } from '../../../entities/bus/model/types';
 import { Route } from '../../../entities/route/model/types';
 import { Trip } from '../../../entities/trip/model/types';

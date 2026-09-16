@@ -1,5 +1,7 @@
 //This code for OTP Verification Form.
+import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
@@ -7,12 +9,13 @@ import {
     KeyboardAvoidingView, Platform,
     ScrollView,
     StyleSheet,
-    Text, TextInput, TouchableOpacity,
+     TextInput, TouchableOpacity,
     View
 } from 'react-native';
 import { API_BASE_URL } from '../../../shared/api/config';
 
 export const OTPVerificationForm = () => {
+  const { t } = useTranslation();
     const params = useLocalSearchParams();
     const phoneNumber = params.phoneNumber as string || '';
     const passengerId = params.passengerId as string || '';
@@ -66,11 +69,14 @@ export const OTPVerificationForm = () => {
 
             if (response.ok) {
                 if (Platform.OS === 'web') {
-                    window.alert('Verification Successful!');
-                    router.replace('/(auth)');
+                    window.alert('Verification Successful! Please set your accessibility preferences.');
+                    router.replace({ pathname: '/accessibility-preferences', params: { from: 'registration' } } as any);
                 } else {
-                    Alert.alert('Success', 'Phone number verified successfully!', [
-                        { text: 'OK', onPress: () => router.replace('/(auth)') }
+                    Alert.alert('Verified!', 'Phone number verified successfully! Let\u2019s set up your preferences.', [
+                        {
+                            text: 'Continue',
+                            onPress: () => router.replace({ pathname: '/accessibility-preferences', params: { from: 'registration' } } as any),
+                        }
                     ]);
                 }
             } else {
@@ -188,14 +194,14 @@ export const OTPVerificationForm = () => {
                             <ActivityIndicator size="large" color="#ffffff" />
                         ) : (
                             <View style={styles.buttonInner}>
-                                <Text style={styles.buttonText}>VERIFY</Text>
+                                <Text style={styles.buttonText}>{t('auth.verifyBtn', 'VERIFY')}</Text>
                                 <Ionicons name="checkmark-circle-outline" size={22} color="#FFFFFF" style={{ marginLeft: 8 }} />
                             </View>
                         )}
                     </TouchableOpacity>
 
                     <View style={styles.footer}>
-                        <Text style={styles.footerText}>Didn't receive the code? </Text>
+                        <Text style={styles.footerText}>{t('auth.didntReceiveCode', 'Didn\'t receive the code? ')}</Text>
                         <TouchableOpacity
                             onPress={handleResendOTP}
                             disabled={isResending}
@@ -205,7 +211,7 @@ export const OTPVerificationForm = () => {
                             {isResending ? (
                                 <ActivityIndicator size="small" color="#0066CC" />
                             ) : (
-                                <Text style={styles.resendLink}>Resend OTP</Text>
+                                <Text style={styles.resendLink}>{t('auth.resendOtp', 'Resend OTP')}</Text>
                             )}
                         </TouchableOpacity>
                     </View>
