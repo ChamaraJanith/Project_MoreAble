@@ -243,7 +243,7 @@ export function JourneyOptionCard({
                             {ACCESSIBILITY_REQUIREMENTS.filter((req) =>
                                 meetsAccessibilityRequirement(bus.accessibilityFacilities, req.key)
                             ).map((req) => {
-                                let iconName: keyof typeof Ionicons.glyphMap = 'checkmark';
+                                let iconName: any = 'checkmark';
                                 if (req.key === 'wheelchairRamp') iconName = 'accessibility-outline';
                                 if (req.key === 'prioritySeats') iconName = 'people-outline';
                                 if (req.key === 'audioAnnouncement') iconName = 'volume-high-outline';
