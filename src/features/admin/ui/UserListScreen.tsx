@@ -11,7 +11,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { AccountStatus, AdminUserSummary } from '../../../entities/user/model/types';
+import { AccountStatus, AdminUserSummary, AccessibilityVerificationStatus } from '../../../entities/user/model/types';
 import { getUsers, updateUserAccountStatus } from '../api/userAdminApi';
 import { AdminScreenHeader } from './AdminScreenHeader';
 import {
@@ -23,6 +23,7 @@ import {
 import { adminColors, adminShadow } from './adminTheme';
 
 type VerificationFilter = 'ALL' | 'VERIFIED' | 'UNVERIFIED';
+type AccessibilityFilter = 'ALL' | 'PENDING' | 'VERIFIED' | 'REJECTED';
 type UserTypeFilter = 'ALL' | 'ELDER' | 'STANDARD';
 
 const VERIFICATION_FILTERS: { value: VerificationFilter; label: string }[] = [
@@ -35,6 +36,13 @@ const USER_TYPE_FILTERS: { value: UserTypeFilter; label: string }[] = [
     { value: 'ALL', label: 'All users' },
     { value: 'ELDER', label: 'Elder users' },
     { value: 'STANDARD', label: 'Other users' },
+];
+
+const ACCESSIBILITY_FILTERS: { value: AccessibilityFilter; label: string }[] = [
+    { value: 'ALL', label: 'All Acc. Status' },
+    { value: 'PENDING', label: 'Acc. Pending' },
+    { value: 'VERIFIED', label: 'Acc. Verified' },
+    { value: 'REJECTED', label: 'Acc. Rejected' },
 ];
 
 /** Copy for the suspend/activate confirmation, shared with the details screen. */
@@ -56,6 +64,28 @@ export function accountStatusActionCopy(user: AdminUserSummary) {
             ? `${name} was suspended successfully.`
             : `${name} was activated successfully.`,
         destructive: isActive,
+    };
+}
+
+/** Copy for the verify/unverify confirmation, shared with the details screen. */
+export function verificationActionCopy(user: AdminUserSummary) {
+    const name = user.userName || user.passengerId;
+    const isVerified = user.isVerified;
+
+    return {
+        nextStatus: !isVerified,
+        actionLabel: isVerified ? 'Unverify' : 'Verify',
+        accessibilityLabel: isVerified ? `Unverify user ${name}` : `Verify user ${name}`,
+        title: isVerified ? 'Unverify User?' : 'Verify User?',
+        message: isVerified
+            ? `Are you sure you want to unverify ${name}? They will lose verified status benefits.`
+            : `Are you sure you want to verify ${name}? This confirms their identity.`,
+        confirmLabel: isVerified ? 'Unverify User' : 'Verify User',
+        busyLabel: isVerified ? 'Unverifying…' : 'Verifying…',
+        successMessage: isVerified
+            ? `${name} was unverified successfully.`
+            : `${name} was verified successfully.`,
+        destructive: isVerified,
     };
 }
 
@@ -97,6 +127,7 @@ export const UserListScreen = () => {
 
     const [search, setSearch] = useState('');
     const [verification, setVerification] = useState<VerificationFilter>('ALL');
+    const [accessibilityFilter, setAccessibilityFilter] = useState<AccessibilityFilter>('ALL');
     const [userType, setUserType] = useState<UserTypeFilter>('ALL');
 
     // Account status changes: the pending confirmation plus the resulting feedback.
@@ -142,6 +173,7 @@ export const UserListScreen = () => {
         const matching = users.filter((user) => {
             if (verification === 'VERIFIED' && !user.isVerified) return false;
             if (verification === 'UNVERIFIED' && user.isVerified) return false;
+            if (accessibilityFilter !== 'ALL' && user.accessibilityVerificationStatus !== accessibilityFilter) return false;
             if (userType === 'ELDER' && !user.isElderPerson) return false;
             if (userType === 'STANDARD' && user.isElderPerson) return false;
 
@@ -151,14 +183,15 @@ export const UserListScreen = () => {
         return [...matching].sort((a, b) =>
             (a.userName ?? '').localeCompare(b.userName ?? '')
         );
-    }, [users, search, verification, userType]);
+    }, [users, search, verification, accessibilityFilter, userType]);
 
     const hasActiveFilters =
-        search.trim().length > 0 || verification !== 'ALL' || userType !== 'ALL';
+        search.trim().length > 0 || verification !== 'ALL' || userType !== 'ALL' || accessibilityFilter !== 'ALL';
 
     const resetFilters = () => {
         setSearch('');
         setVerification('ALL');
+        setAccessibilityFilter('ALL');
         setUserType('ALL');
     };
 
@@ -266,6 +299,7 @@ export const UserListScreen = () => {
                                 `${user.userName || user.passengerId}, ${user.passengerId}, ` +
                                 `account ${user.accountStatus === 'ACTIVE' ? 'active' : 'suspended'}, ` +
                                 `${user.isVerified ? 'verified' : 'unverified'}` +
+                                `${user.accessibilityVerificationStatus ? `, accessibility ${user.accessibilityVerificationStatus.toLowerCase()}` : ''}` +
                                 `${user.isElderPerson ? ', elder user' : ''}`
                             }
                             accessibilityHint="Opens the full user profile"
@@ -299,6 +333,7 @@ export const UserListScreen = () => {
                         <View style={styles.badgeRow}>
                             <AccountStatusBadge accountStatus={user.accountStatus} />
                             <VerificationBadge isVerified={user.isVerified} />
+                            {user.accessibilityVerificationStatus && <AccessibilityVerificationBadge status={user.accessibilityVerificationStatus} />}
                             {user.isElderPerson && <ElderBadge />}
                             {typeof user.calculatedAge === 'number' && (
                                 <View style={styles.ageChip}>
@@ -461,6 +496,21 @@ export const UserListScreen = () => {
                             label={filter.label}
                             isSelected={verification === filter.value}
                             onPress={() => setVerification(filter.value)}
+                        />
+                    ))}
+                </ScrollView>
+
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterRow}
+                >
+                    {ACCESSIBILITY_FILTERS.map((filter) => (
+                        <FilterChip
+                            key={filter.value}
+                            label={filter.label}
+                            isSelected={accessibilityFilter === filter.value}
+                            onPress={() => setAccessibilityFilter(filter.value)}
                         />
                     ))}
                 </ScrollView>
@@ -647,6 +697,42 @@ export function VerificationBadge({ isVerified }: { isVerified: boolean }) {
     );
 }
 
+export function AccessibilityVerificationBadge({ status }: { status: AccessibilityVerificationStatus }) {
+    const isVerified = status === 'VERIFIED';
+    const isPending = status === 'PENDING';
+    const isRejected = status === 'REJECTED';
+    
+    let bgColor = adminColors.primarySoft;
+    let color = adminColors.primary;
+    let icon: keyof typeof Ionicons.glyphMap = 'help-circle';
+    
+    if (isVerified) {
+        bgColor = adminColors.successSoft;
+        color = adminColors.success;
+        icon = 'checkmark-circle';
+    } else if (isRejected) {
+        bgColor = adminColors.dangerSoft;
+        color = adminColors.danger;
+        icon = 'close-circle';
+    } else if (isPending) {
+        bgColor = adminColors.warningSoft;
+        color = adminColors.warning;
+        icon = 'time';
+    }
+
+    return (
+        <View
+            style={[styles.badge, { backgroundColor: bgColor }]}
+            accessibilityLabel={`Accessibility status ${status.toLowerCase()}`}
+        >
+            <Ionicons name={icon} size={13} color={color} />
+            <Text style={[styles.badgeText, { color }]}>
+                {status.charAt(0) + status.slice(1).toLowerCase()}
+            </Text>
+        </View>
+    );
+}
+
 export function ElderBadge() {
     return (
         <View
@@ -798,6 +884,17 @@ const styles = StyleSheet.create({
         ...adminShadow.card,
     },
     cardTop: { flexDirection: 'row', alignItems: 'center' },
+    avatar: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: adminColors.primarySoft,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    avatarText: {
+        marginTop: 4,
+    },
     avatar: {
         width: 46,
         height: 46,

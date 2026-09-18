@@ -1,4 +1,4 @@
-import { AccountStatus, AdminUserSummary, UserRole } from '../../../entities/user/model/types';
+import { AccountStatus, AdminUserSummary, UserRole, AccessibilityVerificationStatus } from '../../../entities/user/model/types';
 import { adminFetch } from './adminHttp';
 
 /** Roles the retrieval endpoint accepts; 'ALL' returns every role. */
@@ -61,4 +61,44 @@ export async function updateUserAccountStatus(
     });
 
     return data.user as AccountStatusUpdateResult;
+}
+
+/** The accessibility status acknowledgement returned by the endpoint. */
+export interface AccessibilityStatusUpdateResult {
+    documentId: string;
+    passengerId: string;
+    accessibilityVerificationStatus: AccessibilityVerificationStatus | null;
+    updatedAt: string | null;
+}
+
+/**
+ * PATCH /api/users/:userId/accessibility-status
+ *
+ * Updates the accessibility verification status of an account.
+ */
+export async function updateUserAccessibilityVerificationStatus(
+    documentId: string,
+    accessibilityVerificationStatus: AccessibilityVerificationStatus
+): Promise<AccessibilityStatusUpdateResult> {
+    const data = await adminFetch(`/api/users/${encodeURIComponent(documentId)}/accessibility-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accessibilityVerificationStatus }),
+    });
+
+    return data.user as AccessibilityStatusUpdateResult;
+}
+
+/**
+ * Update a user's standard verification status (isVerified).
+ */
+export async function updateUserVerification(
+    documentId: string,
+    isVerified: boolean
+): Promise<Partial<AdminUserSummary> | null> {
+    const data = await adminFetch(`/api/users/${encodeURIComponent(documentId)}/verification`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isVerified }),
+    });
+
+    return (data.user as Partial<AdminUserSummary>) || null;
 }
