@@ -1,4 +1,8 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import {
+    dispatchBoardingAlert,
+    dispatchCaregiverJourneyAlert,
+} from '../../../src/shared/services/pushNotificationDispatcher';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -88,6 +92,27 @@ export async function POST(request: Request) {
         let passengerNotified = false;
         let caregiverNotified = false;
         let caregiverName: string | undefined;
+        let guardianId: string | null = null;
+        let passengerName = bookingData.userId || 'Passenger';
+
+        if (bookingData.userId && bookingData.userId !== 'GUEST') {
+            try {
+                let userDoc = await adminDb.collection('users').doc(bookingData.userId).get();
+                if (!userDoc.exists) {
+                    const qSnap = await adminDb.collection('users').where('passengerId', '==', bookingData.userId).limit(1).get();
+                    if (!qSnap.empty) {
+                        userDoc = qSnap.docs[0];
+                    }
+                }
+                if (userDoc && userDoc.exists) {
+                    const uData = userDoc.data() || {};
+                    passengerName = uData.userName || uData.fullName || uData.name || bookingData.userId;
+                    guardianId = uData.guardianId || null;
+                }
+            } catch (err) {
+                console.warn('Could not resolve passenger user doc:', err);
+            }
+        }
 
         const routeNumber = bookingData.journey?.routeNumber || '—';
         const routeName = bookingData.journey?.routeName || '';
@@ -124,6 +149,16 @@ export async function POST(request: Request) {
                 };
                 await notificationsRef.doc(passengerNotifId).set(pNotifDoc);
                 passengerNotified = true;
+
+                // Dispatch real-time Push Notification to Passenger device
+                dispatchBoardingAlert(bookingData.userId, {
+                    bookingId,
+                    vehicleNumber: numberPlate,
+                    routeNumber,
+                    seatNumber,
+                    dropOffHalt,
+                    passengerName,
+                }).catch((pErr) => console.warn('Push dispatch error for passenger:', pErr));
             } catch (pErr) {
                 console.warn('Failed creating passenger boarding notification:', pErr);
             }
@@ -131,24 +166,6 @@ export async function POST(request: Request) {
 
         // 2. Caregiver / Guardian Notification
         try {
-            let guardianId: string | null = null;
-            let passengerName = bookingData.userId;
-
-            if (bookingData.userId && bookingData.userId !== 'GUEST') {
-                let userDoc = await adminDb.collection('users').doc(bookingData.userId).get();
-                if (!userDoc.exists) {
-                    const qSnap = await adminDb.collection('users').where('passengerId', '==', bookingData.userId).limit(1).get();
-                    if (!qSnap.empty) {
-                        userDoc = qSnap.docs[0];
-                    }
-                }
-                if (userDoc && userDoc.exists) {
-                    const uData = userDoc.data() || {};
-                    passengerName = uData.userName || uData.fullName || uData.name || bookingData.userId;
-                    guardianId = uData.guardianId || null;
-                }
-            }
-
             // Also check guardians collection if guardianId found
             if (guardianId) {
                 const guardianDoc = await adminDb.collection('guardians').doc(guardianId).get();
@@ -183,6 +200,15 @@ export async function POST(request: Request) {
                 };
                 await notificationsRef.doc(careNotifId).set(careNotifDoc);
                 caregiverNotified = true;
+
+                // Dispatch real-time Push Notification to Caregiver / Guardian device
+                dispatchCaregiverJourneyAlert(guardianId, {
+                    passengerName,
+                    eventType: 'BOARDED',
+                    vehicleNumber: numberPlate,
+                    locationName: startHalt,
+                    bookingId,
+                }).catch((cErr) => console.warn('Push dispatch error for caregiver:', cErr));
             }
         } catch (cErr) {
             console.warn('Failed creating caregiver boarding notification:', cErr);
