@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, LogBox, StyleSheet, View, Platform } from 'react-native';
 import { useAuthStore } from '../src/shared/store/authStore';
 import { usePreferencesStore } from '../src/shared/store/preferencesStore';
+import { usePushNotifications } from '../src/features/notifications/hooks/usePushNotifications';
 import '../src/shared/i18n'; // Import i18n config
 
 // Intercept and silence expo-notifications warning on Android Expo Go to prevent both RedBox and Terminal console pollution
@@ -44,6 +45,7 @@ export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
   const { isAuthenticated, isHydrated, user, hydrate } = useAuthStore();
   const { hydrate: hydratePreferences } = usePreferencesStore();
+  usePushNotifications();
 
   useEffect(() => {
     // Hide native splash screen as soon as JS loads so custom splash screen displays spinner

@@ -6,13 +6,6 @@ export async function fetchUserNotifications(userId: string): Promise<{
     unreadCount: number;
 }> {
     try {
-        // Trigger server-side reminder evaluator for upcoming departures
-        await fetch(`${API_BASE_URL}/api/notifications/reminders/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-        }).catch(() => {});
-
         const response = await fetch(
             `${API_BASE_URL}/api/notifications?userId=${encodeURIComponent(userId)}`
         );
@@ -47,3 +40,72 @@ export async function markNotificationAsRead(notificationId: string): Promise<bo
         return false;
     }
 }
+
+/**
+ * Registers an Expo Push Token with the backend.
+ */
+export async function registerDevicePushToken(params: {
+    userId: string;
+    pushToken: string;
+    devicePlatform?: string;
+    deviceModel?: string;
+    appVersion?: string;
+    notificationsEnabled?: boolean;
+}): Promise<boolean> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/notifications/register-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+        });
+        const data = await response.json();
+        return !!data.success;
+    } catch (error) {
+        console.error('Error registering device push token:', error);
+        return false;
+    }
+}
+
+/**
+ * Unregisters a push token on user logout.
+ */
+export async function unregisterDevicePushToken(params: {
+    userId?: string;
+    pushToken?: string;
+}): Promise<boolean> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/notifications/register-token`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+        });
+        const data = await response.json();
+        return !!data.success;
+    } catch (error) {
+        console.error('Error unregistering device push token:', error);
+        return false;
+    }
+}
+
+/**
+ * Retrieves push token registration status.
+ */
+export async function getRegisteredPushTokenStatus(userId: string): Promise<{
+    isRegistered: boolean;
+    tokens?: any[];
+}> {
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/api/notifications/register-token?userId=${encodeURIComponent(userId)}`
+        );
+        const data = await response.json();
+        return {
+            isRegistered: !!data.isRegistered,
+            tokens: data.tokens || [],
+        };
+    } catch (error) {
+        console.error('Error checking push token status:', error);
+        return { isRegistered: false };
+    }
+}
+

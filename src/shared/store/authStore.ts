@@ -132,9 +132,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     /**
-     * Logout — clears stored tokens and resets auth state.
+     * Logout — clears stored tokens, invalidates push registration, and resets auth state.
      */
     logout: async () => {
+        const currentUser = get().user;
+        const uid = currentUser?.uid || currentUser?.passengerId;
+        if (uid) {
+            try {
+                fetch(`${API_BASE_URL}/api/notifications/register-token`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: uid }),
+                }).catch(() => {});
+            } catch (err) {
+                // Non-blocking
+            }
+        }
         await clearTokens();
         set({
             user: null,
