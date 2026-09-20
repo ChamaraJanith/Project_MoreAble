@@ -32,7 +32,8 @@ export const NotificationHeaderIcon: React.FC<NotificationHeaderIconProps> = ({
 
         load();
 
-        const interval = setInterval(load, 15000);
+        // 60 seconds interval to preserve battery & prevent memory bloat
+        const interval = setInterval(load, 60000);
         return () => {
             isMounted = false;
             clearInterval(interval);
