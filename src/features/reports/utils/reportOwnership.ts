@@ -9,7 +9,7 @@
  * action the API is going to refuse.
  */
 
-import { isReportDecided } from '../../../entities/report/model/types';
+import { isReportDecided, reportTypeOf } from '../../../entities/report/model/types';
 
 /** Just enough of a report to decide who owns it and whether it is still open. */
 export interface OwnableReport {
@@ -21,6 +21,8 @@ export interface OwnableReport {
      * it says nothing, which is what `isReportDecided` reads it as.
      */
     status?: unknown;
+    /** ISSUE when absent; see reportTypeOf. */
+    type?: unknown;
 }
 
 /**
@@ -66,7 +68,15 @@ export function canEditReport(
     report: OwnableReport | null | undefined,
     passengerId: string | null | undefined
 ): boolean {
-    return isReportOwnedBy(report, passengerId) && isReportOpenToChange(report);
+    // The edit screen is the issue form. Positive feedback cannot be saved
+    // through it — the API refuses an issue category on a POSITIVE report — so
+    // Edit is only offered on issue reports until a positive edit form exists.
+    // Delete is unaffected.
+    return (
+        isReportOwnedBy(report, passengerId) &&
+        isReportOpenToChange(report) &&
+        reportTypeOf(report) === 'ISSUE'
+    );
 }
 
 /** Whether the Delete control belongs on screen. The same two conditions. */

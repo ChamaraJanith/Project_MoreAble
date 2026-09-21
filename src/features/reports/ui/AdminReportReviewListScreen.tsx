@@ -3,7 +3,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Image,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -15,8 +14,7 @@ import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSearchField } from '../../admin/ui/AdminSearchField';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
-import { StatusBadge } from '../../admin/ui/StatusBadge';
-import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
+import { adminColors } from '../../admin/ui/adminTheme';
 import { fetchReportsForReview } from '../api/reportReviewApi';
 import {
     ADMIN_REVIEW_FILTERS,
@@ -32,7 +30,7 @@ import {
     REPORT_SEARCH_PLACEHOLDER,
     filterReportsBySearch,
 } from '../utils/reportSearch';
-import { ReportFeedbackStats } from './ReportFeedbackStats';
+import { ReportListCard } from './ReportListCard';
 
 /**
  * The reports waiting on an administrator (MOV-160).
@@ -219,7 +217,7 @@ export const AdminReportReviewListScreen = () => {
         <View style={styles.container}>
             <AdminScreenHeader
                 title="Review Reports"
-                subtitle="Verify or reject accessibility issues reported by passengers"
+                subtitle="Verify or reject passenger reports and feedback"
             />
 
             <ScrollView
@@ -305,119 +303,35 @@ function ReviewQueueCard({
     // fact that the report id is not part of it.
     const summary = adminReviewCardSummary(report);
 
-    // The first photo filed with the report stands in as the card's thumbnail,
-    // exactly as it does on the passenger list. A report without photos keeps
-    // the category icon, and the count of the rest stays in the meta line.
-    const thumbnailUrl = report.photoUrls?.[0];
-
+    // The passenger list's card, so one report describes itself identically on
+    // both sides of the app. What stays admin-only is passed in: the review
+    // flag, and a label that leads with the status and the flag.
     return (
-        <TouchableOpacity
-            style={[styles.card, summary.needsReview && styles.cardFlagged]}
-            onPress={onOpen}
-            activeOpacity={0.75}
-            accessibilityRole="button"
+        <ReportListCard
+            summary={summary}
+            status={summary.status}
+            onOpen={onOpen}
             accessibilityLabel={summary.accessibilityLabel}
             accessibilityHint="Opens the report for review"
-        >
-            {/* Said in words and with an icon, never by the border alone: a
-                flag carried only by colour is a flag half the admins using
-                this screen never see. */}
-            {summary.needsReview && (
-                <View style={styles.needsReviewBanner}>
-                    <Ionicons name="flag" size={12} color={adminColors.warning} />
-                    <Text style={styles.needsReviewText}>{NEEDS_REVIEW_LABEL}</Text>
-                </View>
-            )}
-
-            <View style={styles.cardTop}>
-                {/* Decorative either way: everything it stands for — the issue
-                    and the photos — is already in the card's one label. */}
-                <View
-                    style={styles.thumbnail}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                >
-                    {thumbnailUrl ? (
-                        <Image
-                            source={{ uri: thumbnailUrl }}
-                            style={styles.thumbnailImage}
-                            resizeMode="cover"
-                        />
-                    ) : (
-                        <Ionicons name={summary.icon} size={26} color={adminColors.primary} />
-                    )}
-                </View>
-
-                <View style={styles.cardHeadings}>
-                    <View style={styles.titleRow}>
-                        <Text style={styles.categoryText} numberOfLines={2}>
-                            {summary.title}
-                        </Text>
-
-                        <StatusBadge status={summary.status} size="small" />
+            flagged={summary.needsReview}
+            banner={
+                // Said in words and with an icon, never by the border alone: a
+                // flag carried only by colour is a flag half the admins using
+                // this screen never see.
+                summary.needsReview ? (
+                    <View style={styles.needsReviewBanner}>
+                        <Ionicons name="flag" size={12} color={adminColors.warning} />
+                        <Text style={styles.needsReviewText}>{NEEDS_REVIEW_LABEL}</Text>
                     </View>
-
-                    {summary.chips.length > 0 && (
-                        <View style={styles.chipWrap}>
-                            {summary.chips.map((chip) => (
-                                <View key={chip.label} style={styles.metaChip}>
-                                    <Ionicons
-                                        name={chip.icon}
-                                        size={12}
-                                        color={adminColors.textSecondary}
-                                    />
-                                    <Text style={styles.metaChipText} numberOfLines={1}>
-                                        {chip.label}
-                                    </Text>
-                                </View>
-                            ))}
-                        </View>
-                    )}
-
-                    <Text style={styles.descriptionText} numberOfLines={2}>
-                        {summary.description}
-                    </Text>
-                </View>
-
-                {/* Decorative: the card itself is the control, so the arrow
-                    must not become a second thing to land on. */}
-                <View
-                    style={styles.chevron}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                >
-                    <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={adminColors.textPlaceholder}
-                    />
-                </View>
-            </View>
-
-            <View style={styles.cardFooter}>
-                <View style={styles.submittedGroup}>
-                    <Ionicons name="calendar-outline" size={13} color={adminColors.textMuted} />
-                    <Text style={styles.footerText} numberOfLines={1}>
-                        {summary.submittedLabel}
-                    </Text>
-                </View>
-
-                <View style={styles.footerActions}>
-                    {/* The comment count and both vote tallies, all off the
-                        list response — the same row the passenger cards
-                        carry. */}
-                    <ReportFeedbackStats counts={summary.feedbackCounts} variant="inline" />
-
-                    <Text style={styles.viewReport}>View Report</Text>
-                </View>
-            </View>
-        </TouchableOpacity>
+                ) : null
+            }
+        />
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
-    content: { padding: 20, paddingBottom: 40 },
+    content: { padding: 16, paddingBottom: 40 },
 
     segmentedControl: {
         flexDirection: 'row',
@@ -461,22 +375,6 @@ const styles = StyleSheet.create({
         color: adminColors.warning,
     },
 
-    // The same row the passenger cards draw: the thumbnail leads, everything
-    // read about the report sits beside it, and the footer closes the card
-    // off — so one report describes itself identically on both sides of the
-    // app. What stays admin-only is the review flag and "View Report".
-    card: {
-        backgroundColor: adminColors.surface,
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 12,
-        ...adminShadow.card,
-    },
-    cardFlagged: {
-        borderLeftWidth: 3,
-        borderLeftColor: adminColors.warning,
-    },
-
     needsReviewBanner: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -495,104 +393,4 @@ const styles = StyleSheet.create({
         letterSpacing: 0.2,
     },
 
-    cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
-    thumbnail: {
-        width: 64,
-        height: 64,
-        borderRadius: 12,
-        backgroundColor: adminColors.primarySoft,
-        justifyContent: 'center',
-        alignItems: 'center',
-        // Keeps a photo inside the rounded corner on Android.
-        overflow: 'hidden',
-    },
-    thumbnailImage: { width: '100%', height: '100%' },
-    cardHeadings: { flex: 1, marginLeft: 12, marginRight: 6 },
-    titleRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
-    },
-    categoryText: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '800',
-        color: adminColors.textPrimary,
-        lineHeight: 20,
-    },
-    chevron: {
-        width: 20,
-        // Aligned to the title beside it rather than centred on a row whose
-        // height changes with the description.
-        paddingTop: 4,
-        alignItems: 'flex-end',
-    },
-
-    descriptionText: {
-        fontSize: 13,
-        color: adminColors.textSecondary,
-        lineHeight: 18,
-        marginTop: 6,
-    },
-
-    // The bus, the route and the photo count read as one scannable line of
-    // metadata, so they carry their icons without a pill each.
-    chipWrap: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        rowGap: 4,
-        columnGap: 10,
-        marginTop: 5,
-    },
-    metaChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexShrink: 1,
-    },
-    metaChipText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: adminColors.textSecondary,
-        marginLeft: 4,
-        flexShrink: 1,
-    },
-
-    cardFooter: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        rowGap: 6,
-        borderTopWidth: 1,
-        borderTopColor: adminColors.borderSubtle,
-        marginTop: 10,
-        paddingTop: 9,
-    },
-    // Shrinks before the tallies do, so a narrow phone trims the date rather
-    // than pushing a count off the card.
-    submittedGroup: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexShrink: 1,
-        marginRight: 10,
-    },
-    footerText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: adminColors.textMuted,
-        marginLeft: 5,
-        flexShrink: 1,
-    },
-    footerActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    viewReport: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: adminColors.primary,
-        letterSpacing: 0.2,
-    },
 });

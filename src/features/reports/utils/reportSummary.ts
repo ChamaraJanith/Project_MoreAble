@@ -12,7 +12,16 @@
  * these functions return. See reportCardVisibleText.
  */
 
-import { AccessibilityReport } from '../../../entities/report/model/types';
+import { Ionicons } from '@expo/vector-icons';
+import {
+    AccessibilityReport,
+    ReportType,
+    reportTypeOf,
+} from '../../../entities/report/model/types';
+import {
+    positiveFeedbackCategoryIcon,
+    positiveFeedbackCategoryLabel,
+} from '../ui/positiveFeedbackCategories';
 import { reportCategoryIcon, reportCategoryLabel } from '../ui/reportCategories';
 import { formatCommentCount } from './reportFeedback';
 import {
@@ -59,12 +68,16 @@ export interface ReportCardFeedbackCounts {
 }
 
 export interface ReportCardSummary {
-    icon: ReturnType<typeof reportCategoryIcon>;
-    /** The issue category, in the wording the picker offered it in. */
+    icon: keyof typeof Ionicons.glyphMap;
+    /** ISSUE or POSITIVE — what decides the card's accent colour. */
+    reportType: ReportType;
+    /** The category, in the wording its picker offered it in. */
     title: string;
     description: string;
     chips: ReportChip[];
     submittedLabel: string;
+    /** Just the date and time, for the compact card footer. */
+    dateLabel: string;
     /**
      * Community feedback on the report, as the list response carried it.
      * Never fetched per card — see reportCardFeedbackCounts.
@@ -114,7 +127,14 @@ export function reportCardSummary(
         chips.push({ icon: 'person-circle-outline', label: 'Your report', highlighted: true });
     }
 
-    const title = reportCategoryLabel(report.issueCategory);
+    // Positive feedback carries its category in `category`, not
+    // `issueCategory` (MOV-301), so the title and icon come from whichever list
+    // the report's type says it was filed against.
+    const reportType = reportTypeOf(report);
+    const isPositive = reportType === 'POSITIVE';
+    const title = isPositive
+        ? positiveFeedbackCategoryLabel(report.category ?? '')
+        : reportCategoryLabel(report.issueCategory);
 
     // Everything the feedback row shows, all of it off the list response.
     // Nothing is fetched for a card: the list is one request, and a lookup per
@@ -127,13 +147,19 @@ export function reportCardSummary(
         `, ${feedbackCounts.disagreeCount} disagree`;
 
     return {
-        icon: reportCategoryIcon(report.issueCategory),
+        icon: isPositive
+            ? positiveFeedbackCategoryIcon(report.category)
+            : reportCategoryIcon(report.issueCategory),
+        reportType,
         title,
         description: report.description,
         chips,
         submittedLabel: `Submitted ${formatReportDateTime(report.createdAt)}`,
+        dateLabel: formatReportDateTime(report.createdAt),
         feedbackCounts,
-        accessibilityLabel: `View accessibility report: ${title}${feedbackLabel}`,
+        accessibilityLabel: `${
+            isPositive ? 'View positive feedback' : 'View accessibility report'
+        }: ${title}${feedbackLabel}`,
     };
 }
 

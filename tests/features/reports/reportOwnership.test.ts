@@ -155,3 +155,24 @@ describe('the actions a card shows', () => {
         expect(reportActionsFor(ownReportWith('REJECTED'), OWNER)).toEqual(['view']);
     });
 });
+
+// ==================================================================
+// Positive feedback (the edit screen is the issue form)
+// ==================================================================
+describe('positive feedback controls', () => {
+    const ownFeedback = { passengerId: OWNER, status: 'PENDING', type: 'POSITIVE' };
+
+    it('does not offer Edit on positive feedback, which the issue form cannot save', () => {
+        expect(canEditReport(ownFeedback, OWNER)).toBe(false);
+    });
+
+    it('still offers Delete on the author’s pending feedback', () => {
+        expect(canDeleteReport(ownFeedback, OWNER)).toBe(true);
+        expect(reportActionsFor(ownFeedback, OWNER)).toEqual(['view', 'delete']);
+    });
+
+    it('still offers Edit on an issue report, typed or not', () => {
+        expect(canEditReport({ ...ownFeedback, type: undefined }, OWNER)).toBe(true);
+        expect(canEditReport({ ...ownFeedback, type: 'ISSUE' }, OWNER)).toBe(true);
+    });
+});

@@ -3,11 +3,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Image,
     RefreshControl,
     ScrollView,
     StyleSheet,
-    
     TouchableOpacity,
     View
 } from 'react-native';
@@ -17,7 +15,6 @@ import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSearchField } from '../../admin/ui/AdminSearchField';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
-import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
 import {
@@ -27,25 +24,34 @@ import {
 } from '../utils/reportRoutes';
 import { reportsRequestPath } from '../utils/reportScopes';
 import {
+    DEFAULT_REPORT_FILTERS,
     REPORT_SEARCH_PLACEHOLDER,
-    filterReportsBySearch,
+    ReportListFilters,
+    activeReportFilterCount,
+    narrowReportList,
+    reportRouteFilterOptions,
 } from '../utils/reportSearch';
 import { reportCardSummary } from '../utils/reportSummary';
-import { ReportFeedbackStats } from './ReportFeedbackStats';
+import { ReportFilterSheet } from './ReportFilterSheet';
+import { ReportListCard } from './ReportListCard';
 
+/**
+ * The two tabs: the whole community's reports, and the passenger's own.
+ *
+ * Verified reports are reached through the filter sheet's Status → Verified
+ * rather than a tab of their own: `scope=all` already carries every verified
+ * report, so the filter shows exactly what the old tab did without a third
+ * request.
+ */
 const SCOPE_TABS: { value: ReportScope; label: string }[] = [
     { value: 'all', label: 'All Reports' },
     { value: 'my', label: 'My Reports' },
-    { value: 'verified', label: 'Verified Reports' },
 ];
 
 /**
- * What each tab shows when it comes back with nothing.
- *
- * All three offer the same way out — file a report — because on any of them an
- * empty list means there is nothing to read, not that something went wrong.
- * Verified Reports says who does the verifying, since it is the one tab a
- * passenger cannot fill by themselves.
+ * What each tab shows when it comes back with nothing. Both offer the same way
+ * out — file a report — because an empty list means there is nothing to read,
+ * not that something went wrong.
  */
 const EMPTY_STATES: Record<
     ReportScope,
@@ -54,12 +60,12 @@ const EMPTY_STATES: Record<
     all: {
         icon: 'documents-outline',
         title: 'No accessibility reports yet',
-        description: 'Reports submitted by passengers will appear here.',
+        description: 'Reports and feedback shared by passengers will appear here.',
     },
     my: {
         icon: 'document-text-outline',
         title: 'You have not submitted any reports yet',
-        description: 'Accessibility issues you report will appear here.',
+        description: 'Issues you report and feedback you share will appear here.',
     },
     verified: {
         icon: 'checkmark-circle-outline',
@@ -99,10 +105,12 @@ export const AccessibilityReportsScreen = () => {
     });
     const [scope, setScope] = useState<ReportScope>('all');
 
-    // What has been typed into the search box, kept for the screen rather than
-    // per tab: a passenger looking for one route wants the same words applied
-    // as they move between All, My and Verified, not three boxes to retype.
+    // The search and the filters are kept for the screen rather than per tab:
+    // a passenger looking for one route wants the same narrowing applied as
+    // they move between All and My, not two sets to redo.
     const [search, setSearch] = useState('');
+    const [filters, setFilters] = useState<ReportListFilters>(DEFAULT_REPORT_FILTERS);
+    const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
     // Which scopes have had a request fired for them. A ref rather than state
     // because it is read to decide whether to start a fetch, and has to be
@@ -146,11 +154,10 @@ export const AccessibilityReportsScreen = () => {
             );
 
             try {
-                // The three tabs differ only by this parameter. Both
-                // narrowings are applied by the API — `my` against the
-                // passengerId on the verified token, `verified` against the
-                // status an admin recorded — never by this screen against a
-                // wider list it has already been given.
+                // The tabs differ only by this parameter. The narrowing is
+                // applied by the API — `my` against the passengerId on the
+                // verified token — never by this screen against a wider list
+                // it has already been given.
                 const response = await fetch(`${API_BASE_URL}${reportsRequestPath(target)}`, {
                     method: 'GET',
                     headers: {
@@ -177,7 +184,7 @@ export const AccessibilityReportsScreen = () => {
         [isAuthenticated, token, updateFeed]
     );
 
-    // Reload the visible tab on focus, so a report submitted on the form screen
+    // Reload the visible tab on focus, so a report submitted on a form screen
     // is already there when the passenger comes back to My Reports.
     useFocusEffect(
         useCallback(() => {
@@ -206,15 +213,26 @@ export const AccessibilityReportsScreen = () => {
     const feed = feeds[scope];
 
     // Narrowed here, against the tab's own reports, because they are already
-    // on the device: the scope is what the API was asked for, and searching
-    // within it is not another question to ask it.
+    // on the device: the scope is what the API was asked for, and searching or
+    // filtering within it is not another question to ask it.
     const visibleReports = useMemo(
-        () => filterReportsBySearch(feed.reports, search),
-        [feed.reports, search]
+        () => narrowReportList(feed.reports, search, filters),
+        [feed.reports, search, filters]
     );
 
-    // The box is only worth drawing over a list there is something to search.
-    const canSearch = !feed.isLoading && !feed.error && feed.reports.length > 0;
+    const routeOptions = useMemo(() => reportRouteFilterOptions(feed.reports), [feed.reports]);
+    const activeFilterCount = activeReportFilterCount(filters);
+    const isNarrowed = !!search.trim() || activeFilterCount > 0;
+
+    // The controls are only worth drawing over a list there is something to
+    // narrow — but they stay while a narrowing has emptied it, so it can be
+    // undone from where it was set.
+    const canNarrow = !feed.isLoading && !feed.error && feed.reports.length > 0;
+
+    const clearNarrowing = () => {
+        setSearch('');
+        setFilters(DEFAULT_REPORT_FILTERS);
+    };
 
     const renderBody = () => {
         if (feed.isLoading) return <AdminListSkeleton count={3} />;
@@ -238,45 +256,68 @@ export const AccessibilityReportsScreen = () => {
                     icon={emptyState.icon}
                     title={emptyState.title}
                     description={emptyState.description}
-                    actionLabel="Report Accessibility Issue"
+                    actionLabel="Report an Issue"
                     onAction={goToReportForm}
                 />
             );
         }
 
         // Told apart from the empty tab above on purpose: there are reports
-        // here, the search is simply not finding them, so the way out is to
-        // change the words rather than to file a report.
+        // here, the search or the filters are simply not finding them, so the
+        // way out is to change those rather than to file a report.
         if (visibleReports.length === 0) {
+            // All Reports never carries a rejected report — the API keeps a
+            // rejection for its author alone — so say where to find one.
+            const rejectedHint =
+                scope === 'all' && filters.status === 'REJECTED'
+                    ? ' Rejected reports are only shown to the passenger who filed them, under My Reports.'
+                    : '';
+
             return (
                 <AdminEmptyState
                     icon="search-outline"
                     title="No matching reports"
-                    description="No reports match your search. Try an issue, a bus, a route or a word from the description."
+                    description={`No reports match your search or filters.${rejectedHint}`}
+                    actionLabel="Clear Search & Filters"
+                    onAction={clearNarrowing}
                 />
             );
         }
 
         return (
             <>
-                <Text style={styles.resultCount}>
-                    {search.trim()
-                        ? `${visibleReports.length} of ${feed.reports.length} report${
-                              feed.reports.length === 1 ? '' : 's'
-                          }`
-                        : `${feed.reports.length} report${feed.reports.length === 1 ? '' : 's'}`}
-                </Text>
+                <View style={styles.resultRow}>
+                    <Text style={styles.resultCount}>
+                        {isNarrowed
+                            ? `${visibleReports.length} of ${feed.reports.length} report${
+                                  feed.reports.length === 1 ? '' : 's'
+                              }`
+                            : `${feed.reports.length} report${feed.reports.length === 1 ? '' : 's'}`}
+                    </Text>
+
+                    {activeFilterCount > 0 && (
+                        <TouchableOpacity
+                            onPress={() => setFilters(DEFAULT_REPORT_FILTERS)}
+                            style={styles.clearFiltersButton}
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear filters"
+                        >
+                            <Text style={styles.clearFiltersText}>Clear filters</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
 
                 {visibleReports.map((report) => (
-                    <ReportCard
+                    <ReportListCard
                         key={report.reportId}
-                        report={report}
-                        // Only worth pointing out among other people's reports.
-                        // On My Reports every card would carry the chip, which
-                        // tells the passenger nothing.
-                        isOwnReport={
-                            scope !== 'my' && isReportOwnedBy(report, user?.passengerId)
-                        }
+                        summary={reportCardSummary(report, {
+                            // Only worth pointing out among other people's
+                            // reports. On My Reports every card would carry
+                            // the chip, which tells the passenger nothing.
+                            isOwnReport:
+                                scope !== 'my' && isReportOwnedBy(report, user?.passengerId),
+                        })}
+                        status={typeof report.status === 'string' ? report.status : 'PENDING'}
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something the
                         // passenger is asked to read. Editing and deleting live
@@ -293,7 +334,7 @@ export const AccessibilityReportsScreen = () => {
         <View style={styles.container}>
             <AdminScreenHeader
                 title="Accessibility Reports"
-                subtitle="Track accessibility issues reported across the network"
+                subtitle="Share and track accessibility experiences"
             />
 
             <ScrollView
@@ -309,81 +350,36 @@ export const AccessibilityReportsScreen = () => {
                     />
                 }
             >
-                {/* Primary action, inside a card rather than as a bare
-                    full-width button: it reads as the one thing this screen
-                    invites, with the line that says why, instead of as a bar
-                    sitting on top of the list. The action itself is unchanged. */}
-                <View style={styles.ctaCard}>
-                    <View style={styles.ctaHeader}>
-                        {/* Decorative: the heading beside it already says what
-                            the card is for. */}
-                        <View
-                            style={styles.ctaIconCircle}
-                            accessibilityElementsHidden
-                            importantForAccessibility="no-hide-descendants"
-                        >
-                            <Ionicons
-                                name="megaphone-outline"
-                                size={20}
-                                color={adminColors.primary}
-                            />
-                        </View>
+                {/* The two things this screen invites, side by side in one
+                    card, so "something went wrong" and "something worked well"
+                    read as equal choices. Red and green only mark which is
+                    which; the card itself stays in the app's palette. */}
+                <View style={styles.helpCard}>
+                    <Text style={styles.helpTitle} accessibilityRole="header">
+                        Help Improve Accessibility
+                    </Text>
+                    <Text style={styles.helpDescription}>
+                        Report an issue or share a positive experience to make public transport
+                        more inclusive for everyone.
+                    </Text>
 
-                        <View style={styles.ctaHeaderText}>
-                            <Text style={styles.ctaTitle}>Spot an accessibility issue?</Text>
-                            <Text style={styles.ctaSubtitle}>
-                                Tell us what you found so other passengers know what to
-                                expect.
-                            </Text>
-                        </View>
+                    <View style={styles.actionRow}>
+                        <ActionTile
+                            tone="issue"
+                            icon="warning-outline"
+                            title="Report an Issue"
+                            description="Tell us what went wrong"
+                            onPress={goToReportForm}
+                        />
+                        <ActionTile
+                            tone="positive"
+                            icon="thumbs-up-outline"
+                            title="Share Positive Feedback"
+                            description="Tell us what worked well"
+                            onPress={goToPositiveFeedback}
+                        />
                     </View>
-
-                    <TouchableOpacity
-                        style={styles.createButton}
-                        onPress={goToReportForm}
-                        accessibilityRole="button"
-                        accessibilityLabel="Report Accessibility Issue"
-                    >
-                        <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
-                        <Text style={styles.createButtonText} numberOfLines={1}>
-                            Report Accessibility Issue
-                        </Text>
-                    </TouchableOpacity>
                 </View>
-
-                {/* The positive counterpart, lighter than the card above: it
-                    is a second invitation, not the screen's primary action. */}
-                <TouchableOpacity
-                    style={styles.positiveCard}
-                    onPress={goToPositiveFeedback}
-                    activeOpacity={0.75}
-                    accessibilityRole="button"
-                    accessibilityLabel="Share Positive Feedback"
-                    accessibilityHint="Tell us about accessibility that worked well on your journey"
-                >
-                    <View
-                        style={styles.positiveIconCircle}
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                    >
-                        <Ionicons name="thumbs-up-outline" size={18} color={adminColors.success} />
-                    </View>
-
-                    <View style={styles.ctaHeaderText}>
-                        <Text style={styles.positiveTitle}>Had a great experience?</Text>
-                        <Text style={styles.ctaSubtitle}>
-                            Share positive feedback about accessibility that worked well.
-                        </Text>
-                    </View>
-
-                    <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={adminColors.textPlaceholder}
-                        accessibilityElementsHidden
-                        importantForAccessibility="no"
-                    />
-                </TouchableOpacity>
 
                 {/* Scope tabs */}
                 <View style={styles.segmentedControl} accessibilityRole="tablist">
@@ -410,247 +406,184 @@ export const AccessibilityReportsScreen = () => {
                     })}
                 </View>
 
-                {/* Below the tabs, so it reads as searching the tab that is
+                {/* Below the tabs, so it reads as narrowing the tab that is
                     open rather than the whole collection — which is exactly
                     what it does. */}
-                {canSearch && (
-                    <AdminSearchField
-                        value={search}
-                        onChangeText={setSearch}
-                        placeholder={REPORT_SEARCH_PLACEHOLDER}
-                        accessibilityLabel="Search reports"
-                        resultLabel={`${visibleReports.length}/${feed.reports.length}`}
-                    />
+                {canNarrow && (
+                    <View style={styles.searchRow}>
+                        <View style={styles.searchField}>
+                            <AdminSearchField
+                                value={search}
+                                onChangeText={setSearch}
+                                placeholder={REPORT_SEARCH_PLACEHOLDER}
+                                accessibilityLabel="Search reports"
+                            />
+                        </View>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.filterButton,
+                                activeFilterCount > 0 && styles.filterButtonActive,
+                            ]}
+                            onPress={() => setIsFilterSheetOpen(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                activeFilterCount > 0
+                                    ? `Filter reports, ${activeFilterCount} applied`
+                                    : 'Filter reports'
+                            }
+                        >
+                            <Ionicons
+                                name="options-outline"
+                                size={20}
+                                color={activeFilterCount > 0 ? '#FFFFFF' : adminColors.primary}
+                            />
+                            {activeFilterCount > 0 && (
+                                <View style={styles.filterBadge}>
+                                    <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 )}
 
                 {renderBody()}
             </ScrollView>
+
+            {isFilterSheetOpen && (
+                <ReportFilterSheet
+                    filters={filters}
+                    routeOptions={routeOptions}
+                    onClose={() => setIsFilterSheetOpen(false)}
+                    onApply={(next) => {
+                        setFilters(next);
+                        setIsFilterSheetOpen(false);
+                    }}
+                />
+            )}
         </View>
     );
 };
 
 // ------------------------------------------------------------------
-interface ReportCardProps {
-    report: AccessibilityReport;
-    isOwnReport: boolean;
-    onOpen: () => void;
-}
 
-/**
- * One report, as a row in the list.
- *
- * The whole card is the control: there is exactly one thing to do with a report
- * from here — open it — so a button inside the card would only be a smaller
- * target for the same action. The chevron says so, and the card carries a
- * single accessibility label rather than a scattering of readable fragments.
- */
-function ReportCard({ report, isOwnReport, onOpen }: ReportCardProps) {
-    // Everything the card puts on screen, derived in one place — including the
-    // fact that the report id is not part of it.
-    const summary = reportCardSummary(report, { isOwnReport });
+const TONES = {
+    issue: {
+        background: adminColors.dangerSoft,
+        border: adminColors.dangerBorder,
+        icon: adminColors.danger,
+    },
+    positive: {
+        background: adminColors.successSoft,
+        border: '#CFE8D1',
+        icon: adminColors.success,
+    },
+} as const;
 
-    // The first photo filed with the report stands in as the card's thumbnail.
-    // A report without photos keeps the category icon it has always shown, and
-    // the count of the rest stays in the meta line where it already was.
-    const thumbnailUrl = report.photoUrls?.[0];
+/** One of the two actions in the help card. */
+function ActionTile({
+    tone,
+    icon,
+    title,
+    description,
+    onPress,
+}: {
+    tone: keyof typeof TONES;
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    description: string;
+    onPress: () => void;
+}) {
+    const colors = TONES[tone];
 
     return (
         <TouchableOpacity
-            style={styles.card}
-            onPress={onOpen}
+            style={[styles.actionTile, { backgroundColor: colors.background, borderColor: colors.border }]}
+            onPress={onPress}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel={summary.accessibilityLabel}
-            accessibilityHint="Opens the full report"
+            accessibilityLabel={title}
+            accessibilityHint={description}
         >
-            <View style={styles.cardTop}>
-                {/* Decorative either way: everything it stands for — the issue
-                    and the photos — is already in the card's one label. */}
-                <View
-                    style={styles.thumbnail}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                >
-                    {thumbnailUrl ? (
-                        <Image
-                            source={{ uri: thumbnailUrl }}
-                            style={styles.thumbnailImage}
-                            resizeMode="cover"
-                        />
-                    ) : (
-                        <Ionicons name={summary.icon} size={26} color={adminColors.primary} />
-                    )}
-                </View>
-
-                <View style={styles.cardHeadings}>
-                    <View style={styles.titleRow}>
-                        <Text style={styles.categoryText} numberOfLines={2}>
-                            {summary.title}
-                        </Text>
-
-                        <StatusBadge status={report.status} size="small" />
-                    </View>
-
-                    {summary.chips.length > 0 && (
-                        <View style={styles.chipWrap}>
-                            {summary.chips.map((chip) => (
-                                <MetaChip
-                                    key={chip.label}
-                                    icon={chip.icon}
-                                    label={chip.label}
-                                    highlighted={chip.highlighted}
-                                />
-                            ))}
-                        </View>
-                    )}
-
-                    <Text style={styles.descriptionText} numberOfLines={2}>
-                        {summary.description}
-                    </Text>
-                </View>
-
-                {/* Decorative: the card itself is the control, so the arrow
-                    must not become a second thing to land on. */}
-                <View
-                    style={styles.chevron}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                >
-                    <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={adminColors.textPlaceholder}
-                    />
-                </View>
+            <View
+                style={styles.actionIconCircle}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+            >
+                <Ionicons name={icon} size={20} color={colors.icon} />
             </View>
 
-            <View style={styles.cardFooter}>
-                <View style={styles.submittedGroup}>
-                    <Ionicons name="calendar-outline" size={13} color={adminColors.textMuted} />
-                    <Text style={styles.footerText} numberOfLines={1}>
-                        {summary.submittedLabel}
-                    </Text>
-                </View>
+            <Text style={styles.actionTitle}>{title}</Text>
+            <Text style={styles.actionDescription}>{description}</Text>
 
-                <ReportFeedbackStats counts={summary.feedbackCounts} variant="inline" />
+            <View
+                style={styles.actionArrow}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+            >
+                <Ionicons name="arrow-forward" size={16} color={colors.icon} />
             </View>
         </TouchableOpacity>
     );
 }
 
-function MetaChip({
-    icon,
-    label,
-    highlighted = false,
-}: {
-    icon: keyof typeof Ionicons.glyphMap;
-    label: string;
-    highlighted?: boolean;
-}) {
-    return (
-        <View style={[styles.metaChip, highlighted && styles.metaChipHighlighted]}>
-            <Ionicons
-                name={icon}
-                size={12}
-                color={highlighted ? adminColors.primary : adminColors.textSecondary}
-            />
-            <Text
-                style={[styles.metaChipText, highlighted && styles.metaChipTextHighlighted]}
-                numberOfLines={1}
-            >
-                {label}
-            </Text>
-        </View>
-    );
-}
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
-    content: { padding: 20, paddingBottom: 40 },
+    content: { padding: 16, paddingBottom: 40 },
 
-    // The call to action, as a section of the screen rather than a bar across
-    // it: same surface, radius and shadow as every other card here, so it sits
-    // in the list's visual language instead of on top of it.
-    ctaCard: {
-        backgroundColor: adminColors.primarySoft,
-        borderRadius: 14,
-        padding: 18,
+    helpCard: {
+        backgroundColor: adminColors.surface,
+        borderRadius: 16,
+        padding: 16,
         marginBottom: 16,
         borderWidth: 1,
         borderColor: adminColors.border,
         ...adminShadow.card,
     },
-    // Icon and words side by side, button underneath: the card stays two
-    // short lines tall on a narrow phone, where a button on the same row as
-    // the text would have had nowhere to go.
-    ctaHeader: { flexDirection: 'row', alignItems: 'flex-start' },
-    ctaIconCircle: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: adminColors.primarySoft,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    ctaHeaderText: { flex: 1, marginLeft: 12 },
-    ctaTitle: {
-        fontSize: 15,
+    helpTitle: {
+        fontSize: 16,
         fontWeight: '800',
         color: adminColors.textPrimary,
     },
-    ctaSubtitle: {
+    helpDescription: {
         marginTop: 4,
         fontSize: 13,
-        color: adminColors.textMuted,
+        color: adminColors.textSecondary,
         lineHeight: 18,
     },
-    createButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        // Keep the CTA centered so the card feels like a compact invitation
-        // rather than a full-width action bar.
-        alignSelf: 'center',
-        maxWidth: '100%',
-        backgroundColor: adminColors.primary,
-        minHeight: 44,
-        borderRadius: 10,
-        paddingHorizontal: 18,
-        marginTop: 16,
-    },
-    createButtonText: {
-        color: '#FFFFFF',
-        fontSize: 14,
-        fontWeight: '700',
-        marginLeft: 8,
-        flexShrink: 1,
-    },
-
-    positiveCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: adminColors.surface,
+    // Two tiles that share the width equally; each wraps its own text, so a
+    // narrow phone makes them taller rather than overflowing.
+    actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+    actionTile: {
+        flex: 1,
+        minWidth: 0,
+        minHeight: 120,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: adminColors.border,
-        padding: 14,
-        minHeight: 64,
-        marginBottom: 16,
-        ...adminShadow.card,
+        padding: 12,
     },
-    positiveIconCircle: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: adminColors.successSoft,
+    actionIconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: adminColors.surface,
         justifyContent: 'center',
         alignItems: 'center',
+        marginBottom: 10,
     },
-    positiveTitle: {
-        fontSize: 15,
+    actionTitle: {
+        fontSize: 14,
         fontWeight: '800',
         color: adminColors.textPrimary,
+        lineHeight: 18,
     },
+    actionDescription: {
+        marginTop: 3,
+        fontSize: 12,
+        color: adminColors.textSecondary,
+        lineHeight: 16,
+    },
+    actionArrow: { marginTop: 'auto', paddingTop: 8, alignItems: 'flex-end' },
 
     segmentedControl: {
         flexDirection: 'row',
@@ -659,11 +592,11 @@ const styles = StyleSheet.create({
         borderColor: adminColors.border,
         borderRadius: 12,
         padding: 4,
-        marginBottom: 16,
+        marginBottom: 12,
     },
     segment: {
         flex: 1,
-        minHeight: 40,
+        minHeight: 44,
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 6,
@@ -671,122 +604,54 @@ const styles = StyleSheet.create({
     },
     segmentSelected: { backgroundColor: adminColors.primary },
     segmentText: {
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: '700',
         color: adminColors.textSecondary,
     },
     segmentTextSelected: { color: '#FFFFFF' },
 
-    resultCount: {
-        fontSize: 13,
-        color: adminColors.textMuted,
-        marginBottom: 10,
-        fontWeight: '600',
-    },
-
-    // A row rather than a column: the thumbnail leads, everything read about
-    // the report sits beside it, and the footer closes the card off. Tighter
-    // padding than the old stacked card, because there is less stacked.
-    card: {
-        backgroundColor: adminColors.surface,
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 12,
-        ...adminShadow.card,
-    },
-    cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
-    chevron: {
-        width: 20,
-        // Aligned to the title beside it rather than centred on a row whose
-        // height changes with the description.
-        paddingTop: 4,
-        alignItems: 'flex-end',
-    },
-    thumbnail: {
-        width: 64,
-        height: 64,
+    // The search field keeps its own bottom margin, so the row aligns its
+    // children to the top and the filter button matches the field's height.
+    searchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    searchField: { flex: 1, minWidth: 0 },
+    filterButton: {
+        width: 48,
+        height: 48,
         borderRadius: 12,
-        backgroundColor: adminColors.primarySoft,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surface,
         justifyContent: 'center',
         alignItems: 'center',
-        // Keeps a photo inside the rounded corner on Android.
-        overflow: 'hidden',
     },
-    thumbnailImage: { width: '100%', height: '100%' },
-    cardHeadings: { flex: 1, marginLeft: 12, marginRight: 6 },
-    titleRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
-    },
-    categoryText: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '800',
-        color: adminColors.textPrimary,
-        lineHeight: 20,
-    },
-
-    descriptionText: {
-        fontSize: 13,
-        color: adminColors.textSecondary,
-        lineHeight: 18,
-        marginTop: 6,
-    },
-
-    // The bus, the route and the photo count read as one scannable line of
-    // metadata, so they carry their icons without a pill each. Only the
-    // highlighted "Your report" keeps a chip, which is what makes it stand out.
-    chipWrap: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
+    filterButtonActive: { backgroundColor: adminColors.primary, borderColor: adminColors.primary },
+    filterBadge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        paddingHorizontal: 4,
+        backgroundColor: adminColors.danger,
+        justifyContent: 'center',
         alignItems: 'center',
-        rowGap: 4,
-        columnGap: 10,
-        marginTop: 5,
+        borderWidth: 2,
+        borderColor: adminColors.background,
     },
-    metaChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexShrink: 1,
-    },
-    metaChipHighlighted: {
-        backgroundColor: adminColors.primarySoft,
-        borderRadius: 6,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-    },
-    metaChipText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: adminColors.textSecondary,
-        marginLeft: 4,
-        flexShrink: 1,
-    },
-    metaChipTextHighlighted: { color: adminColors.primary },
+    filterBadgeText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF' },
 
-    cardFooter: {
+    resultRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        borderTopWidth: 1,
-        borderTopColor: adminColors.borderSubtle,
-        marginTop: 10,
-        paddingTop: 9,
+        marginBottom: 8,
     },
-    // Shrinks before the tallies do, so a narrow phone trims the date rather
-    // than pushing a count off the card.
-    submittedGroup: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flexShrink: 1,
-        marginRight: 10,
-    },
-    footerText: {
-        fontSize: 12,
-        fontWeight: '600',
+    resultCount: {
+        fontSize: 13,
         color: adminColors.textMuted,
-        marginLeft: 5,
-        flexShrink: 1,
+        fontWeight: '600',
     },
+    clearFiltersButton: { minHeight: 32, justifyContent: 'center', paddingLeft: 10 },
+    clearFiltersText: { fontSize: 13, fontWeight: '700', color: adminColors.primary },
 });
