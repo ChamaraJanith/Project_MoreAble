@@ -7,7 +7,15 @@
 
 import { AccessibilityReport } from '../../../src/entities/report/model/types';
 import {
+    DEFAULT_REPORT_FILTERS,
     REPORT_SEARCH_PLACEHOLDER,
+    ReportListFilters,
+    activeReportFilterCount,
+    narrowReportList,
+    reportCategoryFilterOptions,
+    reportMatchesFilters,
+    reportRouteFilterOptions,
+    sortReports,
     filterReportsBySearch,
     reportMatchesSearch,
     reportSearchFields,
@@ -165,5 +173,200 @@ describe('filterReportsBySearch', () => {
 
     it('names the box the same way on both screens', () => {
         expect(REPORT_SEARCH_PLACEHOLDER).toBe('Search reports...');
+    });
+});
+
+// ==================================================================
+// Positive feedback, filters and sort (the redesigned list)
+// ==================================================================
+function positive(overrides: Partial<AccessibilityReport> = {}): AccessibilityReport {
+    return report({
+        reportId: 'REP-00020',
+        type: 'POSITIVE',
+        issueCategory: undefined as unknown as AccessibilityReport['issueCategory'],
+        category: 'HELPFUL_DRIVER',
+        description: 'The driver waited until I was seated.',
+        ...overrides,
+    });
+}
+
+function filters(overrides: Partial<ReportListFilters> = {}): ReportListFilters {
+    return { ...DEFAULT_REPORT_FILTERS, ...overrides };
+}
+
+describe('searching positive feedback', () => {
+    it('finds feedback by its category label and by the word feedback', () => {
+        expect(reportMatchesSearch(positive(), 'helpful driver')).toBe(true);
+        expect(reportMatchesSearch(positive(), 'feedback')).toBe(true);
+    });
+
+    it('does not offer an undefined issue category as a search field', () => {
+        expect(reportSearchFields(positive()).every((field) => typeof field === 'string')).toBe(true);
+    });
+});
+
+describe('reportMatchesFilters', () => {
+    it('lets everything through with the default filters', () => {
+        expect(reportMatchesFilters(report(), DEFAULT_REPORT_FILTERS)).toBe(true);
+        expect(reportMatchesFilters(positive(), DEFAULT_REPORT_FILTERS)).toBe(true);
+    });
+
+    it('filters by report type', () => {
+        expect(reportMatchesFilters(report(), filters({ type: 'ISSUE' }))).toBe(true);
+        expect(reportMatchesFilters(positive(), filters({ type: 'ISSUE' }))).toBe(false);
+        expect(reportMatchesFilters(positive(), filters({ type: 'POSITIVE' }))).toBe(true);
+        expect(reportMatchesFilters(report(), filters({ type: 'POSITIVE' }))).toBe(false);
+    });
+
+    it('filters by category, reading whichever field the type uses', () => {
+        expect(reportMatchesFilters(report(), filters({ category: 'BROKEN_RAMP' }))).toBe(true);
+        expect(reportMatchesFilters(report(), filters({ category: 'LIFT_NOT_WORKING' }))).toBe(false);
+        expect(reportMatchesFilters(positive(), filters({ category: 'HELPFUL_DRIVER' }))).toBe(true);
+        expect(reportMatchesFilters(positive(), filters({ category: 'BROKEN_RAMP' }))).toBe(false);
+    });
+
+    it('filters by route id', () => {
+        expect(reportMatchesFilters(report(), filters({ routeId: 'ROUTE-138-OUTBOUND' }))).toBe(true);
+        expect(reportMatchesFilters(report(), filters({ routeId: 'ROUTE-177' }))).toBe(false);
+        expect(
+            reportMatchesFilters(report({ routeId: undefined }), filters({ routeId: 'ROUTE-177' }))
+        ).toBe(false);
+    });
+
+    it('filters by status, reading a missing status as pending', () => {
+        expect(
+            reportMatchesFilters(report({ status: 'VERIFIED' }), filters({ status: 'VERIFIED' }))
+        ).toBe(true);
+        expect(
+            reportMatchesFilters(report({ status: 'PENDING' }), filters({ status: 'VERIFIED' }))
+        ).toBe(false);
+        expect(
+            reportMatchesFilters(report({ status: 'REJECTED' }), filters({ status: 'REJECTED' }))
+        ).toBe(true);
+        expect(
+            reportMatchesFilters(
+                report({ status: undefined as unknown as string }),
+                filters({ status: 'PENDING' })
+            )
+        ).toBe(true);
+    });
+});
+
+describe('reportCategoryFilterOptions', () => {
+    it('offers only the categories of the chosen type', () => {
+        const issueValues = reportCategoryFilterOptions('ISSUE').map((option) => option.value);
+        const positiveValues = reportCategoryFilterOptions('POSITIVE').map((option) => option.value);
+
+        expect(issueValues).toContain('BROKEN_RAMP');
+        expect(issueValues).not.toContain('HELPFUL_DRIVER');
+        expect(positiveValues).toContain('HELPFUL_DRIVER');
+        expect(positiveValues).not.toContain('BROKEN_RAMP');
+    });
+
+    it('offers both lists, issues first, for All', () => {
+        const all = reportCategoryFilterOptions('ALL');
+
+        expect(all).toHaveLength(
+            reportCategoryFilterOptions('ISSUE').length +
+                reportCategoryFilterOptions('POSITIVE').length
+        );
+        expect(all[0].value).toBe('BROKEN_RAMP');
+    });
+});
+
+describe('reportRouteFilterOptions', () => {
+    it('lists each route the reports name once, labelled from the snapshot', () => {
+        const options = reportRouteFilterOptions([
+            report(),
+            report({ reportId: 'REP-2' }),
+            report({
+                reportId: 'REP-3',
+                routeId: 'ROUTE-17',
+                route: { routeNumber: '17', routeName: 'Panadura - Kandy' },
+            }),
+            report({ reportId: 'REP-4', routeId: undefined, route: undefined }),
+        ]);
+
+        expect(options).toEqual([
+            { value: 'ROUTE-17', label: 'Route 17 · Panadura - Kandy' },
+            { value: 'ROUTE-138-OUTBOUND', label: 'Route 138 · Pettah - Kottawa' },
+        ]);
+    });
+
+    it('falls back to the route id when no snapshot was kept', () => {
+        expect(reportRouteFilterOptions([report({ route: undefined })])).toEqual([
+            { value: 'ROUTE-138-OUTBOUND', label: 'ROUTE-138-OUTBOUND' },
+        ]);
+    });
+});
+
+describe('sortReports', () => {
+    const older = report({
+        reportId: 'OLD',
+        createdAt: '2026-08-01T10:00:00.000Z',
+        agreeCount: 9,
+        commentCount: 1,
+    });
+    const newer = report({
+        reportId: 'NEW',
+        createdAt: '2026-08-20T10:00:00.000Z',
+        agreeCount: 2,
+        commentCount: 5,
+    });
+    const middle = report({ reportId: 'MID', createdAt: '2026-08-10T10:00:00.000Z' });
+
+    const ids = (reports: AccessibilityReport[]) => reports.map((entry) => entry.reportId);
+
+    it('sorts newest first and oldest first', () => {
+        expect(ids(sortReports([older, newer, middle], 'NEWEST'))).toEqual(['NEW', 'MID', 'OLD']);
+        expect(ids(sortReports([older, newer, middle], 'OLDEST'))).toEqual(['OLD', 'MID', 'NEW']);
+    });
+
+    it('sorts by agreement and by comments, newest first among equals', () => {
+        expect(ids(sortReports([older, newer, middle], 'MOST_AGREED'))).toEqual([
+            'OLD',
+            'NEW',
+            'MID',
+        ]);
+        expect(ids(sortReports([older, newer, middle], 'MOST_DISCUSSED'))).toEqual([
+            'NEW',
+            'OLD',
+            'MID',
+        ]);
+    });
+
+    it('does not reorder the list it was given', () => {
+        const list = [older, newer];
+
+        sortReports(list, 'NEWEST');
+
+        expect(ids(list)).toEqual(['OLD', 'NEW']);
+    });
+});
+
+describe('narrowReportList', () => {
+    it('applies the search, then the filters, then the sort', () => {
+        const list = [
+            report({ reportId: 'ISSUE-138', createdAt: '2026-08-01T10:00:00.000Z' }),
+            positive({ reportId: 'GOOD-138-OLD', createdAt: '2026-08-02T10:00:00.000Z' }),
+            positive({ reportId: 'GOOD-138-NEW', createdAt: '2026-08-05T10:00:00.000Z' }),
+            positive({ reportId: 'GOOD-OTHER', routeId: 'R-9', route: { routeNumber: '9' } }),
+        ];
+
+        const result = narrowReportList(list, '138', filters({ type: 'POSITIVE', sort: 'OLDEST' }));
+
+        expect(result.map((entry) => entry.reportId)).toEqual(['GOOD-138-OLD', 'GOOD-138-NEW']);
+    });
+});
+
+describe('activeReportFilterCount', () => {
+    it('counts the narrowing filters but not the sort', () => {
+        expect(activeReportFilterCount(DEFAULT_REPORT_FILTERS)).toBe(0);
+        expect(activeReportFilterCount(filters({ sort: 'OLDEST' }))).toBe(0);
+        expect(
+            activeReportFilterCount(
+                filters({ type: 'ISSUE', category: 'BROKEN_RAMP', routeId: 'R', status: 'PENDING' })
+            )
+        ).toBe(4);
     });
 });

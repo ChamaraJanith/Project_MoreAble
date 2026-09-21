@@ -54,10 +54,18 @@ export const POSITIVE_FEEDBACK_CATEGORY_OPTIONS: PositiveFeedbackCategoryOption[
         ...CATEGORY_PRESENTATION[value],
     }));
 
+function findOption(category: string | undefined): PositiveFeedbackCategoryOption | undefined {
+    return POSITIVE_FEEDBACK_CATEGORY_OPTIONS.find((option) => option.value === category);
+}
+
 /** Falls back to the raw value so an unknown category still reads sensibly. */
 export function positiveFeedbackCategoryLabel(category: string): string {
-    return (
-        POSITIVE_FEEDBACK_CATEGORY_OPTIONS.find((option) => option.value === category)?.label ??
-        category
-    );
+    return findOption(category)?.label ?? category;
+}
+
+/** The category's icon, or a thumbs-up for one this build does not know. */
+export function positiveFeedbackCategoryIcon(
+    category: string | undefined
+): keyof typeof Ionicons.glyphMap {
+    return findOption(category)?.icon ?? 'thumbs-up-outline';
 }

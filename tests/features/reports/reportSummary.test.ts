@@ -490,3 +490,47 @@ describe('the admin review shown to the passenger', () => {
         expect(outcome?.statusLabel).toBe('ESCALATED');
     });
 });
+
+// ==================================================================
+// Report type (the redesigned cards)
+// ==================================================================
+describe('reportCardSummary - report type', () => {
+    const positiveReport = () =>
+        report({
+            type: 'POSITIVE',
+            issueCategory: undefined as unknown as AccessibilityReport['issueCategory'],
+            category: 'EASY_WHEELCHAIR_BOARDING',
+        });
+
+    it('marks an issue report as an issue, as it always read', () => {
+        const summary = reportCardSummary(report());
+
+        expect(summary.reportType).toBe('ISSUE');
+        expect(summary.accessibilityLabel).toMatch(/^View accessibility report: /);
+    });
+
+    it('titles positive feedback from its own category', () => {
+        const summary = reportCardSummary(positiveReport());
+
+        expect(summary.reportType).toBe('POSITIVE');
+        expect(summary.title).toBe('Easy Wheelchair Boarding');
+        expect(summary.icon).toBe('accessibility-outline');
+        expect(summary.accessibilityLabel).toMatch(
+            /^View positive feedback: Easy Wheelchair Boarding/
+        );
+    });
+
+    it('never titles positive feedback with an undefined issue label', () => {
+        const summary = reportCardSummary(positiveReport());
+
+        expect(summary.title).toBeTruthy();
+        expect(summary.accessibilityLabel).not.toContain('undefined');
+    });
+
+    it('gives the compact card just the date and time', () => {
+        const summary = reportCardSummary(report());
+
+        expect(summary.dateLabel).toBe(formatReportDateTime(report().createdAt));
+        expect(summary.submittedLabel).toBe(`Submitted ${summary.dateLabel}`);
+    });
+});
