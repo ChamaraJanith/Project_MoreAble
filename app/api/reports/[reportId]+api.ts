@@ -1,13 +1,15 @@
 import {
   isReportDecided,
-  isReportIssueCategory,
+  isReportType,
   reportDecisionStatus,
+  reportTypeOf,
 } from '../../../src/entities/report/model/types';
 import {
   authenticateRequest,
   unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { readReportContent } from '../../../src/shared/server/reportContent';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
   resolveBusReference,
@@ -239,25 +241,40 @@ export async function PUT(request: Request, context: any) {
       return errorResponse(400, 'Invalid request body.');
     }
 
-    const { issueCategory, description, busId, routeId, photoUrls } = body as Record<string, any>;
+    const { busId, routeId, photoUrls } = body as Record<string, any>;
+
+    // --------------------------------
+    // The report's type is fixed by what was filed (MOV-301)
+    //
+    // An edit changes what a report says, not what kind of report it is:
+    // turning praise into a complaint, or the reverse, would rewrite the
+    // record under the votes and comments it has already drawn. A body may
+    // restate the type, but only as the one already stored.
+    // --------------------------------
+    const reportType = reportTypeOf(existing);
+    const requestedType = (body as Record<string, any>).type;
+
+    if (requestedType !== undefined && requestedType !== null && requestedType !== '') {
+      if (!isReportType(requestedType)) {
+        return errorResponse(400, 'Invalid report type.');
+      }
+
+      if (requestedType !== reportType) {
+        return errorResponse(400, "A report's type cannot be changed.");
+      }
+    }
 
     // --------------------------------
     // Validate — the same rules POST applies, so a report cannot be edited
     // into a state it could never have been created in.
     // --------------------------------
-    if (!issueCategory || !description) {
-      return errorResponse(400, 'Issue category and description are required.');
+    const contentCheck = readReportContent(body as Record<string, any>, reportType);
+
+    if (!contentCheck.ok) {
+      return errorResponse(400, contentCheck.message);
     }
 
-    if (!isReportIssueCategory(issueCategory)) {
-      return errorResponse(400, 'Invalid issue category.');
-    }
-
-    if (typeof description !== 'string' || !description.trim()) {
-      return errorResponse(400, 'Description cannot be empty.');
-    }
-
-    const cleanDescription = description.trim();
+    const reportContent = contentCheck.value;
 
     const photoUrlCheck = normalizeReportPhotoUrls(photoUrls);
 
@@ -293,6 +310,12 @@ export async function PUT(request: Request, context: any) {
     // to carry is preserved untouched.
     // --------------------------------
     const {
+      // What the report says is re-added from the validated body below. The
+      // type is re-added with it for positive feedback, and stays absent on an
+      // issue report exactly as it was filed.
+      type: _previousType,
+      issueCategory: _previousIssueCategory,
+      category: _previousCategory,
       busId: _previousBusId,
       vehicle: _previousVehicle,
       routeId: _previousRouteId,
@@ -311,8 +334,7 @@ export async function PUT(request: Request, context: any) {
       status: existing.status,
       createdAt: existing.createdAt,
 
-      issueCategory,
-      description: cleanDescription,
+      ...reportContent,
 
       ...busReference.value,
       ...routeReference.value,
@@ -326,7 +348,10 @@ export async function PUT(request: Request, context: any) {
     return Response.json(
       {
         success: true,
-        message: 'Accessibility report updated successfully.',
+        message:
+          reportType === 'POSITIVE'
+            ? 'Positive accessibility feedback updated successfully.'
+            : 'Accessibility report updated successfully.',
         report: serializeReport(updatedReport, docRef.id),
       },
       {

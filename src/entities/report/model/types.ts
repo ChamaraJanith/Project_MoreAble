@@ -65,6 +65,29 @@ export function isPositiveFeedbackCategory(value: unknown): value is PositiveFee
 }
 
 /**
+ * The kinds of report the reports collection holds (MOV-301).
+ *
+ * ISSUE is every report filed before positive feedback existed, and stays the
+ * default: an issue report is stored WITHOUT a `type` field, exactly as it
+ * always was, so no existing document needs migrating and no existing reader
+ * sees a new key. Only positive feedback carries `type`, which is also what
+ * lets it be queried on its own (`where('type', '==', 'POSITIVE')`).
+ */
+export const REPORT_TYPES = ['ISSUE', 'POSITIVE'] as const;
+
+export type ReportType = (typeof REPORT_TYPES)[number];
+
+/** Whether an arbitrary value is a report type the API will accept. */
+export function isReportType(value: unknown): value is ReportType {
+    return typeof value === 'string' && (REPORT_TYPES as readonly string[]).includes(value);
+}
+
+/** The type of a stored report. Anything but an explicit POSITIVE is an issue. */
+export function reportTypeOf(report: { type?: unknown } | null | undefined): ReportType {
+    return report?.type === 'POSITIVE' ? 'POSITIVE' : 'ISSUE';
+}
+
+/**
  * What the app sends when a passenger submits positive feedback.
  *
  * `type` is the discriminator the backend (MOV-301) can store beside issue
@@ -116,7 +139,19 @@ export type ReportScope = 'all' | 'my' | 'verified';
 export interface AccessibilityReport {
     reportId: string;
     passengerId: string;
+    /**
+     * Absent on an issue report; 'POSITIVE' on positive feedback (MOV-301).
+     * Read it through reportTypeOf rather than directly.
+     */
+    type?: ReportType;
+    /**
+     * The issue, on an issue report. Positive feedback does not carry it — its
+     * category is `category` below — so a reader that can meet both kinds has
+     * to check reportTypeOf first.
+     */
     issueCategory: ReportIssueCategory;
+    /** What went well, on positive feedback only (MOV-301). */
+    category?: PositiveFeedbackCategory;
     description: string;
     /**
      * Kept widened because the backend may introduce statuses the app does not
