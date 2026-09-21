@@ -25,6 +25,16 @@ export function reportFormPath(): string {
     return `${PASSENGER_GROUP}/reports`;
 }
 
+/**
+ * The form for sharing positive feedback: `/(passenger)/reports/positive-feedback`.
+ *
+ * A static segment beside `[reportId]`, which Expo Router always prefers over
+ * the dynamic one — and a report id is `REP-…`, so the two cannot be confused.
+ */
+export function positiveFeedbackFormPath(): string {
+    return `${reportFormPath()}/positive-feedback`;
+}
+
 /** The details screen for one report, e.g. `/(passenger)/reports/REP-00007`. */
 export function reportDetailsPath(reportId: string): string {
     return `${reportFormPath()}/${encodeURIComponent(reportId)}`;

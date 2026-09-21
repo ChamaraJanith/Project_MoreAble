@@ -22,6 +22,8 @@ interface ReportTextAreaProps {
      * so the text cannot change out from under the request that is sending it.
      */
     editable?: boolean;
+    /** A validation message for this field; outlines it and replaces the helper. */
+    error?: string;
 }
 
 export function ReportTextArea({
@@ -32,13 +34,14 @@ export function ReportTextArea({
     helper,
     maxLength,
     editable = true,
+    error,
 }: ReportTextAreaProps) {
     return (
         <View style={styles.fieldBlock}>
             <FieldLabel label={label} />
 
             <TextInput
-                style={styles.textArea}
+                style={[styles.textArea, !!error && styles.fieldInvalid]}
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={placeholder}
@@ -49,10 +52,15 @@ export function ReportTextArea({
                 textAlignVertical="top"
                 editable={editable}
                 accessibilityLabel={label}
+                accessibilityHint={error}
             />
 
             <View style={styles.helperRow}>
-                {!!helper && <Text style={[styles.helperText, styles.helperTextGrow]}>{helper}</Text>}
+                {error ? (
+                    <FieldError message={error} grow />
+                ) : (
+                    !!helper && <Text style={[styles.helperText, styles.helperTextGrow]}>{helper}</Text>
+                )}
                 <Text style={styles.counterText}>
                     {value.length}/{maxLength}
                 </Text>
@@ -76,6 +84,8 @@ interface ReportSelectFieldProps {
     disabled?: boolean;
     /** Replaces the chevron with a tick once a choice has been made. */
     showSelectedTick?: boolean;
+    /** A validation message for this field; outlines it and replaces the helper. */
+    error?: string;
 }
 
 export function ReportSelectField({
@@ -89,19 +99,24 @@ export function ReportSelectField({
     optional = false,
     disabled = false,
     showSelectedTick = false,
+    error,
 }: ReportSelectFieldProps) {
     return (
         <View style={styles.fieldBlock}>
             <FieldLabel label={label} optional={optional} />
 
             <TouchableOpacity
-                style={[styles.inputWrapper, disabled && styles.inputWrapperDisabled]}
+                style={[
+                    styles.inputWrapper,
+                    disabled && styles.inputWrapperDisabled,
+                    !!error && styles.fieldInvalid,
+                ]}
                 onPress={onPress}
                 disabled={disabled}
                 accessibilityRole="button"
                 accessibilityLabel={label}
                 accessibilityValue={{ text: value ?? 'Not selected' }}
-                accessibilityHint="Double tap to choose an option"
+                accessibilityHint={error ?? 'Double tap to choose an option'}
                 accessibilityState={{ disabled }}
             >
                 <Ionicons
@@ -132,7 +147,30 @@ export function ReportSelectField({
                 )}
             </TouchableOpacity>
 
-            {!!helper && <Text style={styles.helperText}>{helper}</Text>}
+            {error ? (
+                <FieldError message={error} />
+            ) : (
+                !!helper && <Text style={styles.helperText}>{helper}</Text>
+            )}
+        </View>
+    );
+}
+
+/**
+ * What is wrong with a field, directly under it.
+ *
+ * Announced as an alert so a screen reader hears it the moment it appears —
+ * after a Submit that was refused — rather than only on reaching the field.
+ */
+function FieldError({ message, grow = false }: { message: string; grow?: boolean }) {
+    return (
+        <View
+            style={[styles.errorRow, grow && styles.errorRowGrow]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+        >
+            <Ionicons name="alert-circle" size={14} color={adminColors.danger} />
+            <Text style={styles.errorText}>{message}</Text>
         </View>
     );
 }
@@ -220,6 +258,21 @@ const styles = StyleSheet.create({
         lineHeight: 17,
     },
     helperTextGrow: { flex: 1, marginTop: 0, marginRight: 10 },
+    fieldInvalid: { borderColor: adminColors.danger },
+    errorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+    },
+    errorRowGrow: { flex: 1, marginTop: 0, marginRight: 10 },
+    errorText: {
+        flexShrink: 1,
+        fontSize: 12,
+        fontWeight: '600',
+        color: adminColors.danger,
+        marginLeft: 5,
+        lineHeight: 17,
+    },
     counterText: {
         fontSize: 12,
         fontWeight: '600',
