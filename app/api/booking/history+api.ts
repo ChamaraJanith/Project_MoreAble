@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { createLiveSharingCaches, loadBookingLiveSharing } from '../../../src/shared/server/bookingLiveSharing';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -84,6 +85,24 @@ export async function GET(request: Request) {
         }
 
         bookings.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+        // MOV-294: opt-in, and only for a passenger's own history. Each booking is
+        // resolved through its own trip to the bus operating it, so the result can
+        // only describe a vehicle this passenger booked. Callers that do not ask
+        // (the Booking tab, the driver manifest) get exactly the response they did.
+        if (passengerId && url.searchParams.get('include') === 'liveSharing') {
+            const caches = createLiveSharingCaches();
+            const now = new Date();
+
+            await Promise.all(
+                bookings.map(async (b: any) => {
+                    const liveSharing = await loadBookingLiveSharing(adminDb, b, caches, now);
+                    if (liveSharing) {
+                        b.liveSharing = liveSharing;
+                    }
+                })
+            );
+        }
 
         return Response.json(
             { success: true, message: 'Booking history retrieved successfully.', bookings },

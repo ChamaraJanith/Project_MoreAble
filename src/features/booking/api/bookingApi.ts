@@ -74,8 +74,14 @@ export async function getBooking(bookingId: string): Promise<Booking> {
     return data.booking as Booking;
 }
 
-export async function getBookingHistory(passengerId: string): Promise<Booking[]> {
-    const data = await bookingFetch(`/api/booking/history?passengerId=${encodeURIComponent(passengerId)}`);
+export interface BookingHistoryOptions {
+    /** Attach each booking's `liveSharing` block (MOV-294, Activities only). */
+    includeLiveSharing?: boolean;
+}
+
+export async function getBookingHistory(passengerId: string, options?: BookingHistoryOptions): Promise<Booking[]> {
+    const include = options?.includeLiveSharing ? '&include=liveSharing' : '';
+    const data = await bookingFetch(`/api/booking/history?passengerId=${encodeURIComponent(passengerId)}${include}`);
     return Array.isArray(data.bookings) ? (data.bookings as Booking[]) : [];
 }
 

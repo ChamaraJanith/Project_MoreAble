@@ -53,6 +53,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="activities/index"
+        options={{
+          title: 'Activities',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="time-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
           name="booking/index"
           options={{
               title: 'Bookings',
