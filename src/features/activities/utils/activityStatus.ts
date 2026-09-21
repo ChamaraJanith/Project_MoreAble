@@ -23,7 +23,7 @@
 // module re-checks that, and re-checks the window against the current time so a
 // list left open drops a journey the moment it expires.
 
-import { Booking } from '../../../entities/booking/model/types';
+import { Booking, PassengerOngoingJourney } from '../../../entities/booking/model/types';
 import { isJourneyActive } from '../../../shared/utils/journeyLifecycle';
 import { apiTimeToMinutes } from '../../journey/utils/dateTime';
 
@@ -171,4 +171,34 @@ export function groupActivities(bookings: Booking[], passengerId: string, now: D
     completed.sort((a, b) => new Date(b.boardedAt ?? 0).getTime() - new Date(a.boardedAt ?? 0).getTime());
 
     return { ongoing, completed };
+}
+
+/**
+ * The two tabs, with Ongoing decided by GET /api/journeys/ongoing (MOV-295).
+ *
+ * The server has already matched each booking to its own running trip; each
+ * one is still re-checked here, so a list left open drops a journey the moment
+ * its window runs out. The history then only decides Completed — a booking the
+ * server did not report as ongoing has its history `activeJourney` ignored, so
+ * the two tabs are never decided by two different answers.
+ */
+export function groupActivitiesWithOngoing(
+    history: Booking[],
+    ongoingJourneys: PassengerOngoingJourney[],
+    passengerId: string,
+    now: Date
+): ActivityGroups {
+    const ongoingIds = new Set(ongoingJourneys.map((journey) => journey.booking?.bookingId));
+    const { completed } = groupActivities(
+        history.map((booking) => (ongoingIds.has(booking.bookingId) ? booking : { ...booking, activeJourney: undefined })),
+        passengerId,
+        now
+    );
+    const ongoing = groupActivities(
+        ongoingJourneys.map((journey) => ({ ...journey.booking, activeJourney: journey.activeJourney })),
+        passengerId,
+        now
+    ).ongoing;
+
+    return { ongoing, completed: completed.filter((booking) => !ongoingIds.has(booking.bookingId)) };
 }

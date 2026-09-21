@@ -1,4 +1,6 @@
-export type SeatStatus = 'AVAILABLE' | 'RESERVED' | 'OCCUPIED';
+import { JourneyLiveStatus } from '../../route/model/types';
+
+export type SeatStatus ='AVAILABLE' | 'RESERVED' | 'OCCUPIED';
 export type SeatCategory = 'STANDARD' | 'PRIORITY' | 'GUARDIAN' | 'ELDERLY' | 'WHEELCHAIR';
 
 export interface Seat {
@@ -174,6 +176,27 @@ export interface BookingActiveJourney {
   startedAt: string;
   /** ISO 8601, when it stops counting as running if nobody ends it. */
   expiresAt: string;
+}
+
+/**
+ * One of the signed-in passenger's own bookings whose exact trip is running
+ * right now, with where that trip's bus is (MOV-295).
+ *
+ * Returned by GET /api/journeys/ongoing. Journey details (route, stops,
+ * scheduled times, vehicle) are the booking's own `journey` and `vehicle`
+ * blocks rather than copies of them.
+ */
+export interface PassengerOngoingJourney {
+  booking: Booking;
+  /** The running Start Journey of booking.tripId. */
+  activeJourney: BookingActiveJourney;
+  /** The bus that started this trip's journey; null only if the record names none. */
+  busId: string | null;
+  /**
+   * The existing live block (see buildLiveStatus). `available` only when that
+   * bus's latest fix was reported for THIS trip; age is reported, not judged.
+   */
+  liveStatus: JourneyLiveStatus;
 }
 
 

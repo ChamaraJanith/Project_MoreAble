@@ -14,10 +14,11 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { Booking } from '../../../src/entities/booking/model/types';
+import { Booking, PassengerOngoingJourney } from '../../../src/entities/booking/model/types';
+import { getOngoingJourneys } from '../../../src/features/activities/api/ongoingJourneyApi';
 import { ActivityJourneyCard } from '../../../src/features/activities/ui/ActivityJourneyCard';
 import { completedJourneyHref, ongoingJourneyHref } from '../../../src/features/activities/utils/activityRoutes';
-import { groupActivities } from '../../../src/features/activities/utils/activityStatus';
+import { groupActivitiesWithOngoing } from '../../../src/features/activities/utils/activityStatus';
 import { getBookingHistory } from '../../../src/features/booking/api/bookingApi';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 
@@ -34,10 +35,11 @@ const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
 // the Booking tab, which keeps managing reservations and tickets unchanged.
 export default function ActivitiesScreen() {
     const { t } = useTranslation();
-    const { user } = useAuthStore();
+    const { user, token } = useAuthStore();
     const passengerId = user?.passengerId;
 
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [ongoingJourneys, setOngoingJourneys] = useState<PassengerOngoingJourney[]>([]);
     const [checkedAt, setCheckedAt] = useState(() => new Date());
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -50,7 +52,7 @@ export default function ActivitiesScreen() {
 
     const load = useCallback(
         async (mode: 'initial' | 'refresh' | 'silent' = 'initial') => {
-            if (!passengerId) {
+            if (!passengerId || !token) {
                 setLoading(false);
                 return;
             }
@@ -62,9 +64,15 @@ export default function ActivitiesScreen() {
             if (mode !== 'silent') setError('');
 
             try {
-                const data = await getBookingHistory(passengerId, { includeLiveSharing: true });
+                // Ongoing comes from the passenger's own session (MOV-295);
+                // the history still supplies Completed.
+                const [data, ongoing] = await Promise.all([
+                    getBookingHistory(passengerId, { includeLiveSharing: true }),
+                    getOngoingJourneys(token),
+                ]);
                 if (requestId !== latestRequest.current) return;
                 setBookings(data);
+                setOngoingJourneys(ongoing);
                 setCheckedAt(new Date());
                 setError('');
             } catch (err: any) {
@@ -80,7 +88,7 @@ export default function ActivitiesScreen() {
                 }
             }
         },
-        [passengerId, t]
+        [passengerId, token, t]
     );
 
     useFocusEffect(
@@ -92,8 +100,8 @@ export default function ActivitiesScreen() {
     );
 
     const groups = useMemo(
-        () => groupActivities(bookings, passengerId ?? '', checkedAt),
-        [bookings, passengerId, checkedAt]
+        () => groupActivitiesWithOngoing(bookings, ongoingJourneys, passengerId ?? '', checkedAt),
+        [bookings, ongoingJourneys, passengerId, checkedAt]
     );
 
     const openActivity = useCallback((booking: Booking, tab: ActivityTab) => {

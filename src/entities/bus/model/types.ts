@@ -30,6 +30,12 @@ export interface VehicleLocation {
     longitude: number;
     /** ISO 8601 time of the GPS fix itself, as reported by the device. */
     recordedAt: string;
+    /**
+     * The trip this fix was reported for (MOV-295). Set only when the device
+     * published with the journey-sharing credential Start Journey issued, so it
+     * always names a trip the server started for this bus. Absent otherwise.
+     */
+    tripId?: string;
 }
 
 /**

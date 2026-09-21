@@ -4,6 +4,7 @@ import {
   unauthorizedResponse,
 } from '../../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { JOURNEY_SHARING_SCOPE } from '../../../../src/shared/config/jwt';
 import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
 
 const corsHeaders = {
@@ -212,12 +213,24 @@ export async function PUT(request: Request, context?: any) {
       );
     }
 
+    // The trip this position was reported for (MOV-295), so a passenger's
+    // ongoing journey only ever shows a fix taken on their own trip. Taken from
+    // the journey-sharing credential — signed by the server at Start Journey for
+    // this bus and trip — and never from the request body, which the caller
+    // controls. Any other session files a position with no trip.
+    const reportedTripId =
+      account?.scope === JOURNEY_SHARING_SCOPE && typeof account.tripId === 'string' && account.tripId.trim()
+        ? account.tripId.trim()
+        : null;
+
     // Only the position is stored — never a copy of the bus's own details.
+    // `set` replaces the record, so a later fix with no trip drops the old one.
     const location: VehicleLocation = {
       busId: authorisedBusId,
       latitude,
       longitude,
       recordedAt: normalisedRecordedAt,
+      ...(reportedTripId ? { tripId: reportedTripId } : {}),
     };
 
     await adminDb
