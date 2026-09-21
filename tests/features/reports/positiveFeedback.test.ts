@@ -8,10 +8,7 @@ import {
     POSITIVE_FEEDBACK_CATEGORIES,
     REPORT_ISSUE_CATEGORIES,
 } from '../../../src/entities/report/model/types';
-import {
-    POSITIVE_FEEDBACK_UNAVAILABLE_MESSAGE,
-    submitPositiveFeedback,
-} from '../../../src/features/reports/api/positiveFeedbackApi';
+import { submitPositiveFeedback } from '../../../src/features/reports/api/positiveFeedbackApi';
 import {
     POSITIVE_FEEDBACK_CATEGORY_OPTIONS,
     positiveFeedbackCategoryLabel,
@@ -22,6 +19,8 @@ import {
     PositiveFeedbackFormState,
     positiveFeedbackFieldErrors,
 } from '../../../src/features/reports/utils/positiveFeedbackValidation';
+
+jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: '' }));
 
 /** A form with everything filled in; tests take away what they are about. */
 function completeForm(overrides: Partial<PositiveFeedbackFormState> = {}): PositiveFeedbackFormState {
@@ -151,55 +150,146 @@ describe('buildPositiveFeedbackPayload', () => {
 });
 
 // ==================================================================
-// Submit client (placeholder until MOV-301)
+// Submit client — POST /api/reports with type POSITIVE
 // ==================================================================
 describe('submitPositiveFeedback', () => {
     const payload = buildPositiveFeedbackPayload(completeForm())!;
+    const TOKEN = 'session-token-value';
 
-    let logSpy: jest.SpyInstance;
+    const mockFetch = jest.fn();
+    const originalFetch = global.fetch;
+
     beforeEach(() => {
-        logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        mockFetch.mockReset();
+        global.fetch = mockFetch as unknown as typeof fetch;
     });
-    afterEach(() => logSpy.mockRestore());
+    afterAll(() => {
+        global.fetch = originalFetch;
+    });
 
-    it('refuses a request without a session', async () => {
-        await expect(submitPositiveFeedback(payload, '', { simulate: true })).resolves.toEqual({
-            ok: false,
-            status: 401,
-            message: 'Authentication required. Please log in again.',
+    function respondWith(status: number, body: unknown) {
+        mockFetch.mockResolvedValue({
+            ok: status >= 200 && status < 300,
+            status,
+            json: async () => body,
+        });
+    }
+
+    function sentRequest() {
+        const [url, init] = mockFetch.mock.calls[0];
+
+        return {
+            url: String(url),
+            init,
+            headers: (init?.headers ?? {}) as Record<string, string>,
+            body: init?.body ? JSON.parse(init.body) : undefined,
+        };
+    }
+
+    const CREATED = {
+        reportId: 'REP-00012',
+        passengerId: 'PSG-00001',
+        type: 'POSITIVE',
+        category: 'HELPFUL_DRIVER',
+        description: payload.description,
+        status: 'PENDING',
+    };
+
+    it('posts the payload to the existing reports endpoint', async () => {
+        respondWith(201, { success: true, report: CREATED });
+
+        await submitPositiveFeedback(payload, TOKEN);
+
+        const request = sentRequest();
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(request.url).toBe('/api/reports');
+        expect(request.init.method).toBe('POST');
+        expect(request.body).toEqual(payload);
+    });
+
+    it('sends the session token and no passengerId', async () => {
+        respondWith(201, { success: true, report: CREATED });
+
+        await submitPositiveFeedback(payload, TOKEN);
+
+        const request = sentRequest();
+        expect(request.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+        expect(request.headers['Content-Type']).toBe('application/json');
+        expect(request.body).not.toHaveProperty('passengerId');
+    });
+
+    it('returns the created report on success', async () => {
+        respondWith(201, { success: true, report: CREATED });
+
+        await expect(submitPositiveFeedback(payload, TOKEN)).resolves.toEqual({
+            ok: true,
+            report: CREATED,
         });
     });
 
-    it('says honestly that it is not available when not simulating', async () => {
-        await expect(submitPositiveFeedback(payload, 'token', { simulate: false })).resolves.toEqual({
-            ok: false,
-            status: 501,
-            message: POSITIVE_FEEDBACK_UNAVAILABLE_MESSAGE,
-        });
-    });
+    it('refuses to report success when no report came back', async () => {
+        respondWith(201, { success: true });
 
-    it('defaults to not simulating outside a development build', async () => {
-        const result = await submitPositiveFeedback(payload, 'token');
+        const result = await submitPositiveFeedback(payload, TOKEN);
 
         expect(result.ok).toBe(false);
     });
 
-    it('succeeds when simulating', async () => {
-        await expect(submitPositiveFeedback(payload, 'token', { simulate: true })).resolves.toEqual({
-            ok: true,
+    it('refuses a request without a session, without calling the API', async () => {
+        const result = await submitPositiveFeedback(payload, '');
+
+        expect(result).toEqual({
+            ok: false,
+            status: 401,
+            message: 'Authentication required. Please log in again.',
+        });
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('passes the API wording through for a 400', async () => {
+        respondWith(400, { success: false, message: 'Invalid feedback category.' });
+
+        await expect(submitPositiveFeedback(payload, TOKEN)).resolves.toEqual({
+            ok: false,
+            status: 400,
+            message: 'Invalid feedback category.',
         });
     });
 
-    it('makes no network request', async () => {
-        const fetchSpy = jest.fn();
-        const originalFetch = global.fetch;
-        global.fetch = fetchSpy as unknown as typeof fetch;
+    it('explains a 401 and a 403', async () => {
+        respondWith(401, { success: false, message: 'Authentication required.' });
+        expect(await submitPositiveFeedback(payload, TOKEN)).toMatchObject({
+            ok: false,
+            status: 401,
+            message: 'Authentication required. Please log in again.',
+        });
 
-        try {
-            await submitPositiveFeedback(payload, 'token', { simulate: false });
-            expect(fetchSpy).not.toHaveBeenCalled();
-        } finally {
-            global.fetch = originalFetch;
-        }
+        respondWith(403, { success: false, message: 'Only passengers can create accessibility reports.' });
+        expect(await submitPositiveFeedback(payload, TOKEN)).toMatchObject({
+            ok: false,
+            status: 403,
+            message: 'Only passengers can submit accessibility feedback.',
+        });
+    });
+
+    it('does not leak a server error message', async () => {
+        respondWith(500, { success: false, message: 'Failed', error: 'Firestore unavailable' });
+
+        expect(await submitPositiveFeedback(payload, TOKEN)).toEqual({
+            ok: false,
+            status: 500,
+            message: 'Unable to submit your feedback right now. Please try again.',
+        });
+    });
+
+    it('reports a network failure as a failure', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+        mockFetch.mockRejectedValue(new TypeError('Network request failed'));
+
+        const result = await submitPositiveFeedback(payload, TOKEN);
+
+        expect(result.ok).toBe(false);
+        expect(result).toMatchObject({ message: expect.stringMatching(/unable to connect/i) });
+        errorSpy.mockRestore();
     });
 });

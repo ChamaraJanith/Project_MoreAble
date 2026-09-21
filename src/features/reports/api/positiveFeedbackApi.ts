@@ -1,68 +1,86 @@
 /**
- * The client half of positive accessibility feedback (MOV-300).
+ * The client half of positive accessibility feedback (MOV-300 / MOV-301).
  *
- * The screen calls submitPositiveFeedback and nothing else, so connecting the
- * real endpoint in MOV-301 is a change to this file alone.
+ * Positive feedback is a report of type POSITIVE, so it is filed through the
+ * same POST /api/reports the issue form uses — same collection, same REP- id,
+ * same PENDING start. The route tells the two apart by the `type` in the body;
+ * see shared/server/reportContent.
  *
- * There is no backend for it yet, and POST /api/reports cannot stand in: it
- * validates `issueCategory` against the ISSUE categories and would refuse every
- * positive one with a 400. Until MOV-301 lands, a development build simulates a
- * successful submission so the whole flow can be walked through, and a release
- * build answers with an honest "not available yet" — a passenger must never be
- * thanked for feedback that was not stored anywhere.
+ * The screen calls submitPositiveFeedback and nothing else. The session token
+ * is the only identity sent: the route takes the passenger from it, so there
+ * is deliberately no passengerId in the payload.
  */
 
-import { PositiveFeedbackPayload } from '../../../entities/report/model/types';
+import {
+    AccessibilityReport,
+    PositiveFeedbackPayload,
+} from '../../../entities/report/model/types';
+import { API_BASE_URL } from '../../../shared/api/config';
 
 /** What a submission produced, or why it did not — the shape reviewApi uses. */
 export type PositiveFeedbackResult =
-    | { ok: true }
+    | { ok: true; report: AccessibilityReport }
     | { ok: false; message: string; status?: number };
 
-export const POSITIVE_FEEDBACK_UNAVAILABLE_MESSAGE =
-    'Positive feedback cannot be sent just yet. Please try again after the next app update.';
-
-export interface SubmitPositiveFeedbackOptions {
-    /**
-     * Whether to pretend the request succeeded. Defaults to development builds
-     * only; tests pass it explicitly.
-     */
-    simulate?: boolean;
-}
-
-/** Stands in for network latency, so the loading state is visible in dev. */
-const SIMULATED_DELAY_MS = 800;
-
-function isDevelopmentBuild(): boolean {
-    // `__DEV__` is defined by the React Native bundler and absent under Jest.
-    return typeof __DEV__ !== 'undefined' && __DEV__;
-}
+const AUTH_REQUIRED_MESSAGE = 'Authentication required. Please log in again.';
 
 /**
- * Submits one piece of positive feedback on behalf of the session.
+ * The message for a refused request.
  *
- * MOV-301: replace the body below the token check with the real request —
- * `POST` the payload with `Authorization: Bearer ${token}` — and map 401/403/
- * 400 the way ReportFormScreen does for issue reports. The signature and the
- * result shape should stay as they are, so the screen needs no change.
+ * The API's own wording is preferred for a 400 or 404 — it is the one that
+ * knows whether the category or the bus was the problem — and the rest map to
+ * the same messages the issue form shows for the same statuses.
  */
+function failureMessage(status: number, payload: any): string {
+    const apiMessage =
+        typeof payload?.message === 'string' && payload.message ? payload.message : null;
+
+    if (status === 401) return AUTH_REQUIRED_MESSAGE;
+    if (status === 403) return 'Only passengers can submit accessibility feedback.';
+    if (status === 400 || status === 404) {
+        return apiMessage ?? 'Invalid request. Please check your inputs.';
+    }
+
+    return 'Unable to submit your feedback right now. Please try again.';
+}
+
+/** POST /api/reports with `type: 'POSITIVE'`. */
 export async function submitPositiveFeedback(
     payload: PositiveFeedbackPayload,
-    token: string,
-    options: SubmitPositiveFeedbackOptions = {}
+    token: string
 ): Promise<PositiveFeedbackResult> {
     if (!token) {
-        return { ok: false, status: 401, message: 'Authentication required. Please log in again.' };
+        return { ok: false, status: 401, message: AUTH_REQUIRED_MESSAGE };
     }
 
-    const simulate = options.simulate ?? isDevelopmentBuild();
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/reports`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+        });
 
-    if (!simulate) {
-        return { ok: false, status: 501, message: POSITIVE_FEEDBACK_UNAVAILABLE_MESSAGE };
+        const result = await response.json().catch(() => ({}));
+
+        // Success is the stored report coming back, not merely a 2xx: a
+        // response without it is not proof anything was written, and the
+        // passenger must never be thanked for feedback that was not saved.
+        if (response.ok && result?.success && result?.report?.reportId) {
+            return { ok: true, report: result.report as AccessibilityReport };
+        }
+
+        const status = response.ok ? 500 : response.status;
+
+        return { ok: false, status, message: failureMessage(status, result) };
+    } catch (error) {
+        console.error('Positive Feedback Submission Error:', error);
+
+        return {
+            ok: false,
+            message: 'Unable to connect to the server. Please check your connection and try again.',
+        };
     }
-
-    await new Promise((resolve) => setTimeout(resolve, SIMULATED_DELAY_MS));
-    console.log('[MOV-300] Simulated positive feedback submission:', payload);
-
-    return { ok: true };
 }
