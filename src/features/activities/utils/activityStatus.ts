@@ -6,7 +6,7 @@
 //
 //   ONGOING   — the bus pressed Start Journey on THIS booking's exact trip, and
 //               that journey is still running: not ended with End Journey, and
-//               within its window from the actual start (journeyLifecycle).
+//               before its scheduled service's arrival + grace (journeyLifecycle).
 //   COMPLETED — the journey's completion was recorded (MOV-297): the
 //               passenger pressed End Journey, or the bus ended the run while
 //               theirs was still going. Failing that (journeys finished before
@@ -18,9 +18,10 @@
 // that was never boarded — belongs to neither tab. It stays in the Booking tab,
 // which is unchanged.
 //
-// Ongoing does not depend on the scheduled departure, on the bus's device being
-// signed in, or on how recently it sent a position: a 06:00 trip started at
-// 20:35 is ongoing from 20:35, and stays so while the driver is logged out.
+// Ongoing does not wait for the scheduled departure, and does not depend on the
+// bus's device being signed in or on how recently it sent a position: a 06:00
+// trip started at 02:52 is ongoing from 02:52, and stays so while the driver is
+// logged out, until the 06:00 service's arrival + grace.
 //
 // The trip match itself is made on the server: `activeJourney` is read from
 // trips/{booking.tripId}, so it can only describe the booking's own trip. This
@@ -80,7 +81,10 @@ export function isBookedTripRunning(booking: Booking, now: Date): boolean {
         return false;
     }
 
-    return isJourneyActive({ status: 'STARTED', startedAt: journey.startedAt, endedAt: null }, now);
+    return isJourneyActive(
+        { status: 'STARTED', startedAt: journey.startedAt, endedAt: null, expiresAt: journey.expiresAt },
+        now
+    );
 }
 
 /**

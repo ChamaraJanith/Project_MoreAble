@@ -327,17 +327,17 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     /**
-     * Stopping is an outlined button rather than a filled one, so "on" and
-     * "off" are not the same shape in two colours. The label changes too, so
-     * the difference never rests on the styling alone.
+     * Stopping is red rather than the blue of starting. The label changes too,
+     * so the difference never rests on the colour alone. The border keeps the
+     * button the same size as before.
      */
     stopButton: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#D32F2F',
         borderWidth: 2,
-        borderColor: '#0066CC',
+        borderColor: '#D32F2F',
     },
     stopButtonText: {
-        color: '#0066CC',
+        color: '#FFFFFF',
     },
     secondaryButton: {
         minHeight: 48,

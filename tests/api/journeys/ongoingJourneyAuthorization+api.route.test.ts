@@ -92,7 +92,13 @@ function booking(bookingId: string, userId: string, tripId: string, busId: strin
     };
 }
 
-const running = (busId: string, startedAt: string = STARTED_AT) => ({ status: 'STARTED', startedAt, endedAt: null, busId });
+const running = (busId: string, startedAt: string = STARTED_AT) => ({
+    status: 'STARTED',
+    startedAt,
+    endedAt: null,
+    busId,
+    expiresAt: minutesAgo(-120),
+});
 
 const fixForRun = (extra: Record<string, unknown> = {}) => ({
     id: 'BUS-A',

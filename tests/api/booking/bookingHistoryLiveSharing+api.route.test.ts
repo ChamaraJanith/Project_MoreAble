@@ -63,7 +63,7 @@ function seed(overrides: Record<string, any[]> = {}) {
                 tripId: 'TRIP-A',
                 routeId: 'ROUTE-177',
                 busId: 'BUS-A',
-                journey: { status: 'STARTED', startedAt: minutesAgo(30), endedAt: null, busId: 'BUS-A' },
+                journey: { status: 'STARTED', startedAt: minutesAgo(30), endedAt: null, busId: 'BUS-A', expiresAt: minutesAgo(-120) },
             },
             { tripId: 'TRIP-B', routeId: 'ROUTE-177', busId: 'BUS-B' },
         ],
@@ -98,7 +98,7 @@ describe('GET /api/booking/history?include=liveSharing — activeJourney', () =>
         expect(bookingIn(body, 'BK-A').activeJourney).toEqual({
             tripId: 'TRIP-A',
             startedAt: minutesAgo(30),
-            expiresAt: new Date(new Date(minutesAgo(30)).getTime() + 23 * 60 * 60_000).toISOString(),
+            expiresAt: minutesAgo(-120),
         });
     });
 

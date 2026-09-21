@@ -115,11 +115,19 @@ const STOPS = [
 
 let db: ReturnType<typeof createFakeFirestore>;
 
+/**
+ * 'HH:MM' in Sri Lanka time, `offsetMinutes` from now. These tests run on the
+ * real clock, so TRIP-001's scheduled service is placed around it (an hour ago
+ * to three hours ahead) and a Start Journey always lands inside it.
+ */
+const serviceClock = (offsetMinutes: number) =>
+    new Date(Date.now() + (330 + offsetMinutes) * 60_000).toISOString().slice(11, 16);
+
 function seed(extraBookings: any[] = []) {
     db = createFakeFirestore({
         trips: [
-            { id: 'TRIP-001', tripId: 'TRIP-001', routeId: ROUTE, busId: 'BUS-A', status: 'ACTIVE', departureTime: '06:00' },
-            { id: 'TRIP-002', tripId: 'TRIP-002', routeId: ROUTE, busId: 'BUS-A', status: 'ACTIVE', departureTime: '09:00' },
+            { id: 'TRIP-001', tripId: 'TRIP-001', routeId: ROUTE, busId: 'BUS-A', status: 'ACTIVE', departureTime: serviceClock(-60), estimatedArrivalTime: serviceClock(180) },
+            { id: 'TRIP-002', tripId: 'TRIP-002', routeId: ROUTE, busId: 'BUS-A', status: 'ACTIVE', departureTime: '09:00', estimatedArrivalTime: '10:15' },
         ],
         routes: [
             {
@@ -247,7 +255,7 @@ describe('passenger End Journey — access (MOV-296 model)', () => {
         seed([booking('BK-A2', A, 'TRIP-001', { seatNumber: '06A' }), booking('BK-A3', A, 'TRIP-002')]);
         await bus('TRIP-001', 'START');
         // TRIP-002 is run by the same bus, so it cannot run at once; give it its own.
-        await db.collection('trips').doc('TRIP-002').update({ busId: 'BUS-Z', journey: { status: 'STARTED', startedAt: new Date().toISOString(), endedAt: null, busId: 'BUS-Z' } });
+        await db.collection('trips').doc('TRIP-002').update({ busId: 'BUS-Z', journey: { status: 'STARTED', startedAt: new Date().toISOString(), endedAt: null, busId: 'BUS-Z', expiresAt: new Date(Date.now() + 3 * 3600_000).toISOString() } });
 
         const { status, body } = await endJourney('token-a');
 

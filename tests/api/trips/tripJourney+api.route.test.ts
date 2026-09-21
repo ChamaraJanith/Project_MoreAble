@@ -8,7 +8,8 @@
 //
 // The point it pins: the journey is a property of the TRIP, persisted with the
 // actual start time. Nothing a device does to its own session ends it — only
-// End Journey, or 23 hours passing from the actual start. And its location
+// End Journey, or its scheduled service's arrival + 30 minutes passing (an
+// early start never moves that). And its location
 // sharing follows the journey, not the sign-in: after the dashboard logs out
 // the bus keeps reporting with the journey's own credential, and passengers
 // keep receiving it.
@@ -92,9 +93,18 @@ const TOKENS: Record<string, Record<string, unknown>> = {
     'passenger-session': { role: 'PASSENGER', passengerId: PASSENGER_A },
 };
 
-/** 21 Sep 2026, 20:35 local — long after the 06:00 scheduled departure. */
-const START_8_35_PM = new Date(2026, 8, 21, 20, 35, 0, 0);
+/** A Sri Lanka local time (UTC+05:30), whatever the machine's timezone. */
+const lk = (localIso: string) => new Date(`${localIso}+05:30`);
+
+/** 21 Sep 2026, 20:35 — after that day's 06:00 service, so it is the next day's. */
+const START_8_35_PM = lk('2026-09-21T20:35:00');
 const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+
+/** The 06:00 -> 07:10 service TRIP-A's 20:35 start belongs to, and its end. */
+const SERVICE_DEPARTURE = lk('2026-09-22T06:00:00');
+const SERVICE_ARRIVAL = lk('2026-09-22T07:10:00');
+const SERVICE_END = lk('2026-09-22T07:40:00');
 
 function trip(tripId: string, busId: string, departureTime: string, turnNumber: number) {
     return {
@@ -222,8 +232,11 @@ describe('Start Journey', () => {
             startedAt: START_8_35_PM.toISOString(),
             endedAt: null,
             busId: 'BUS-A',
+            scheduledDepartureAt: SERVICE_DEPARTURE.toISOString(),
+            scheduledArrivalAt: SERVICE_ARRIVAL.toISOString(),
+            expiresAt: SERVICE_END.toISOString(),
         });
-        expect(body.expiresAt).toBe(new Date(START_8_35_PM.getTime() + 23 * HOUR).toISOString());
+        expect(body.expiresAt).toBe(SERVICE_END.toISOString());
 
         const stored = await storedTrip('TRIP-A');
         expect(stored.journey.startedAt).toBe(START_8_35_PM.toISOString());
@@ -292,6 +305,13 @@ describe('Start Journey', () => {
         expect((await journey('TRIP-NOPE', 'START', 'bus-a-session')).status).toBe(404);
         expect((await journey('TRIP-A', 'PAUSE' as any, 'bus-a-session')).status).toBe(400);
     });
+
+    it('refuses a trip whose scheduled times cannot be read, since it would have no end', async () => {
+        await db.collection('trips').doc('TRIP-A').update({ estimatedArrivalTime: '' });
+
+        expect((await journey('TRIP-A', 'START', 'bus-a-session')).body.code).toBe('TRIP_SCHEDULE_INVALID');
+        expect((await storedTrip('TRIP-A')).journey).toBeUndefined();
+    });
 });
 
 // ==================================================================
@@ -322,7 +342,7 @@ describe('The device session does not end the journey', () => {
 
 // ==================================================================
 describe('Ending a journey', () => {
-    it('C. End Journey: the passenger no longer sees it, without waiting 23 hours', async () => {
+    it('C. End Journey: the passenger no longer sees it, without waiting for the scheduled end', async () => {
         await journey('TRIP-A', 'START', 'bus-a-session');
         at(HOUR);
 
@@ -344,18 +364,154 @@ describe('Ending a journey', () => {
         expect(await ongoingFor(PASSENGER_C)).toEqual(['BK-C']);
     });
 
-    it('H. 23 hours after the actual start it stops being ongoing if nobody ended it', async () => {
+    it('H. 30 minutes after the scheduled arrival it stops being ongoing if nobody ended it', async () => {
         await journey('TRIP-A', 'START', 'bus-a-session');
 
-        at(23 * HOUR - 60 * 1000);
+        jest.setSystemTime(new Date(SERVICE_END.getTime() - MINUTE));
         expect(await ongoingFor(PASSENGER_A)).toEqual(['BK-A']);
 
-        at(23 * HOUR);
+        jest.setSystemTime(SERVICE_END);
         expect(await ongoingFor(PASSENGER_A)).toEqual([]);
         expect(await deviceView('BUS-A')).toBeNull();
 
         // And the bus is free to start a trip again.
         expect((await journey('TRIP-A2', 'START', 'bus-a-session')).status).toBe(200);
+    });
+
+    it('H. an early start (02:52 for the 06:00) is still the 06:00 service, and ends at 07:40', async () => {
+        const earlyStart = lk('2026-09-22T02:52:00');
+        jest.setSystemTime(earlyStart);
+
+        const { body } = await journey('TRIP-A', 'START', 'bus-a-session');
+
+        // The actual start is recorded as it happened, but does not move the end.
+        expect(body.journey.startedAt).toBe(earlyStart.toISOString());
+        expect(body.journey.scheduledDepartureAt).toBe(SERVICE_DEPARTURE.toISOString());
+        expect(body.expiresAt).toBe(SERVICE_END.toISOString());
+
+        jest.setSystemTime(new Date(SERVICE_END.getTime() - MINUTE));
+        expect(await ongoingFor(PASSENGER_A)).toEqual(['BK-A']);
+
+        jest.setSystemTime(SERVICE_END);
+        expect(await ongoingFor(PASSENGER_A)).toEqual([]);
+        expect(await deviceView('BUS-A')).toBeNull();
+    });
+});
+
+// ==================================================================
+// The finalised rule: a scheduled service is started at most once.
+//
+// TRIP-A is 06:00 -> 07:10, so each day's service expires at 07:40. Times are
+// Sri Lanka time on 22 Sep ("today") and 23 Sep ("tomorrow").
+// ==================================================================
+describe('Scheduled service occurrences', () => {
+    const TOMORROW_DEPARTURE = lk('2026-09-23T06:00:00');
+    const TOMORROW_END = lk('2026-09-23T07:40:00');
+
+    async function startAt(localIso: string) {
+        jest.setSystemTime(lk(localIso));
+        return journey('TRIP-A', 'START', 'bus-a-session');
+    }
+
+    it("A, B. a 02:52 start is today's 06:00 service and expires at 07:40", async () => {
+        const { status, body } = await startAt('2026-09-22T02:52:00');
+
+        expect(status).toBe(200);
+        expect(body.journey.scheduledDepartureAt).toBe(SERVICE_DEPARTURE.toISOString());
+        expect(body.journey.scheduledArrivalAt).toBe(SERVICE_ARRIVAL.toISOString());
+        expect(body.journey.expiresAt).toBe(SERVICE_END.toISOString());
+    });
+
+    it.each([
+        ['C', '2026-09-22T06:01:00'],
+        ['D', '2026-09-22T06:30:00'],
+    ])('%s. a start at %s still expires at 07:40', async (_letter, localIso) => {
+        const { body } = await startAt(localIso);
+
+        expect(body.journey.startedAt).toBe(lk(localIso).toISOString());
+        expect(body.journey.scheduledDepartureAt).toBe(SERVICE_DEPARTURE.toISOString());
+        expect(body.expiresAt).toBe(SERVICE_END.toISOString());
+    });
+
+    it('E. a manual End before 07:40 ends it at that exact server time', async () => {
+        await startAt('2026-09-22T06:01:00');
+        jest.setSystemTime(lk('2026-09-22T07:05:00'));
+
+        const { body } = await journey('TRIP-A', 'END', 'bus-a-session');
+
+        expect(body.journey).toMatchObject({ status: 'ENDED', endedAt: lk('2026-09-22T07:05:00').toISOString() });
+        expect(body.active).toBe(false);
+        expect(await ongoingFor(PASSENGER_A)).toEqual([]);
+    });
+
+    it("F, G, H. at 08:00, after today's service expired, Start goes to tomorrow's 06:00 as a new run", async () => {
+        const first = (await startAt('2026-09-22T02:52:00')).body.journey;
+
+        const { status, body } = await startAt('2026-09-22T08:00:00');
+
+        expect(status).toBe(200);
+        // F. today's finished 06:00 service is not reopened.
+        expect(body.journey.scheduledDepartureAt).not.toBe(SERVICE_DEPARTURE.toISOString());
+        // G. it is the next occurrence, with that occurrence's own expiry.
+        expect(body.journey.scheduledDepartureAt).toBe(TOMORROW_DEPARTURE.toISOString());
+        expect(body.expiresAt).toBe(TOMORROW_END.toISOString());
+        // H. a different run: tripId + startedAt no longer names the first.
+        expect(body.journey.startedAt).toBe(lk('2026-09-22T08:00:00').toISOString());
+        expect(body.journey.startedAt).not.toBe(first.startedAt);
+    });
+
+    it("F. a service ended by hand is not started again, even before its 07:40 expiry", async () => {
+        await startAt('2026-09-22T06:01:00');
+        jest.setSystemTime(lk('2026-09-22T07:05:00'));
+        await journey('TRIP-A', 'END', 'bus-a-session');
+
+        const { body } = await startAt('2026-09-22T07:10:00');
+
+        expect(body.journey.status).toBe('STARTED');
+        expect(body.journey.scheduledDepartureAt).toBe(TOMORROW_DEPARTURE.toISOString());
+        expect(body.expiresAt).toBe(TOMORROW_END.toISOString());
+    });
+
+    it('G. an upcoming occurrence can still be started early after the last one ended', async () => {
+        await startAt('2026-09-22T06:01:00');
+        jest.setSystemTime(lk('2026-09-22T07:05:00'));
+        await journey('TRIP-A', 'END', 'bus-a-session');
+
+        // Tomorrow 02:52: today's run is done, tomorrow's is upcoming.
+        const { body } = await startAt('2026-09-23T02:52:00');
+
+        expect(body.journey.scheduledDepartureAt).toBe(TOMORROW_DEPARTURE.toISOString());
+        expect(body.expiresAt).toBe(TOMORROW_END.toISOString());
+    });
+
+    it('H. an early start of tomorrow, ended, moves the next start to the day after', async () => {
+        await startAt('2026-09-22T20:35:00'); // tomorrow's 06:00, started early
+        jest.setSystemTime(lk('2026-09-22T21:00:00'));
+        await journey('TRIP-A', 'END', 'bus-a-session');
+
+        const { body } = await startAt('2026-09-22T21:30:00');
+
+        expect(body.journey.scheduledDepartureAt).toBe(lk('2026-09-24T06:00:00').toISOString());
+        expect(body.expiresAt).toBe(lk('2026-09-24T07:40:00').toISOString());
+    });
+
+    it("I. an overnight 23:30 -> 00:45 trip expires at 01:15 the next day", async () => {
+        await db.collection('trips').doc('TRIP-A').update({ departureTime: '23:30', estimatedArrivalTime: '00:45' });
+
+        const { body } = await startAt('2026-09-22T22:00:00');
+
+        expect(body.journey.scheduledDepartureAt).toBe(lk('2026-09-22T23:30:00').toISOString());
+        expect(body.journey.scheduledArrivalAt).toBe(lk('2026-09-23T00:45:00').toISOString());
+        expect(body.expiresAt).toBe(lk('2026-09-23T01:15:00').toISOString());
+
+        jest.setSystemTime(lk('2026-09-23T01:14:00'));
+        expect(await ongoingFor(PASSENGER_A)).toEqual(['BK-A']);
+        jest.setSystemTime(lk('2026-09-23T01:15:00'));
+        expect(await ongoingFor(PASSENGER_A)).toEqual([]);
+
+        // And after it, the next night's service — not this one again.
+        const next = await startAt('2026-09-23T01:20:00');
+        expect(next.body.journey.scheduledDepartureAt).toBe(lk('2026-09-23T23:30:00').toISOString());
     });
 
     it('only the assigned bus may end it', async () => {

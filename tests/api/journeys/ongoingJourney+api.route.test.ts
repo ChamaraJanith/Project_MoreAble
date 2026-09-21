@@ -76,6 +76,7 @@ const startedJourney = (busId: string, startedAt: string = STARTED_AT) => ({
     startedAt,
     endedAt: null,
     busId,
+    expiresAt: minutesAgo(-120),
 });
 
 function trip(tripId: string, busId: string, extra: Record<string, unknown> = {}) {
@@ -188,7 +189,7 @@ describe('GET /api/journeys/ongoing — matching the active trip', () => {
         expect(journey.activeJourney).toEqual({
             tripId: 'TRIP-00004',
             startedAt: STARTED_AT,
-            expiresAt: new Date(new Date(STARTED_AT).getTime() + 23 * 60 * 60_000).toISOString(),
+            expiresAt: minutesAgo(-120),
         });
         expect(journey.busId).toBe('BUS-8899');
     });
@@ -227,10 +228,9 @@ describe('GET /api/journeys/ongoing — matching the active trip', () => {
         expect(body).toEqual(NOTHING);
     });
 
-    it('does not return a journey whose window has run out', async () => {
-        mockGetAdminDb.mockReturnValue(
-            seed({ trips: [trip('TRIP-00004', 'BUS-8899', { journey: startedJourney('BUS-8899', minutesAgo(24 * 60)) })] })
-        );
+    it('does not return a journey past its scheduled arrival + grace, however recently it started', async () => {
+        const overdue = { ...startedJourney('BUS-8899', minutesAgo(30)), expiresAt: minutesAgo(1) };
+        mockGetAdminDb.mockReturnValue(seed({ trips: [trip('TRIP-00004', 'BUS-8899', { journey: overdue })] }));
 
         const { body } = await ongoing(session(PASSENGER_A));
 

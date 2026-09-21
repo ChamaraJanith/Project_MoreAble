@@ -10,6 +10,7 @@ import {
   TripJourneyRecord,
   isJourneyActive,
   journeyExpiresAt,
+  scheduledServiceFor,
 } from '../../../../src/shared/utils/journeyLifecycle';
 
 const corsHeaders = {
@@ -203,11 +204,27 @@ export async function POST(request: Request, context?: any) {
       );
     }
 
+    // The run belongs to a scheduled service, which alone decides when it ends
+    // if nobody ends it: starting early never moves that (journeyLifecycle).
+    // The service this trip last ran is finished — ended or expired, since the
+    // journey is not running — so it is never started again: the start goes
+    // to the next occurrence.
+    const lastRun: Partial<TripJourneyRecord> | undefined = trip.journey;
+    const lastRunDeparture = lastRun?.scheduledDepartureAt ? new Date(lastRun.scheduledDepartureAt) : null;
+    const service = scheduledServiceFor(trip, now, lastRunDeparture);
+
+    if (!service) {
+      return fail(409, 'This trip has no valid scheduled times.', 'TRIP_SCHEDULE_INVALID');
+    }
+
     const started: TripJourneyRecord = {
       status: 'STARTED',
       startedAt: now.toISOString(),
       endedAt: null,
       busId: tripBusId,
+      scheduledDepartureAt: service.departureAt.toISOString(),
+      scheduledArrivalAt: service.arrivalAt.toISOString(),
+      expiresAt: service.expiresAt.toISOString(),
     };
 
     await tripRef.update({ journey: started });
