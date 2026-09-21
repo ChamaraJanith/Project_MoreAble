@@ -2,8 +2,9 @@
 //
 // Ongoing must never mean "has a CONFIRMED booking". It means the bus pressed
 // Start Journey on the passenger's EXACT booked trip, and that journey is still
-// running: not ended, and within 23 hours of the actual start. Nothing about
-// the scheduled time, the device session or the route decides it.
+// running: not ended, and before its scheduled service's arrival + 30 minutes.
+// The actual start never moves that end, and nothing about the device session
+// or the route decides it.
 //
 // Letters refer to the lifecycle test plan (A–J).
 
@@ -16,9 +17,10 @@ import {
 } from '../../../src/features/activities/utils/activityStatus';
 import { completedJourneyHref, ongoingJourneyHref } from '../../../src/features/activities/utils/activityRoutes';
 import {
-    JOURNEY_ACTIVE_WINDOW_HOURS,
+    JOURNEY_END_GRACE_MINUTES,
     isJourneyActive,
     journeyExpiresAt,
+    scheduledServiceFor,
 } from '../../../src/shared/utils/journeyLifecycle';
 
 // ------------------------------------------------------------------
@@ -26,7 +28,6 @@ import {
 // ------------------------------------------------------------------
 const PASSENGER = 'PAS-2026-00001';
 const OTHER_PASSENGER = 'PAS-2026-00002';
-const HOUR = 60 * 60 * 1000;
 
 /** 21 Sep 2026 at the given local time. */
 function at(hours: number, minutes: number, dayOffset = 0): Date {
@@ -66,12 +67,15 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
     };
 }
 
+/** TRIP-A's timetable slot, as stored on the trip. */
+const TRIP_A_SCHEDULE = { departureTime: '06:00', estimatedArrivalTime: '06:40' };
+
 /** The persisted Start Journey of TRIP-A, as the history endpoint reports it. */
 function started(startedAt: Date, tripId = 'TRIP-A'): BookingActiveJourney {
     return {
         tripId,
         startedAt: startedAt.toISOString(),
-        expiresAt: plus(startedAt, JOURNEY_ACTIVE_WINDOW_HOURS * HOUR).toISOString(),
+        expiresAt: scheduledServiceFor(TRIP_A_SCHEDULE, startedAt)!.expiresAt.toISOString(),
     };
 }
 
@@ -79,41 +83,101 @@ function started(startedAt: Date, tripId = 'TRIP-A'): BookingActiveJourney {
 const START_8_35_PM = at(20, 35);
 
 // ------------------------------------------------------------------
-// The 23-hour window
+// The lifecycle end: the scheduled service's arrival + grace
 // ------------------------------------------------------------------
-describe('journeyLifecycle — the active window runs from the actual start', () => {
-    const record = (overrides = {}) => ({
-        status: 'STARTED' as const,
-        startedAt: START_8_35_PM.toISOString(),
-        endedAt: null,
-        busId: 'BUS-A',
-        ...overrides,
+describe('journeyLifecycle — a journey runs until its scheduled arrival + 30 minutes', () => {
+    /** A record as Start Journey persists it for a 06:00 -> 07:10 trip. */
+    const record = (startedAt: Date, overrides = {}) => {
+        const service = scheduledServiceFor({ departureTime: '06:00', estimatedArrivalTime: '07:10' }, startedAt)!;
+        return {
+            status: 'STARTED' as const,
+            startedAt: startedAt.toISOString(),
+            endedAt: null,
+            busId: 'BUS-A',
+            scheduledDepartureAt: service.departureAt.toISOString(),
+            scheduledArrivalAt: service.arrivalAt.toISOString(),
+            expiresAt: service.expiresAt.toISOString(),
+            ...overrides,
+        };
+    };
+
+    it('uses a 30-minute grace period', () => {
+        expect(JOURNEY_END_GRACE_MINUTES).toBe(30);
     });
 
-    it('lasts 23 hours from Start Journey: 8:35 PM today to 7:35 PM tomorrow', () => {
-        expect(journeyExpiresAt(record())).toEqual(at(19, 35, 1));
+    it('an early start (02:52 for a 06:00 -> 07:10 trip) stays the 06:00 service and ends at 07:40', () => {
+        const early = record(at(2, 52));
+
+        expect(early.scheduledDepartureAt).toBe(at(6, 0).toISOString());
+        expect(early.scheduledArrivalAt).toBe(at(7, 10).toISOString());
+        expect(journeyExpiresAt(early)).toEqual(at(7, 40));
+        expect(isJourneyActive(early, at(2, 52))).toBe(true);
+        expect(isJourneyActive(early, at(7, 39))).toBe(true);
+        expect(isJourneyActive(early, at(7, 40))).toBe(false);
     });
 
-    it('is running from the moment it starts until just before it expires', () => {
-        expect(isJourneyActive(record(), START_8_35_PM)).toBe(true);
-        expect(isJourneyActive(record(), at(19, 34, 1))).toBe(true);
-        expect(isJourneyActive(record(), at(19, 35, 1))).toBe(false);
+    it('the actual start never shifts the end: any start before 07:40 ends at 07:40', () => {
+        for (const start of [at(0, 1), at(2, 52), at(6, 0), at(6, 45), at(7, 39)]) {
+            expect(journeyExpiresAt(record(start))).toEqual(at(7, 40));
+        }
     });
 
-    it('stops the moment it is ended, without waiting for the window', () => {
-        const ended = record({ status: 'ENDED', endedAt: at(21, 0).toISOString() });
+    it("a start after the day's service has finished belongs to the next day's", () => {
+        expect(journeyExpiresAt(record(START_8_35_PM))).toEqual(at(7, 40, 1));
+        expect(journeyExpiresAt(record(at(7, 40)))).toEqual(at(7, 40, 1));
+    });
 
-        expect(isJourneyActive(ended, at(21, 1))).toBe(false);
+    it('an overnight trip arrives the next day, and a start after midnight still joins it', () => {
+        const overnight = { departureTime: '23:30', estimatedArrivalTime: '00:50' };
+
+        expect(scheduledServiceFor(overnight, at(22, 0))!.expiresAt).toEqual(at(1, 20, 1));
+        expect(scheduledServiceFor(overnight, at(0, 30, 1))!.departureAt).toEqual(at(23, 30));
+        expect(scheduledServiceFor(overnight, at(0, 30, 1))!.expiresAt).toEqual(at(1, 20, 1));
+    });
+
+    it('never resolves to a service that already ran: it goes to the next occurrence', () => {
+        const trip = { departureTime: '06:00', estimatedArrivalTime: '07:10' };
+
+        // Today's 06:00 ran (ended by hand at 07:05); a start at 07:10 is tomorrow's.
+        const next = scheduledServiceFor(trip, at(7, 10), at(6, 0))!;
+        expect(next.departureAt).toEqual(at(6, 0, 1));
+        expect(next.expiresAt).toEqual(at(7, 40, 1));
+
+        // Without a previous run, the same start would still be today's.
+        expect(scheduledServiceFor(trip, at(7, 10))!.departureAt).toEqual(at(6, 0));
+        // A run of an earlier day does not hold back today's upcoming service.
+        expect(scheduledServiceFor(trip, at(2, 52), at(6, 0, -1))!.departureAt).toEqual(at(6, 0));
+    });
+
+    it('an overnight 23:30 -> 00:45 trip expires at 01:15 the next day', () => {
+        const service = scheduledServiceFor({ departureTime: '23:30', estimatedArrivalTime: '00:45' }, at(22, 0))!;
+
+        expect(service.arrivalAt).toEqual(at(0, 45, 1));
+        expect(service.expiresAt).toEqual(at(1, 15, 1));
+    });
+
+    it('has no service for a trip whose times cannot be read', () => {
+        expect(scheduledServiceFor({ departureTime: '06:00', estimatedArrivalTime: '' }, at(2, 52))).toBeNull();
+        expect(scheduledServiceFor({ departureTime: '25:00', estimatedArrivalTime: '07:10' }, at(2, 52))).toBeNull();
+        expect(scheduledServiceFor(null, at(2, 52))).toBeNull();
+    });
+
+    it('stops the moment it is ended, without waiting for the scheduled end', () => {
+        const ended = record(at(2, 52), { status: 'ENDED', endedAt: at(3, 0).toISOString() });
+
+        expect(isJourneyActive(ended, at(3, 1))).toBe(false);
     });
 
     it('never treats an unreadable record as running', () => {
         expect(isJourneyActive(null)).toBe(false);
-        expect(isJourneyActive(record({ startedAt: 'not-a-date' }), START_8_35_PM)).toBe(false);
-        expect(isJourneyActive({ status: 'STARTED' }, START_8_35_PM)).toBe(false);
+        expect(isJourneyActive(record(at(2, 52), { startedAt: 'not-a-date' }), at(3, 0))).toBe(false);
+        expect(isJourneyActive(record(at(2, 52), { expiresAt: 'not-a-date' }), at(3, 0))).toBe(false);
+        expect(isJourneyActive({ status: 'STARTED', startedAt: at(2, 52).toISOString(), endedAt: null }, at(3, 0))).toBe(false);
+        expect(isJourneyActive({ status: 'STARTED' }, at(3, 0))).toBe(false);
     });
 
     it('still counts a start stamped slightly ahead of this phone’s clock', () => {
-        expect(isJourneyActive(record(), plus(START_8_35_PM, -2 * 60 * 1000))).toBe(true);
+        expect(isJourneyActive(record(at(2, 52)), plus(at(2, 52), -2 * 60 * 1000))).toBe(true);
     });
 });
 
@@ -134,19 +198,28 @@ describe('Ongoing — the exact booked trip has a running journey', () => {
         expect(groupActivities([booking], PASSENGER, at(21, 0)).ongoing).toEqual([booking]);
     });
 
-    it('A. stays ongoing however long the device is signed out, until the window ends', () => {
+    it('A. stays ongoing however long the device is signed out, until the scheduled end', () => {
         const booking = makeBooking({ activeJourney: started(START_8_35_PM) });
 
         // Nothing in the booking or the rule refers to the device session.
         expect(deriveActivityState(booking, at(3, 0, 1))).toBe('ONGOING');
-        expect(deriveActivityState(booking, at(19, 0, 1))).toBe('ONGOING');
+        expect(deriveActivityState(booking, at(7, 0, 1))).toBe('ONGOING');
     });
 
-    it('H. stops being ongoing 23 hours after the actual start if nobody ends it', () => {
+    it('H. stops being ongoing 30 minutes after the scheduled arrival if nobody ends it', () => {
+        // Started 8:35 PM, so it is the next morning's 06:00 -> 06:40 service.
         const booking = makeBooking({ activeJourney: started(START_8_35_PM) });
 
-        expect(deriveActivityState(booking, at(19, 34, 1))).toBe('ONGOING');
-        expect(deriveActivityState(booking, at(19, 35, 1))).toBe('NOT_ACTIVE');
+        expect(deriveActivityState(booking, at(7, 9, 1))).toBe('ONGOING');
+        expect(deriveActivityState(booking, at(7, 10, 1))).toBe('NOT_ACTIVE');
+    });
+
+    it('H. an early start does not extend it: started 02:52, it still ends at 07:10', () => {
+        const booking = makeBooking({ activeJourney: started(at(2, 52)) });
+
+        expect(deriveActivityState(booking, at(2, 53))).toBe('ONGOING');
+        expect(deriveActivityState(booking, at(7, 9))).toBe('ONGOING');
+        expect(deriveActivityState(booking, at(7, 10))).toBe('NOT_ACTIVE');
     });
 
     it('C. is not ongoing once the journey is ended (no running journey is reported)', () => {

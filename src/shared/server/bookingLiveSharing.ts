@@ -129,7 +129,7 @@ export async function loadBookingLiveSharing(
  * so a journey is only ever reported against the exact trip that was started.
  * A booking on another trip of the same route, or on the same bus's other turn,
  * reads a different trip document and gets nothing. Sent only while running:
- * not ended, and within its window from the actual start.
+ * not ended, and before its scheduled service's arrival + grace.
  */
 export async function loadBookingActiveJourney(
     adminDb: any,

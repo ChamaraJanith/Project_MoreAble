@@ -3,7 +3,7 @@
 // Three lifecycles, kept apart:
 //
 //   sign-in   Device Login -> logout
-//   journey   Start Journey -> End Journey / 23-hour expiry   (the server)
+//   journey   Start Journey -> End Journey / scheduled arrival + 30 min (the server)
 //   sharing   Start Journey -> End Journey                    (journeySharing)
 //
 // LOGOUT is not END JOURNEY, and it does not stop location sharing. These pin
@@ -135,6 +135,23 @@ const SESSION: BusSession = { busId: BUS_ID, numberPlate: 'NB-8899', token: 'ses
 const SERVER_NOW = new Date();
 const HOUR = 3600_000;
 
+/**
+ * A journey as the server persists it: started at `startedAt`, for a scheduled
+ * service whose arrival + grace (expiresAt) is `endsIn` after SERVER_NOW.
+ */
+function startedRecord(startedAt: Date = SERVER_NOW, endsIn: number = 2 * HOUR): TripJourneyRecord {
+    const expiresAt = SERVER_NOW.getTime() + endsIn;
+    return {
+        status: 'STARTED',
+        startedAt: startedAt.toISOString(),
+        endedAt: null,
+        busId: BUS_ID,
+        scheduledDepartureAt: new Date(expiresAt - 90 * 60_000).toISOString(),
+        scheduledArrivalAt: new Date(expiresAt - 30 * 60_000).toISOString(),
+        expiresAt: new Date(expiresAt).toISOString(),
+    };
+}
+
 /** The dashboard sign-in's credential, and the journey's narrower one. */
 const SIGN_IN_TOKEN = SESSION.token;
 const sharingTokenFor = (tripId: string) => `sharing-credential-${tripId}`;
@@ -228,7 +245,7 @@ function createDevice(options: { readLocation?: () => Promise<PhoneLocation>; se
             const record: TripJourneyRecord =
                 current?.status === 'STARTED'
                     ? current
-                    : { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID };
+                    : startedRecord();
             server.set(tripId, record);
             return { journey: record, sharingToken: sharingTokenFor(tripId) };
         }
@@ -315,7 +332,7 @@ describe('Assigned trips', () => {
     });
 
     it('carries each trip’s persisted journey record', () => {
-        const record: TripJourneyRecord = { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID };
+        const record: TripJourneyRecord = startedRecord();
         const [first] = buildAssignedTrips(BUS_ID, [trip('TRIP-00004', '06:00', { journey: record })], ROUTES);
 
         expect(first.journey).toEqual(record);
@@ -592,16 +609,11 @@ describe('Signing in again', () => {
         await secondPhone.sharing.stop();
     });
 
-    it('S. does not find a journey whose 23 hours have passed, or one that was ended', () => {
-        const expired: TripJourneyRecord = {
-            status: 'STARTED',
-            startedAt: new Date(Date.now() - 23 * HOUR).toISOString(),
-            endedAt: null,
-            busId: BUS_ID,
-        };
+    it('S. does not find a journey past its scheduled arrival + grace, or one that was ended', () => {
+        // Started only an hour ago (early), but its scheduled service is over.
+        const expired = startedRecord(new Date(Date.now() - HOUR), -60_000);
         const ended: TripJourneyRecord = {
-            ...expired,
-            startedAt: SERVER_NOW.toISOString(),
+            ...startedRecord(),
             status: 'ENDED',
             endedAt: SERVER_NOW.toISOString(),
         };
@@ -729,7 +741,7 @@ describe('One journey at a time', () => {
         const running = findActiveJourney([
             {
                 ...tripNamed('TRIP-00004'),
-                journey: { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID },
+                journey: startedRecord(),
             },
         ]);
 

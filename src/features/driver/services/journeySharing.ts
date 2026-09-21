@@ -4,7 +4,7 @@
 // Three lifecycles, kept apart:
 //
 //   sign-in   Device Login -> logout                       (busSession)
-//   journey   Start Journey -> End Journey / 23-hour expiry (the server)
+//   journey   Start Journey -> End Journey / scheduled arrival + grace (the server)
 //   sharing   Start Journey -> End Journey                  (this module)
 //
 // Logging out ends the sign-in and nothing else. Sharing follows the journey:

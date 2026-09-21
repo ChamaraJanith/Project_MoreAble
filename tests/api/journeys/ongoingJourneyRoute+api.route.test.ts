@@ -118,7 +118,7 @@ function booking(bookingId: string, userId: string, tripId: string, extra: Recor
     };
 }
 
-const running = (busId: string) => ({ status: 'STARTED', startedAt: STARTED_AT, endedAt: null, busId });
+const running = (busId: string) => ({ status: 'STARTED', startedAt: STARTED_AT, endedAt: null, busId, expiresAt: minutesAgo(-120) });
 
 function seed(overrides: Record<string, any[]> = {}) {
     return createFakeFirestore({
