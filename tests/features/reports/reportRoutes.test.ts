@@ -8,6 +8,7 @@
 import {
     adminReviewDetailsPath,
     adminReviewQueuePath,
+    positiveFeedbackFormPath,
     reportApiPath,
     reportDetailsPath,
     reportEditPath,
@@ -29,6 +30,11 @@ describe('in-app paths', () => {
         // So that a report can never be viewed at one address and edited at
         // another.
         expect(reportEditPath(REPORT_ID).startsWith(reportDetailsPath(REPORT_ID))).toBe(true);
+    });
+
+    it('puts the positive feedback form beside the issue form', () => {
+        expect(positiveFeedbackFormPath()).toBe('/(passenger)/reports/positive-feedback');
+        expect(positiveFeedbackFormPath()).not.toBe(reportDetailsPath(REPORT_ID));
     });
 
     it('keeps the report form‘s own route clear of them', () => {

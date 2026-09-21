@@ -35,6 +35,52 @@ export function isReportIssueCategory(value: unknown): value is ReportIssueCateg
     );
 }
 
+// ==================================================================
+// Positive accessibility feedback (MOV-300)
+//
+// The counterpart of an issue report: a passenger telling us what went RIGHT.
+// Its categories are a separate list rather than extra entries in
+// REPORT_ISSUE_CATEGORIES, because every one of those is a problem — and the
+// issue route validates against that list, so mixing the two would let a
+// compliment be filed as a fault, or the reverse.
+// ==================================================================
+
+/** Every positive feedback category, in the order the picker offers them. */
+export const POSITIVE_FEEDBACK_CATEGORIES = [
+    'HELPFUL_DRIVER',
+    'EASY_WHEELCHAIR_BOARDING',
+    'CLEAR_STOP_ANNOUNCEMENT',
+    'GOOD_PRIORITY_SEATING',
+    'ACCESSIBLE_BUS_STOP',
+] as const;
+
+export type PositiveFeedbackCategory = (typeof POSITIVE_FEEDBACK_CATEGORIES)[number];
+
+/** Whether an arbitrary value is one of the positive feedback categories. */
+export function isPositiveFeedbackCategory(value: unknown): value is PositiveFeedbackCategory {
+    return (
+        typeof value === 'string' &&
+        (POSITIVE_FEEDBACK_CATEGORIES as readonly string[]).includes(value)
+    );
+}
+
+/**
+ * What the app sends when a passenger submits positive feedback.
+ *
+ * `type` is the discriminator the backend (MOV-301) can store beside issue
+ * reports. `busId` and `routeId` are the same canonical document ids an issue
+ * report carries, and are omitted rather than null when nothing was chosen —
+ * both are optional here, since an accessible bus stop is not about a bus.
+ * passengerId is deliberately absent: it comes from the session token.
+ */
+export interface PositiveFeedbackPayload {
+    type: 'POSITIVE';
+    category: PositiveFeedbackCategory;
+    description: string;
+    routeId?: string;
+    busId?: string;
+}
+
 /**
  * Every state a report can be stored in.
  *

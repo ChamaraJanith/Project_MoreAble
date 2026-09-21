@@ -20,7 +20,11 @@ import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { isReportOwnedBy } from '../utils/reportOwnership';
-import { reportDetailsPath, reportFormPath } from '../utils/reportRoutes';
+import {
+    positiveFeedbackFormPath,
+    reportDetailsPath,
+    reportFormPath,
+} from '../utils/reportRoutes';
 import { reportsRequestPath } from '../utils/reportScopes';
 import {
     REPORT_SEARCH_PLACEHOLDER,
@@ -195,6 +199,10 @@ export const AccessibilityReportsScreen = () => {
     // on it instead of on the form.
     const goToReportForm = () => router.push(reportFormPath() as Href);
 
+    // Positive feedback (MOV-300) sits beside the issue form, group-qualified
+    // for the same reason.
+    const goToPositiveFeedback = () => router.push(positiveFeedbackFormPath() as Href);
+
     const feed = feeds[scope];
 
     // Narrowed here, against the tab's own reports, because they are already
@@ -342,6 +350,40 @@ export const AccessibilityReportsScreen = () => {
                         </Text>
                     </TouchableOpacity>
                 </View>
+
+                {/* The positive counterpart, lighter than the card above: it
+                    is a second invitation, not the screen's primary action. */}
+                <TouchableOpacity
+                    style={styles.positiveCard}
+                    onPress={goToPositiveFeedback}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share Positive Feedback"
+                    accessibilityHint="Tell us about accessibility that worked well on your journey"
+                >
+                    <View
+                        style={styles.positiveIconCircle}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                    >
+                        <Ionicons name="thumbs-up-outline" size={18} color={adminColors.success} />
+                    </View>
+
+                    <View style={styles.ctaHeaderText}>
+                        <Text style={styles.positiveTitle}>Had a great experience?</Text>
+                        <Text style={styles.ctaSubtitle}>
+                            Share positive feedback about accessibility that worked well.
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={adminColors.textPlaceholder}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no"
+                    />
+                </TouchableOpacity>
 
                 {/* Scope tabs */}
                 <View style={styles.segmentedControl} accessibilityRole="tablist">
@@ -582,6 +624,32 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         marginLeft: 8,
         flexShrink: 1,
+    },
+
+    positiveCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.surface,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        padding: 14,
+        minHeight: 64,
+        marginBottom: 16,
+        ...adminShadow.card,
+    },
+    positiveIconCircle: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: adminColors.successSoft,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    positiveTitle: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: adminColors.textPrimary,
     },
 
     segmentedControl: {

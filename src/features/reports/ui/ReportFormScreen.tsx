@@ -1,7 +1,7 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -13,23 +13,19 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { Bus } from '../../../entities/bus/model/types';
 import {
     AccessibilityReport,
     ReportIssueCategory,
     ReportPhotoDraft,
 } from '../../../entities/report/model/types';
-import { Route } from '../../../entities/route/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSelectModal, AdminSelectOption } from '../../admin/ui/AdminSelectModal';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { loadReportReferenceData } from '../api/reportReferenceData';
 import {
     canSubmitReport,
     firstMissingReportField,
-    isBusSelectionUnlocked,
     photoUploadIssue,
     uploadedPhotoUrls,
 } from '../utils/reportFormValidation';
@@ -38,16 +34,9 @@ import { reportApiPath } from '../utils/reportRoutes';
 import { PhotoEvidencePicker } from './PhotoEvidencePicker';
 import { REPORT_CATEGORY_OPTIONS } from './reportCategories';
 import { ReportSelectField, ReportTextArea } from './ReportFormFields';
+import { ReportJourneyFields } from './ReportJourneyFields';
 
 const DESCRIPTION_MAX_LENGTH = 600;
-
-const DIRECTION_LABELS: Record<string, string> = {
-    OUTBOUND: 'Outbound',
-    RETURN: 'Return',
-};
-
-/** Which picker sheet is open; only one can be at a time. */
-type ActivePicker = 'category' | 'bus' | 'route' | null;
 
 export interface ReportFormScreenProps {
     /** Filing a new report, or changing one that already exists. */
@@ -102,44 +91,9 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
         existingPhotoDrafts(report?.photoUrls)
     );
 
-    // Whether a bus may be chosen yet. The route is asked for first, so
-    // changing it drops a bus picked under the previous one rather than
-    // leaving a stale selection behind.
-    const isBusUnlocked = isBusSelectionUnlocked(selectedRouteId);
-
-    const handleRouteSelected = (routeId: string) => {
-        if (routeId !== selectedRouteId) setSelectedBusId(null);
-        setSelectedRouteId(routeId);
-    };
-
-    // ---- Bus / route reference data ------------------------------------
-    const [buses, setBuses] = useState<Bus[]>([]);
-    const [routes, setRoutes] = useState<Route[]>([]);
-    const [isLoadingReferenceData, setIsLoadingReferenceData] = useState(true);
-    const [busError, setBusError] = useState<string | null>(null);
-    const [routeError, setRouteError] = useState<string | null>(null);
-
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [activePicker, setActivePicker] = useState<ActivePicker>(null);
+    const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    const loadReferenceData = useCallback(async () => {
-        setIsLoadingReferenceData(true);
-
-        const data = await loadReportReferenceData();
-
-        setBuses(data.buses);
-        setRoutes(data.routes);
-        setBusError(data.busError);
-        setRouteError(data.routeError);
-        setIsLoadingReferenceData(false);
-    }, []);
-
-    // Loaded once on mount. The issue category and description do not depend on
-    // it, so they stay usable throughout.
-    useEffect(() => {
-        loadReferenceData();
-    }, [loadReferenceData]);
 
     const selectedCategoryOption = REPORT_CATEGORY_OPTIONS.find(
         (option) => option.value === issueCategory
@@ -148,47 +102,6 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
     const categoryOptions = useMemo<AdminSelectOption[]>(
         () => REPORT_CATEGORY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
         []
-    );
-
-    const selectedBus = useMemo(
-        () => buses.find((bus) => bus.busId === selectedBusId) ?? null,
-        [buses, selectedBusId]
-    );
-
-    const selectedRoute = useMemo(
-        () => routes.find((route) => route.routeId === selectedRouteId) ?? null,
-        [routes, selectedRouteId]
-    );
-
-    // Every bus is offered, whatever its status: a passenger may well be
-    // reporting the very fault that put the vehicle into maintenance.
-    const busOptions = useMemo<AdminSelectOption[]>(
-        () =>
-            buses.map((bus) => ({
-                value: bus.busId,
-                label: bus.numberPlate,
-                description: [bus.busModel, bus.manufacturer].filter(Boolean).join(' · '),
-                status: bus.status,
-            })),
-        [buses]
-    );
-
-    // A route number exists once per direction, so the label has to carry the
-    // direction too — "138" alone would be ambiguous.
-    const routeOptions = useMemo<AdminSelectOption[]>(
-        () =>
-            routes.map((route) => ({
-                value: route.routeId,
-                label: `${route.routeNumber} · ${route.routeName}`,
-                description: [
-                    `${route.startLocation} → ${route.endLocation}`,
-                    route.direction ? DIRECTION_LABELS[route.direction] ?? route.direction : null,
-                ]
-                    .filter(Boolean)
-                    .join(' · '),
-                status: route.status,
-            })),
-        [routes]
     );
 
     const formState = {
@@ -357,7 +270,7 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                         value={selectedCategoryOption?.label ?? null}
                         placeholder="Select a category"
                         icon={selectedCategoryOption?.icon ?? 'list-outline'}
-                        onPress={() => setActivePicker('category')}
+                        onPress={() => setIsCategoryPickerOpen(true)}
                     />
 
                     <ReportTextArea
@@ -374,112 +287,14 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                 <Text style={styles.sectionTitle}>Bus / Vehicle Details</Text>
 
                 <View style={styles.card}>
-                    {isLoadingReferenceData ? (
-                        <View style={styles.referenceLoadingRow} accessibilityLiveRegion="polite">
-                            <ActivityIndicator size="small" color={adminColors.primary} />
-                            <Text style={styles.referenceLoadingText}>
-                                Loading buses and routes...
-                            </Text>
-                        </View>
-                    ) : (
-                        <>
-                            {(!!busError || !!routeError) && (
-                                <View style={styles.referenceErrorBanner} accessibilityRole="alert">
-                                    <Ionicons
-                                        name="cloud-offline-outline"
-                                        size={18}
-                                        color={adminColors.danger}
-                                    />
-                                    <Text style={styles.referenceErrorText}>
-                                        {[busError, routeError].filter(Boolean).join(' ')}
-                                    </Text>
-                                    <TouchableOpacity
-                                        onPress={loadReferenceData}
-                                        style={styles.referenceRetryButton}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Retry loading buses and routes"
-                                    >
-                                        <Text style={styles.referenceRetryText}>Retry</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-
-                            {/* Route first: the bus field stays locked until a
-                                route is chosen, so the journey is established
-                                before the vehicle that ran it. */}
-                            <ReportSelectField
-                                label="Route"
-                                value={
-                                    selectedRoute
-                                        ? `${selectedRoute.routeNumber} · ${selectedRoute.routeName}`
-                                        : null
-                                }
-                                secondary={
-                                    selectedRoute
-                                        ? [
-                                              `${selectedRoute.startLocation} → ${selectedRoute.endLocation}`,
-                                              selectedRoute.direction
-                                                  ? DIRECTION_LABELS[selectedRoute.direction] ??
-                                                    selectedRoute.direction
-                                                  : null,
-                                          ]
-                                              .filter(Boolean)
-                                              .join(' · ')
-                                        : undefined
-                                }
-                                placeholder={
-                                    routes.length === 0 ? 'No routes available' : 'Select Route'
-                                }
-                                icon="git-branch-outline"
-                                showSelectedTick
-                                disabled={routes.length === 0}
-                                onPress={() => setActivePicker('route')}
-                            />
-
-                            <ReportSelectField
-                                label="Bus / Vehicle"
-                                value={selectedBus?.numberPlate ?? null}
-                                secondary={[selectedBus?.busModel, selectedBus?.manufacturer]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                placeholder={
-                                    !isBusUnlocked
-                                        ? 'Select Route first'
-                                        : buses.length === 0
-                                          ? 'No buses available'
-                                          : 'Select Bus'
-                                }
-                                icon="bus-outline"
-                                showSelectedTick
-                                disabled={!isBusUnlocked || buses.length === 0}
-                                onPress={() => setActivePicker('bus')}
-                                helper={
-                                    isBusUnlocked
-                                        ? 'The route and vehicle together let us trace the exact bus involved.'
-                                        : 'Choose the route you travelled on to pick the bus.'
-                                }
-                            />
-
-                            {(!!selectedBusId || !!selectedRouteId) && (
-                                <TouchableOpacity
-                                    style={styles.clearSelectionButton}
-                                    onPress={() => {
-                                        setSelectedBusId(null);
-                                        setSelectedRouteId(null);
-                                    }}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Clear bus and route selection"
-                                >
-                                    <Ionicons
-                                        name="close-circle-outline"
-                                        size={16}
-                                        color={adminColors.textSecondary}
-                                    />
-                                    <Text style={styles.clearSelectionText}>Clear selection</Text>
-                                </TouchableOpacity>
-                            )}
-                        </>
-                    )}
+                    <ReportJourneyFields
+                        routeId={selectedRouteId}
+                        busId={selectedBusId}
+                        onChange={({ routeId, busId }) => {
+                            setSelectedRouteId(routeId);
+                            setSelectedBusId(busId);
+                        }}
+                    />
                 </View>
 
                 {/* ---------------- Photo Evidence ---------------- */}
@@ -533,43 +348,18 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
             </ScrollView>
 
             <AdminSelectModal
-                visible={activePicker === 'category'}
+                visible={isCategoryPickerOpen}
                 title="Select Category"
                 options={categoryOptions}
                 selectedValue={issueCategory}
                 emptyMessage="No issue categories are available."
-                onClose={() => setActivePicker(null)}
+                onClose={() => setIsCategoryPickerOpen(false)}
                 onSelect={(value) => {
                     setIssueCategory(value as ReportIssueCategory);
-                    setActivePicker(null);
+                    setIsCategoryPickerOpen(false);
                 }}
             />
 
-            <AdminSelectModal
-                visible={activePicker === 'route'}
-                title="Select Route"
-                options={routeOptions}
-                selectedValue={selectedRouteId}
-                emptyMessage="No routes are available to select."
-                onClose={() => setActivePicker(null)}
-                onSelect={(value) => {
-                    handleRouteSelected(value);
-                    setActivePicker(null);
-                }}
-            />
-
-            <AdminSelectModal
-                visible={activePicker === 'bus'}
-                title="Select Bus"
-                options={busOptions}
-                selectedValue={selectedBusId}
-                emptyMessage="No buses are available to select."
-                onClose={() => setActivePicker(null)}
-                onSelect={(value) => {
-                    setSelectedBusId(value);
-                    setActivePicker(null);
-                }}
-            />
         </KeyboardAvoidingView>
     );
 };
@@ -628,59 +418,6 @@ const styles = StyleSheet.create({
         padding: 16,
         marginBottom: 12,
         ...adminShadow.card,
-    },
-
-    referenceLoadingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 14,
-    },
-    referenceLoadingText: {
-        fontSize: 14,
-        color: adminColors.textSecondary,
-        marginLeft: 10,
-    },
-    referenceErrorBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: adminColors.dangerSoft,
-        borderWidth: 1,
-        borderColor: adminColors.dangerBorder,
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 16,
-    },
-    referenceErrorText: {
-        flex: 1,
-        fontSize: 12,
-        fontWeight: '600',
-        color: adminColors.danger,
-        marginLeft: 8,
-        lineHeight: 17,
-    },
-    referenceRetryButton: {
-        minHeight: 32,
-        justifyContent: 'center',
-        paddingHorizontal: 10,
-    },
-    referenceRetryText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: adminColors.danger,
-    },
-
-    clearSelectionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        alignSelf: 'flex-start',
-        minHeight: 40,
-        paddingRight: 8,
-    },
-    clearSelectionText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: adminColors.textSecondary,
-        marginLeft: 6,
     },
 
     primaryButton: {
