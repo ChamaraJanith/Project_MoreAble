@@ -105,6 +105,28 @@ export type AssistanceStatus =
 export type BoardingStatus = 'NOT_BOARDED' | 'BOARDED';
 export type PaymentStatus = 'PAID' | 'COLLECT_CASH' | 'PENDING';
 
+/**
+ * Whether the bus operating a booking's own trip is reporting its position
+ * (MOV-294).
+ *
+ * Resolved server-side as booking.tripId -> trips/{tripId}.busId ->
+ * vehicleLocations/{busId}, so it can only ever describe the vehicle running
+ * the passenger's booked trip. Facts only: it never carries coordinates, and
+ * whether the report is recent enough to count as live is left to the reader.
+ */
+export interface BookingLiveSharing {
+  /** The trip this block was resolved for; always the booking's own tripId. */
+  tripId: string;
+  /** The bus currently assigned to that trip. */
+  busId: string;
+  /** True only when that bus has a stored GPS report. */
+  available: boolean;
+  /** ISO 8601 time of the latest GPS fix, when there is one. */
+  recordedAt?: string;
+  /** Whole seconds between that fix and the moment the response was built. */
+  locationAgeSeconds?: number;
+}
+
 export interface Booking {
   bookingId: string;
   userId: string;
@@ -133,6 +155,8 @@ export interface Booking {
   reminderSent?: boolean;
   reminderSentAt?: string;
   createdAt: string;
+  /** Only present when requested from the booking history (MOV-294). */
+  liveSharing?: BookingLiveSharing;
 }
 
 

@@ -202,6 +202,27 @@
     "downloadBtn": "DOWNLOAD TICKET",
     "cancelBookingBtn": "CANCEL BOOKING"
   },
+  "activities": {
+    "title": "Activities",
+    "subtitle": "Your journeys in progress and finished trips",
+    "ongoingTab": "Ongoing",
+    "completedTab": "Completed",
+    "loading": "Checking your journeys...",
+    "loadError": "Unable to load your activities.",
+    "retryBtn": "RETRY",
+    "loginTitle": "Access Activities",
+    "loginDesc": "Please sign in with your passenger account to see your ongoing and completed journeys.",
+    "goToSignIn": "GO TO SIGN IN",
+    "noOngoingTitle": "No ongoing journeys",
+    "noOngoingDesc": "A booked journey appears here once its bus starts sharing its live location.",
+    "noCompletedTitle": "No completed journeys",
+    "noCompletedDesc": "Journeys you have boarded will appear here after they finish.",
+    "viewBookings": "VIEW MY BOOKINGS",
+    "inProgress": "In Progress",
+    "completedStatus": "Completed",
+    "viewJourney": "View Journey",
+    "viewDetails": "View Details"
+  },
   "auth": {
     "autoFill": "Auto-fill Saved Account",
     "emailOrNic": "Email Address or NIC Number",
