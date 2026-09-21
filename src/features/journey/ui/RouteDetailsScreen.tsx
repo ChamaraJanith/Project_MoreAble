@@ -3,6 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
+import { setSelectedVehicle } from '../../booking/store/selectedVehicleStore';
+import { fetchSeats } from '../../booking/api/bookingApi';
 import { useSelectedJourney } from '../store/selectedRouteStore';
 import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
@@ -63,7 +65,44 @@ export const RouteDetailsScreen = () => {
     }
 
     const { route, option, geo } = selection;
-    const { bus } = option;
+    const { trip, bus } = option;
+
+    const [seatInfo, setSeatInfo] = React.useState<{
+        availableSeats: number;
+        totalSeats: number;
+        isFull: boolean;
+    } | null>(() => {
+        if (typeof (option as any)?.availableSeats === 'number') {
+            const avail = (option as any).availableSeats;
+            const total = (option as any).totalSeats ?? bus?.seatCapacity ?? 40;
+            return { availableSeats: avail, totalSeats: total, isFull: avail <= 0 };
+        }
+        return null;
+    });
+
+    React.useEffect(() => {
+        if (seatInfo !== null || !trip?.tripId) return;
+        let isMounted = true;
+        fetchSeats(trip.tripId)
+            .then((data) => {
+                if (!isMounted || !data?.seats) return;
+                const available = data.seats.filter((s) => s.status === 'AVAILABLE').length;
+                const total = data.totalSeats || data.seats.length;
+                setSeatInfo({ availableSeats: available, totalSeats: total, isFull: available <= 0 });
+            })
+            .catch(() => {
+                if (!isMounted) return;
+                const total = bus?.seatCapacity ?? 40;
+                setSeatInfo({ availableSeats: total, totalSeats: total, isFull: false });
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, [trip?.tripId, bus?.seatCapacity]);
+
+    const totalSeats = seatInfo?.totalSeats ?? bus?.seatCapacity ?? 40;
+    const availableSeats = seatInfo?.availableSeats ?? bus?.seatCapacity ?? 40;
+    const isFull = seatInfo?.isFull ?? (availableSeats <= 0);
 
     // The same passenger-journey timing the results card shows, from the same
     // function on the same data (MOV-88) — so the duration a passenger chose a
@@ -91,15 +130,31 @@ export const RouteDetailsScreen = () => {
     const facilities = describeAccessibilityFacilities(bus?.accessibilityFacilities);
     const mapStops = resolveIntermediateStops(route.journeyStops, geo);
 
-    const handleBook = () =>
+    const handleBook = () => {
+        if (isFull || !trip || !bus) return;
+        setSelectedVehicle({
+            tripId: trip.tripId,
+            routeId: route.routeId,
+            routeNumber: route.routeNumber,
+            routeName: route.routeName,
+            numberPlate: bus.numberPlate,
+            busModel: bus.busModel,
+            departureTime: departureLabel || trip.departureTime || '',
+            estimatedArrivalTime: arrivalLabel || trip.estimatedArrivalTime || '',
+            accessibilityScore: typeof (bus as any).accessibilityScore === 'number' ? (bus as any).accessibilityScore : 100,
+            origin: route.origin,
+            destination: route.destination,
+            selectedAt: Date.now(),
+        });
         router.push({
-            pathname: '/booking/options',
+            pathname: '/booking/seats/[tripId]',
             params: {
-                routeId: route.routeId,
+                tripId: trip.tripId,
                 origin: route.origin,
                 destination: route.destination,
             },
         });
+    };
 
     return (
         <View style={styles.container}>
@@ -229,9 +284,9 @@ export const RouteDetailsScreen = () => {
                                     </Text>
                                 </View>
                                 <View style={styles.detailItem}>
-                                    <Text style={styles.detailLabel}>Seats</Text>
-                                    <Text style={styles.detailValue}>
-                                        {bus.seatCapacity != null ? bus.seatCapacity : NOT_AVAILABLE}
+                                    <Text style={styles.detailLabel}>Available Seats</Text>
+                                    <Text style={[styles.detailValue, isFull ? { color: '#DC2626' } : { color: '#059669' }]}>
+                                        {isFull ? 'Fully Booked (0 left)' : `${availableSeats} of ${totalSeats} available`}
                                     </Text>
                                 </View>
                             </View>
@@ -292,13 +347,20 @@ export const RouteDetailsScreen = () => {
 
                 {/* ---------------- Action ---------------- */}
                 <TouchableOpacity
-                    style={styles.bookButton}
+                    style={[styles.bookButton, (isFull || !bus || !trip) && styles.bookButtonDisabled]}
                     onPress={handleBook}
+                    disabled={isFull || !bus || !trip}
                     accessibilityRole="button"
-                    accessibilityLabel={`Book this trip on route ${route.routeNumber}`}
+                    accessibilityLabel={
+                        isFull
+                            ? `This departure on route ${route.routeNumber} is fully booked`
+                            : `Book this trip on route ${route.routeNumber}`
+                    }
                 >
-                    <Ionicons name="ticket-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.bookButtonText}>Book this trip</Text>
+                    <Ionicons name={isFull ? 'close-circle-outline' : 'ticket-outline'} size={18} color="#FFFFFF" />
+                    <Text style={styles.bookButtonText}>
+                        {isFull ? 'Fully Booked (0 seats available)' : 'Book this trip'}
+                    </Text>
                 </TouchableOpacity>
             </ScrollView>
         </View>
@@ -662,6 +724,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.25,
         shadowRadius: 8,
         elevation: 4,
+    },
+    bookButtonDisabled: {
+        backgroundColor: '#94A3B8',
+        shadowOpacity: 0,
+        elevation: 0,
     },
     bookButtonText: {
         color: '#FFFFFF',

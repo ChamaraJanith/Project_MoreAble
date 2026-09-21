@@ -10,6 +10,8 @@ import {
     JourneySearchOption,
 } from '../../../entities/route/model/types';
 import { accessibilityScoreColor } from '../../../shared/utils/accessibility';
+import { setSelectedVehicle } from '../../booking/store/selectedVehicleStore';
+import { fetchSeats } from '../../booking/api/bookingApi';
 import { setSelectedJourney } from '../store/selectedRouteStore';
 import { ACCESSIBILITY_REQUIREMENTS, meetsAccessibilityRequirement } from '../utils/accessibilityFilters';
 import {
@@ -57,8 +59,45 @@ export function JourneyOptionCard({
     travelDate,
     travelTime,
 }: JourneyOptionCardProps) {
-  const { t } = useTranslation();
+    const { t } = useTranslation();
     const { trip, bus } = option;
+
+    const [seatInfo, setSeatInfo] = React.useState<{
+        availableSeats: number;
+        totalSeats: number;
+        isFull: boolean;
+    } | null>(() => {
+        if (typeof (option as any)?.availableSeats === 'number') {
+            const avail = (option as any).availableSeats;
+            const total = (option as any).totalSeats ?? bus?.seatCapacity ?? 40;
+            return { availableSeats: avail, totalSeats: total, isFull: avail <= 0 };
+        }
+        return null;
+    });
+
+    React.useEffect(() => {
+        if (seatInfo !== null || !trip?.tripId) return;
+        let isMounted = true;
+        fetchSeats(trip.tripId)
+            .then((data) => {
+                if (!isMounted || !data?.seats) return;
+                const available = data.seats.filter((s) => s.status === 'AVAILABLE').length;
+                const total = data.totalSeats || data.seats.length;
+                setSeatInfo({ availableSeats: available, totalSeats: total, isFull: available <= 0 });
+            })
+            .catch(() => {
+                if (!isMounted) return;
+                const total = bus?.seatCapacity ?? 40;
+                setSeatInfo({ availableSeats: total, totalSeats: total, isFull: false });
+            });
+        return () => {
+            isMounted = false;
+        };
+    }, [trip?.tripId, bus?.seatCapacity]);
+
+    const totalSeats = seatInfo?.totalSeats ?? bus?.seatCapacity ?? 40;
+    const availableSeats = seatInfo?.availableSeats ?? bus?.seatCapacity ?? 40;
+    const isFull = seatInfo?.isFull ?? (availableSeats <= 0);
 
     const journeyTiming = timing ?? resolveJourneyTiming(buildJourneyLegs(route, option));
 
@@ -98,6 +137,32 @@ export function JourneyOptionCard({
         router.push({
             pathname: '/journey/route-details',
             params: { routeId: route.routeId, tripId: trip.tripId },
+        });
+    };
+
+    const handleDirectBook = () => {
+        if (isFull || !trip || !bus) return;
+        setSelectedVehicle({
+            tripId: trip.tripId,
+            routeId: route.routeId,
+            routeNumber: route.routeNumber,
+            routeName: route.routeName,
+            numberPlate: bus.numberPlate,
+            busModel: bus.busModel,
+            departureTime: departureLabel || trip.departureTime || '',
+            estimatedArrivalTime: arrivalLabel || trip.estimatedArrivalTime || '',
+            accessibilityScore: typeof accessibilityScore === 'number' ? accessibilityScore : (bus as any)?.accessibilityScore ?? 100,
+            origin: route.origin,
+            destination: route.destination,
+            selectedAt: Date.now(),
+        });
+        router.push({
+            pathname: '/booking/seats/[tripId]',
+            params: {
+                tripId: trip.tripId,
+                origin: route.origin,
+                destination: route.destination,
+            },
         });
     };
 
@@ -232,11 +297,31 @@ export function JourneyOptionCard({
                         <Ionicons name="bus" size={17} color="#0066CC" />
                     </View>
                     <View style={styles.busTextGroup}>
-                        <Text style={styles.busPlateText} numberOfLines={1}>
-                            {bus.numberPlate}
-                        </Text>
+                        <View style={styles.busPlateAndSeatsRow}>
+                            <Text style={styles.busPlateText} numberOfLines={1}>
+                                {bus.numberPlate}
+                            </Text>
+
+                            {/* Live Seat Availability Badge */}
+                            {isFull ? (
+                                <View style={styles.fullBadge}>
+                                    <Ionicons name="close-circle" size={12} color="#DC2626" />
+                                    <Text style={styles.fullBadgeText}>Fully Booked</Text>
+                                </View>
+                            ) : availableSeats <= 5 ? (
+                                <View style={styles.lowSeatsBadge}>
+                                    <Ionicons name="alert-circle" size={12} color="#D97706" />
+                                    <Text style={styles.lowSeatsBadgeText}>{availableSeats} seats left</Text>
+                                </View>
+                            ) : (
+                                <View style={styles.availSeatsBadge}>
+                                    <Ionicons name="checkmark-circle" size={12} color="#059669" />
+                                    <Text style={styles.availSeatsBadgeText}>{availableSeats} seats free</Text>
+                                </View>
+                            )}
+                        </View>
                         <Text style={styles.busModelText} numberOfLines={1}>
-                            {bus.busModel}
+                            {bus.busModel} · {totalSeats} seats capacity
                         </Text>
 
                         <View style={styles.busFacilitiesRow}>
@@ -277,28 +362,22 @@ export function JourneyOptionCard({
                     {intermediateStops.length > 0 ? ` · ${intermediateStops.length} stops on the way` : ''}
                 </Text>
 
-
-
                 <TouchableOpacity
-                    style={styles.bookButton}
-                    onPress={() =>
-                        router.push({
-                            pathname: '/booking/options',
-                            params: {
-                                routeId: route.routeId,
-                                origin: route.origin,
-                                destination: route.destination,
-                            },
-                        })
-                    }
+                    style={[styles.bookButton, (isFull || !bus || !trip) && styles.bookButtonDisabled]}
+                    onPress={handleDirectBook}
+                    disabled={isFull || !bus || !trip}
                     accessibilityRole="button"
-                    accessibilityLabel={`Book this trip on route ${route.routeNumber}`}
+                    accessibilityLabel={
+                        isFull
+                            ? `This departure on route ${route.routeNumber} is fully booked`
+                            : `Book this trip on route ${route.routeNumber}`
+                    }
                 >
-                    <Ionicons name="ticket-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.bookButtonText}>{t('journey.bookBtn', 'Book')}</Text>
+                    <Ionicons name={isFull ? 'close-circle-outline' : 'ticket-outline'} size={16} color="#FFFFFF" />
+                    <Text style={styles.bookButtonText}>
+                        {isFull ? t('journey.fullBtn', 'Full') : t('journey.bookBtn', 'Book')}
+                    </Text>
                 </TouchableOpacity>
-
-
 
                 <TouchableOpacity
                     style={styles.detailsButton}
@@ -544,20 +623,75 @@ const styles = StyleSheet.create({
         marginLeft: 4,
     },
 
+    busPlateAndSeatsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 6,
+    },
+    fullBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEE2E2',
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    fullBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#DC2626',
+        marginLeft: 3,
+    },
+    lowSeatsBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF3C7',
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    lowSeatsBadgeText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#B45309',
+        marginLeft: 3,
+    },
+    availSeatsBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ECFDF5',
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    availSeatsBadgeText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#059669',
+        marginLeft: 3,
+    },
+
     bookButton: {
         flexDirection: 'row', 
         alignItems: 'center', 
         backgroundColor: '#0066CC', 
-        minHeight: 40, borderRadius: 10, 
+        minHeight: 40, 
+        borderRadius: 10, 
         paddingHorizontal: 14, 
-        marginLeft: 10 },
-
+        marginLeft: 10 
+    },
+    bookButtonDisabled: {
+        backgroundColor: '#94A3B8',
+    },
 
     bookButtonText: { 
         color: '#fff', 
         fontWeight: '700', 
         fontSize: 13, 
-        marginLeft: 6 },
+        marginLeft: 6 
+    },
 
 
 });
