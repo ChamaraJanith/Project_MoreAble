@@ -38,7 +38,7 @@ export function createLiveSharingCaches(): LiveSharingCaches {
  * A trip document, read once per trip however many bookings share it, or null
  * when it cannot be read.
  */
-function loadTrip(adminDb: any, tripId: string, cache: Map<string, Promise<any | null>>): Promise<any | null> {
+export function loadTrip(adminDb: any, tripId: string, cache: Map<string, Promise<any | null>>): Promise<any | null> {
     const cached = cache.get(tripId);
 
     if (cached) {

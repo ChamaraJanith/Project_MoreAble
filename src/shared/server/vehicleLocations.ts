@@ -94,6 +94,7 @@ export async function loadVehicleLocation(
                 latitude: data.latitude,
                 longitude: data.longitude,
                 recordedAt: data.recordedAt,
+                ...(typeof data.tripId === 'string' && data.tripId.trim() ? { tripId: data.tripId.trim() } : {}),
             };
         })
         .catch((error: any) => {
@@ -141,7 +142,14 @@ export function buildLiveStatus(
 
     return {
         available: true,
-        location,
+        // The position only. Which trip it was reported for is a matching key
+        // (see passengerOngoingJourney), not something a live block carries.
+        location: {
+            busId: location.busId,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            recordedAt: location.recordedAt,
+        },
         ...(ageSeconds === null ? {} : { locationAgeSeconds: ageSeconds }),
     };
 }
