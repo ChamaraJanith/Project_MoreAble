@@ -1,25 +1,36 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { API_BASE_URL } from '../../../shared/api/config';
 
-// Ensure global notification presentation handler is set
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-    }),
-});
+// Safe check for Expo Go store client on Android
+const isExpoGoOnAndroid =
+    Platform.OS === 'android' &&
+    (Constants?.appOwnership === 'expo' ||
+        Constants?.executionEnvironment === (ExecutionEnvironment?.StoreClient || 'storeClient'));
+
+// Ensure global notification presentation handler is set safely
+try {
+    Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+            shouldShowBanner: true,
+            shouldShowList: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+        }),
+    });
+} catch (handlerErr) {
+    // Graceful fallback in Expo Go
+}
 
 /**
  * Configure high-priority notification channels on Android (Android 8.0+)
  */
 export async function setupAndroidNotificationChannels(): Promise<void> {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android' || isExpoGoOnAndroid) return;
 
     try {
         await Notifications.setNotificationChannelAsync('sos-emergency', {
@@ -65,7 +76,7 @@ export async function setupAndroidNotificationChannels(): Promise<void> {
             showBadge: true,
         });
     } catch (err) {
-        console.warn('[usePushNotifications] Failed setting up Android channels:', err);
+        // Non-blocking in Expo Go
     }
 }
 
@@ -85,7 +96,7 @@ export function usePushNotifications() {
      * Request notification permission from the OS
      */
     const requestPermissions = useCallback(async (): Promise<boolean> => {
-        if (Platform.OS === 'web') return false;
+        if (Platform.OS === 'web' || isExpoGoOnAndroid) return false;
 
         try {
             const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -100,7 +111,6 @@ export function usePushNotifications() {
             setPermissionGranted(granted);
             return granted;
         } catch (error) {
-            console.warn('[usePushNotifications] Error requesting permissions:', error);
             return false;
         }
     }, []);
@@ -110,7 +120,7 @@ export function usePushNotifications() {
      */
     const registerDeviceToken = useCallback(
         async (targetUserId: string) => {
-            if (Platform.OS === 'web' || !targetUserId) return;
+            if (Platform.OS === 'web' || !targetUserId || isExpoGoOnAndroid) return;
 
             try {
                 setIsRegistering(true);
@@ -128,7 +138,6 @@ export function usePushNotifications() {
                     tokenData = await Notifications.getExpoPushTokenAsync();
                 } catch (tErr) {
                     // In development without EAS project ID or in Expo Go simulator, fallback quietly
-                    // Real device with EAS build will supply projectId automatically
                 }
 
                 if (!tokenData || !tokenData.data) {
@@ -150,11 +159,9 @@ export function usePushNotifications() {
                         appVersion: '1.0.0',
                         notificationsEnabled: true,
                     }),
-                }).catch((syncErr) => {
-                    console.warn('[usePushNotifications] Token backend sync warning:', syncErr);
-                });
+                }).catch(() => {});
             } catch (error) {
-                console.warn('[usePushNotifications] Registration error:', error);
+                // Non-blocking
             } finally {
                 setIsRegistering(false);
             }
