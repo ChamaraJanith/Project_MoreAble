@@ -3,7 +3,7 @@ import {
   unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
-import { VEHICLE_ROLE } from '../../../src/shared/server/vehicleLocationAuthorization';
+import { authoriseOngoingJourneyAccess } from '../../../src/shared/server/ongoingJourneyAuthorization';
 import { loadPassengerOngoingJourneys } from '../../../src/shared/server/passengerOngoingJourney';
 
 const corsHeaders = {
@@ -27,36 +27,28 @@ function fail(status: number, message: string) {
 //
 // The signed-in passenger's ongoing journey (MOV-295): their own CONFIRMED
 // booking whose exact trip the bus has started with Start Journey (MOV-294),
-// with that bus's live position when it was reported for that trip. See
-// passengerOngoingJourney for the matching.
+// with that bus's live position when it was reported for that trip's current
+// run. See passengerOngoingJourney for the matching.
 //
-// The passenger is the session's, and only the session's. There is no
-// passengerId parameter: one supplied in the URL is ignored, so no caller can
-// ask about anyone else's journey.
+// Access (MOV-296): a verified PASSENGER session only — see
+// ongoingJourneyAuthorization. The passenger is the session's, and the trip is
+// derived from that passenger's own bookings. Nothing is read from the URL,
+// body or custom headers, so a passengerId or tripId supplied there cannot
+// change whose journey, or which trip, is returned.
 //
 // Nothing running is a normal answer, not an error:
 //   { success: true, ongoing: false, journeys: [] }
 export async function GET(request: Request) {
   try {
-    const account = await authenticateRequest(request);
+    const authorization = authoriseOngoingJourneyAccess(await authenticateRequest(request));
 
-    if (!account) {
-      return unauthorizedResponse('Authentication required.', corsHeaders);
+    if (!authorization.allowed) {
+      return authorization.status === 401
+        ? unauthorizedResponse(authorization.message, corsHeaders)
+        : fail(authorization.status, authorization.message);
     }
 
-    // A bus session or a journey-sharing credential identifies a vehicle, not
-    // a traveller, and has no bookings of its own.
-    if (account.scope || account.busId || account.role === VEHICLE_ROLE) {
-      return fail(403, 'Only a passenger account has ongoing journeys.');
-    }
-
-    const passengerId = typeof account.passengerId === 'string' ? account.passengerId.trim() : '';
-
-    if (!passengerId) {
-      return fail(403, 'This session does not identify a passenger.');
-    }
-
-    const journeys = await loadPassengerOngoingJourneys(getAdminDb(), passengerId);
+    const journeys = await loadPassengerOngoingJourneys(getAdminDb(), authorization.passengerId);
 
     return Response.json(
       {
@@ -70,6 +62,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error('Ongoing Journey API Error:', error);
 
+    // Fixed wording: no Firebase, token or stack detail reaches the client.
     return fail(500, 'Failed to retrieve your ongoing journey.');
   }
 }

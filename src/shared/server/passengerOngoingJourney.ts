@@ -14,18 +14,20 @@
 // with the same bus.
 //
 // The position is the bus's latest stored fix, and only counts for this trip
-// when it was reported under this trip's journey-sharing credential (the
-// location endpoint stamps it). A fix left over from the bus's previous trip,
-// or sent outside a journey, is not shown as this trip's position.
+// when it was reported under this trip's journey-sharing credential during THIS
+// run (the location endpoint stamps tripId and the run's startedAt). A fix left
+// over from the bus's previous trip, from an earlier run of the same trip, or
+// sent outside a journey, is not shown as this trip's position (MOV-296).
 //
 // Freshness is reported, not judged: like journey search, the live block
 // carries the fix's age and leaves "too old" to the reader. An old or missing
 // fix never ends the journey — only End Journey or the window does.
 //
-// Reads only, and only the passenger's own bookings. Who else may see a bus's
-// position is MOV-296.
+// Reads only, and only the passenger's own bookings. The caller has already
+// established, from the verified session, whose bookings these are
+// (ongoingJourneyAuthorization); nothing here takes an id from a request.
 
-import { Booking, PassengerOngoingJourney } from '../../entities/booking/model/types';
+import { Booking, OngoingJourneyBooking, PassengerOngoingJourney } from '../../entities/booking/model/types';
 import { createLiveSharingCaches, loadBookingActiveJourney, loadTrip } from './bookingLiveSharing';
 import { buildLiveStatus, loadVehicleLocation } from './vehicleLocations';
 
@@ -47,6 +49,27 @@ function boardedBeforeRun(booking: any, startedAt: string): boolean {
     const boarded = parseTime(booking?.boardedAt);
     const started = parseTime(startedAt);
     return boarded !== null && started !== null && boarded < started;
+}
+
+/**
+ * The allow-listed booking fields (MOV-296). Built field by field rather than
+ * spread, so nothing else stored on the document reaches the response.
+ */
+function ongoingBookingView(booking: Booking): OngoingJourneyBooking {
+    return {
+        bookingId: booking.bookingId,
+        userId: booking.userId,
+        tripId: booking.tripId,
+        routeId: booking.routeId,
+        busId: booking.busId,
+        seatNumber: booking.seatNumber,
+        pairedSeatNumber: booking.pairedSeatNumber ?? null,
+        status: booking.status,
+        boardingStatus: booking.boardingStatus,
+        boardedAt: booking.boardedAt,
+        journey: booking.journey,
+        vehicle: booking.vehicle,
+    };
 }
 
 function nonEmpty(value: unknown): string | null {
@@ -91,10 +114,16 @@ export async function loadPassengerOngoingJourneys(
             // The bus that started this run, which is the one sharing for it.
             const busId = nonEmpty(trip?.journey?.busId) ?? nonEmpty(trip?.busId);
             const location = busId ? await loadVehicleLocation(adminDb, busId, caches.locations) : null;
-            const tripLocation = location && location.tripId === activeJourney.tripId ? location : null;
+            // Exact trip AND exact run; never by bus or route alone.
+            const tripLocation =
+                location &&
+                location.tripId === activeJourney.tripId &&
+                location.journeyStartedAt === activeJourney.startedAt
+                    ? location
+                    : null;
 
             return {
-                booking,
+                booking: ongoingBookingView(booking),
                 activeJourney,
                 busId,
                 liveStatus: buildLiveStatus(tripLocation, now),

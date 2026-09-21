@@ -95,6 +95,7 @@ export async function loadVehicleLocation(
                 longitude: data.longitude,
                 recordedAt: data.recordedAt,
                 ...(typeof data.tripId === 'string' && data.tripId.trim() ? { tripId: data.tripId.trim() } : {}),
+                ...(typeof data.journeyStartedAt === 'string' ? { journeyStartedAt: data.journeyStartedAt } : {}),
             };
         })
         .catch((error: any) => {

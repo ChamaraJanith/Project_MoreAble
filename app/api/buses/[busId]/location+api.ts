@@ -6,6 +6,7 @@ import {
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
 import { JOURNEY_SHARING_SCOPE } from '../../../../src/shared/config/jwt';
 import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
+import { isJourneyActive } from '../../../../src/shared/utils/journeyLifecycle';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -218,10 +219,26 @@ export async function PUT(request: Request, context?: any) {
     // the journey-sharing credential — signed by the server at Start Journey for
     // this bus and trip — and never from the request body, which the caller
     // controls. Any other session files a position with no trip.
-    const reportedTripId =
-      account?.scope === JOURNEY_SHARING_SCOPE && typeof account.tripId === 'string' && account.tripId.trim()
+    const claimedTripId =
+      account?.scope && account.scope === JOURNEY_SHARING_SCOPE && typeof account.tripId === 'string'
         ? account.tripId.trim()
-        : null;
+        : '';
+
+    // A tripId names a daily timetable slot, not one run of it, so the fix is
+    // also stamped with WHICH run (MOV-296): the server's startedAt of the
+    // journey running now. Stamped only while that journey is running on this
+    // bus — a credential left over from an ended run tags nothing — so
+    // yesterday's last fix can never pass for today's live position.
+    let run: { tripId: string; journeyStartedAt: string } | null = null;
+
+    if (claimedTripId) {
+      const tripDoc = await adminDb.collection('trips').doc(claimedTripId).get();
+      const journey = tripDoc.exists ? tripDoc.data()?.journey : null;
+
+      if (isJourneyActive(journey, new Date()) && journey.busId === authorisedBusId) {
+        run = { tripId: claimedTripId, journeyStartedAt: journey.startedAt };
+      }
+    }
 
     // Only the position is stored — never a copy of the bus's own details.
     // `set` replaces the record, so a later fix with no trip drops the old one.
@@ -230,7 +247,7 @@ export async function PUT(request: Request, context?: any) {
       latitude,
       longitude,
       recordedAt: normalisedRecordedAt,
-      ...(reportedTripId ? { tripId: reportedTripId } : {}),
+      ...(run ?? {}),
     };
 
     await adminDb

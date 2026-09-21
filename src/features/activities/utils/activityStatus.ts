@@ -181,6 +181,10 @@ export function groupActivities(bookings: Booking[], passengerId: string, now: D
  * its window runs out. The history then only decides Completed — a booking the
  * server did not report as ongoing has its history `activeJourney` ignored, so
  * the two tabs are never decided by two different answers.
+ *
+ * The ongoing response carries only a trimmed booking (MOV-296), so each card
+ * shows the passenger's full booking from the history, joined by bookingId,
+ * with the server's activeJourney on it.
  */
 export function groupActivitiesWithOngoing(
     history: Booking[],
@@ -188,17 +192,12 @@ export function groupActivitiesWithOngoing(
     passengerId: string,
     now: Date
 ): ActivityGroups {
-    const ongoingIds = new Set(ongoingJourneys.map((journey) => journey.booking?.bookingId));
-    const { completed } = groupActivities(
-        history.map((booking) => (ongoingIds.has(booking.bookingId) ? booking : { ...booking, activeJourney: undefined })),
-        passengerId,
-        now
-    );
-    const ongoing = groupActivities(
-        ongoingJourneys.map((journey) => ({ ...journey.booking, activeJourney: journey.activeJourney })),
-        passengerId,
-        now
-    ).ongoing;
+    const activeById = new Map(ongoingJourneys.map((journey) => [journey.booking?.bookingId, journey.activeJourney]));
+    const withServerJourney = history.map((booking) => ({
+        ...booking,
+        activeJourney: activeById.get(booking.bookingId),
+    }));
+    const { ongoing, completed } = groupActivities(withServerJourney, passengerId, now);
 
-    return { ongoing, completed: completed.filter((booking) => !ongoingIds.has(booking.bookingId)) };
+    return { ongoing, completed };
 }
