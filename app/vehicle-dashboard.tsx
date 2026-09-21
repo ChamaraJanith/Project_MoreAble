@@ -30,9 +30,9 @@ export default function VehicleDashboardScreen() {
     const [exitError, setExitError] = useState('');
     const [activeTab, setActiveTab] = useState<VehicleTab>('PASSENGERS');
 
-    // Held here rather than in the Trip Control tab (MOV-294): tabs unmount as
-    // the driver switches between them, and a started journey must keep
-    // sharing while the conductor works in the Passengers tab.
+    // The bus's trips and running journey, held above the tabs so switching
+    // tabs does not reload them (MOV-294). Location sharing is not owned here —
+    // it follows the journey, so signing out below never stops it.
     const journey = useTripJourney(session?.busId);
 
     useFocusEffect(

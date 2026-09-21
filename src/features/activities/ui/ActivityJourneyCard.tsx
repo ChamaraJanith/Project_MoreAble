@@ -72,7 +72,7 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const numberPlate = booking.vehicle?.numberPlate;
 
     const statusLabel = isOngoing
-        ? t('activities.inProgress', 'In Progress')
+        ? t('activities.ongoingStatus', 'Ongoing')
         : t('activities.completedStatus', 'Completed');
     const actionLabel = isOngoing
         ? t('activities.viewJourney', 'View Journey')

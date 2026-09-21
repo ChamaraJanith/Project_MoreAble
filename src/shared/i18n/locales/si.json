@@ -218,7 +218,7 @@
     "noCompletedTitle": "අවසන් වූ ගමන් නොමැත",
     "noCompletedDesc": "ඔබ ගොඩ වූ ගමන් අවසන් වූ පසු මෙහි දිස්වේ.",
     "viewBookings": "මගේ වෙන්කිරීම් බලන්න",
-    "inProgress": "ගමන් කරමින්",
+    "ongoingStatus": "සිදුවෙමින්",
     "completedStatus": "අවසන්",
     "viewJourney": "ගමන බලන්න",
     "viewDetails": "විස්තර බලන්න",

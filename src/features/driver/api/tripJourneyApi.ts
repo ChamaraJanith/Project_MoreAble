@@ -2,18 +2,31 @@
 //
 // POST /api/trips/:tripId/journey persists the lifecycle on the trip itself,
 // so a started journey outlives the device session that started it. The call
-// is made as the signed-in bus, with the same session credential the location
-// updates use.
+// is made as the signed-in bus.
+//
+// A running journey also comes back with its location-sharing credential: a
+// narrow token that can only report this bus's position, and that outlives the
+// dashboard sign-in so sharing continues after logging out.
 
 import { API_BASE_URL } from '../../../shared/api/config';
 import { TripJourneyRecord } from '../../../shared/utils/journeyLifecycle';
 
-export type TripJourneyAction = 'START' | 'END';
+/**
+ * START and END change the journey. SHARE only asks for the running journey's
+ * sharing credential — it never starts, restarts or extends one.
+ */
+export type TripJourneyAction = 'START' | 'END' | 'SHARE';
+
+export interface TripJourneyResult {
+    journey: TripJourneyRecord;
+    /** Present while the journey is running (START and SHARE). */
+    sharingToken?: string;
+}
 
 export type TripJourneyErrorCode =
     /** This bus is already running another of its trips. */
     | 'ANOTHER_JOURNEY_ACTIVE'
-    /** End Journey on a trip that was never started. */
+    /** End Journey or SHARE on a trip that is not running. */
     | 'JOURNEY_NOT_STARTED'
     /** The trip has been taken out of service. */
     | 'TRIP_INACTIVE'
@@ -35,12 +48,12 @@ export class TripJourneyError extends Error {
 
 const KNOWN_CODES: TripJourneyErrorCode[] = ['ANOTHER_JOURNEY_ACTIVE', 'JOURNEY_NOT_STARTED', 'TRIP_INACTIVE'];
 
-/** Starts or ends `tripId`'s journey and returns the persisted record. */
+/** Starts, ends or shares `tripId`'s journey; returns the persisted record. */
 export async function updateTripJourney(
     tripId: string,
     action: TripJourneyAction,
     sessionCredential: string
-): Promise<TripJourneyRecord> {
+): Promise<TripJourneyResult> {
     if (!tripId?.trim()) {
         throw new TripJourneyError('FAILED', 'No trip was selected.');
     }
@@ -76,5 +89,8 @@ export async function updateTripJourney(
         throw new TripJourneyError(code, data?.message || 'The journey could not be updated. Please try again.');
     }
 
-    return data.journey as TripJourneyRecord;
+    return {
+        journey: data.journey as TripJourneyRecord,
+        ...(typeof data.sharingToken === 'string' && data.sharingToken ? { sharingToken: data.sharingToken } : {}),
+    };
 }
