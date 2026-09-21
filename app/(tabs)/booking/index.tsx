@@ -18,6 +18,7 @@ import {
 import { Booking } from '../../../src/entities/booking/model/types';
 import { cancelBooking, getBookingHistory } from '../../../src/features/booking/api/bookingApi';
 import { useAuthStore } from '../../../src/shared/store/authStore';
+import { statusBadgeStyles } from '../../../src/shared/ui/statusBadgeStyles';
 
 type FilterTab = 'UPCOMING' | 'HISTORY';
 
@@ -227,7 +228,7 @@ export default function MyBookingsScreen() {
                                             style={[
                                                 styles.statusBadge,
                                                 item.status === 'CONFIRMED'
-                                                    ? styles.statusBadgeActive
+                                                    ? statusBadgeStyles.active
                                                     : styles.statusBadgeCancel,
                                             ]}
                                         >
@@ -235,7 +236,7 @@ export default function MyBookingsScreen() {
                                                 style={[
                                                     styles.statusText,
                                                     item.status === 'CONFIRMED'
-                                                        ? styles.statusTextActive
+                                                        ? statusBadgeStyles.activeText
                                                         : styles.statusTextCancel,
                                                 ]}
                                             >
@@ -609,18 +610,12 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderRadius: 8,
     },
-    statusBadgeActive: {
-        backgroundColor: '#D1FAE5',
-    },
     statusBadgeCancel: {
         backgroundColor: '#FEE2E2',
     },
     statusText: {
         fontSize: 11,
         fontWeight: '900',
-    },
-    statusTextActive: {
-        color: '#065F46',
     },
     statusTextCancel: {
         color: '#B91C1C',

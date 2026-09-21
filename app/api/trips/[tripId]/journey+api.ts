@@ -4,6 +4,7 @@ import {
 } from '../../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
 import { JOURNEY_SHARING_SCOPE, generateJourneySharingToken } from '../../../../src/shared/config/jwt';
+import { completePassengersForEndedRun } from '../../../../src/shared/server/passengerJourneyCompletion';
 import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
 import {
   TripJourneyRecord,
@@ -91,6 +92,9 @@ function extractTripId(request: Request, context: any): string {
 // (its startedAt is never reset), and ending one that is not running reports
 // the record as it stands.
 //
+// END also completes each passenger still ongoing on that run (MOV-297). A
+// passenger's own End Journey is a different event and never reaches here.
+//
 // START and SHARE return the journey's location-sharing credential. SHARE is
 // for a signed-in device that finds the journey already running and has no
 // credential of its own (another phone, or cleared storage): it never starts,
@@ -157,13 +161,22 @@ export async function POST(request: Request, context?: any) {
 
     if (action === 'END') {
       if (!isJourneyActive(current, now)) {
-        return current
-          ? await journeyResponse('This journey is not running.', current, now)
-          : fail(409, 'This journey has not been started.', 'JOURNEY_NOT_STARTED');
+        if (!current) {
+          return fail(409, 'This journey has not been started.', 'JOURNEY_NOT_STARTED');
+        }
+        // A repeated End finishes any passenger an earlier attempt missed;
+        // those already finished are left exactly as they are (MOV-297).
+        await completePassengersForEndedRun(adminDb, tripId, current);
+        return await journeyResponse('This journey is not running.', current, now);
       }
 
       const ended: TripJourneyRecord = { ...current, status: 'ENDED', endedAt: now.toISOString() };
       await tripRef.update({ journey: ended });
+
+      // The bus's end finishes every passenger still ongoing on this run, at
+      // the bus's end time. Passengers who already ended their own journey
+      // keep their record and time (MOV-297).
+      await completePassengersForEndedRun(adminDb, tripId, ended);
 
       return await journeyResponse('Journey ended.', ended, now);
     }

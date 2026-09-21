@@ -1,8 +1,8 @@
 import { AppText as Text } from '../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
@@ -14,10 +14,14 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { Booking, PassengerOngoingJourney } from '../../../src/entities/booking/model/types';
-import { getOngoingJourneys } from '../../../src/features/activities/api/ongoingJourneyApi';
+import { Booking, PassengerCompletedJourney, PassengerOngoingJourney } from '../../../src/entities/booking/model/types';
+import { getCompletedJourneys, getOngoingJourneys } from '../../../src/features/activities/api/ongoingJourneyApi';
 import { ActivityJourneyCard } from '../../../src/features/activities/ui/ActivityJourneyCard';
-import { completedJourneyHref, ongoingJourneyHref } from '../../../src/features/activities/utils/activityRoutes';
+import {
+    completedJourneyDetailsHref,
+    completedJourneyHref,
+    ongoingJourneyHref,
+} from '../../../src/features/activities/utils/activityRoutes';
 import { groupActivitiesWithOngoing } from '../../../src/features/activities/utils/activityStatus';
 import { getBookingHistory } from '../../../src/features/booking/api/bookingApi';
 import { useAuthStore } from '../../../src/shared/store/authStore';
@@ -40,11 +44,21 @@ export default function ActivitiesScreen() {
 
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [ongoingJourneys, setOngoingJourneys] = useState<PassengerOngoingJourney[]>([]);
+    const [completedJourneys, setCompletedJourneys] = useState<PassengerCompletedJourney[]>([]);
     const [checkedAt, setCheckedAt] = useState(() => new Date());
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState<ActivityTab>('ONGOING');
+
+    // "Back to Ongoing" on the Live Journey screen (MOV-297) asks for the
+    // Ongoing tab. The request is cleared once applied, so later visits keep
+    // whichever tab the passenger chose.
+    const { tab } = useLocalSearchParams<{ tab?: string }>();
+    if (tab === 'ongoing' && activeTab !== 'ONGOING') setActiveTab('ONGOING');
+    useEffect(() => {
+        if (tab === 'ongoing') router.setParams({ tab: undefined });
+    }, [tab]);
 
     // Only the newest request may update the screen, so a slow earlier
     // response can never overwrite a fresher one.
@@ -64,15 +78,18 @@ export default function ActivitiesScreen() {
             if (mode !== 'silent') setError('');
 
             try {
-                // Ongoing comes from the passenger's own session (MOV-295);
-                // the history still supplies Completed.
-                const [data, ongoing] = await Promise.all([
+                // Ongoing (MOV-295) and recorded completions (MOV-297) come
+                // from the passenger's own session; the history supplies the
+                // cards and any journey finished before completions existed.
+                const [data, ongoing, completed] = await Promise.all([
                     getBookingHistory(passengerId, { includeLiveSharing: true }),
                     getOngoingJourneys(token),
+                    getCompletedJourneys(token),
                 ]);
                 if (requestId !== latestRequest.current) return;
                 setBookings(data);
                 setOngoingJourneys(ongoing);
+                setCompletedJourneys(completed);
                 setCheckedAt(new Date());
                 setError('');
             } catch (err: any) {
@@ -100,12 +117,19 @@ export default function ActivitiesScreen() {
     );
 
     const groups = useMemo(
-        () => groupActivitiesWithOngoing(bookings, ongoingJourneys, passengerId ?? '', checkedAt),
-        [bookings, ongoingJourneys, passengerId, checkedAt]
+        () => groupActivitiesWithOngoing(bookings, ongoingJourneys, passengerId ?? '', checkedAt, completedJourneys),
+        [bookings, ongoingJourneys, passengerId, checkedAt, completedJourneys]
     );
 
     const openActivity = useCallback((booking: Booking, tab: ActivityTab) => {
-        router.push(tab === 'ONGOING' ? ongoingJourneyHref(booking.bookingId) : completedJourneyHref(booking.bookingId));
+        if (tab === 'ONGOING') {
+            router.push(ongoingJourneyHref(booking.bookingId));
+        } else if (booking.passengerJourney) {
+            // A recorded completion has its own journey summary (MOV-297).
+            router.push(completedJourneyDetailsHref(booking.bookingId));
+        } else {
+            router.push(completedJourneyHref(booking.bookingId));
+        }
     }, []);
 
     if (!user) {

@@ -11,7 +11,11 @@ import { RouteMapVehicle } from '../../journey/ui/RouteMap';
 import { RouteMapCard } from '../../journey/ui/RouteMapCard';
 import { RouteStopTimeline } from '../../journey/ui/RouteStopTimeline';
 import { formatLocationAge } from '../../journey/utils/liveStatus';
+import { endPassengerJourney, EndJourneyResult, OngoingJourneyRequestError } from '../api/ongoingJourneyApi';
 import { useOngoingJourneyTracking } from '../hooks/useOngoingJourneyTracking';
+import { completedJourneyDetailsHref, ongoingActivitiesHref } from '../utils/activityRoutes';
+import { createEndJourneyAction } from '../utils/completedJourney';
+import { confirmEndJourney } from './confirmEndJourney';
 import {
     buildOngoingMapData,
     computeJourneyProgress,
@@ -50,8 +54,54 @@ export function OngoingJourneyScreen() {
     const { bookingId } = useLocalSearchParams<{ bookingId?: string }>();
     const token = useAuthStore((store) => store.token);
 
-    const { state, refreshing, refresh } = useOngoingJourneyTracking(bookingId, token);
+    const { state, refreshing, refresh, stopTracking } = useOngoingJourneyTracking(bookingId, token);
     const [focusRequest, setFocusRequest] = useState(0);
+
+    // ---- The passenger's own End Journey (MOV-297) ----
+    const [ending, setEnding] = useState(false);
+    const [endError, setEndError] = useState<string | null>(null);
+    // One instance for the screen, so taps while it is open join one request.
+    // The current session and booking are passed in on each run.
+    const [endAction] = useState(() =>
+        createEndJourneyAction<EndJourneyResult, { token: string | null; bookingId?: string }>(
+            confirmEndJourney,
+            ({ token: sessionToken, bookingId: openedBooking }) => {
+                if (!sessionToken || !openedBooking) {
+                    throw new OngoingJourneyRequestError('Please sign in again.', 401);
+                }
+                return endPassengerJourney(sessionToken, openedBooking);
+            }
+        )
+    );
+
+    const handleEndJourney = async () => {
+        setEndError(null);
+        setEnding(true);
+        const outcome = await endAction.run({ token, bookingId });
+        setEnding(false);
+
+        if (outcome.status === 'COMPLETED') {
+            // Only this screen stops following the bus; the bus and everyone
+            // else on it carry on.
+            stopTracking();
+            if (bookingId) router.replace(completedJourneyDetailsHref(bookingId));
+            return;
+        }
+
+        if (outcome.status === 'FAILED') {
+            const status = outcome.error instanceof OngoingJourneyRequestError ? outcome.error.status : null;
+            if (status === 409) {
+                // Already over (the bus may have just ended it): the refresh
+                // shows that, instead of offering End Journey again.
+                setEndError(t('ongoingJourney.endNotRunning', 'This journey is no longer running.'));
+                refresh();
+            } else if (status === 401 || status === 403) {
+                setEndError(t('ongoingJourney.endSignIn', 'Please sign in again to end your journey.'));
+            } else {
+                setEndError(t('ongoingJourney.endFailed', 'Could not end your journey. Please try again.'));
+            }
+        }
+    };
 
     const { phase, journey, route, connectionLost } = state;
 
@@ -266,15 +316,31 @@ export function OngoingJourneyScreen() {
                     )}
 
                     {isEnded && (
-                        <TouchableOpacity
-                            style={[styles.primaryButton, styles.endedButton]}
-                            onPress={goToActivities}
-                            accessibilityRole="button"
-                        >
-                            <Text style={styles.primaryButtonText}>
-                                {t('ongoingJourney.backToActivities', 'BACK TO ACTIVITIES')}
+                        <>
+                            <Text style={styles.statusDetail}>
+                                {t('ongoingJourney.endedMoved', 'Your journey is now under Completed in Activities.')}
                             </Text>
-                        </TouchableOpacity>
+                            {!!bookingId && (
+                                <TouchableOpacity
+                                    style={[styles.primaryButton, styles.endedButton]}
+                                    onPress={() => router.replace(completedJourneyDetailsHref(bookingId))}
+                                    accessibilityRole="button"
+                                >
+                                    <Text style={styles.primaryButtonText}>
+                                        {t('ongoingJourney.viewCompleted', 'VIEW COMPLETED JOURNEY')}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity
+                                style={[styles.secondaryButton, styles.endedButton]}
+                                onPress={goToActivities}
+                                accessibilityRole="button"
+                            >
+                                <Text style={styles.secondaryButtonText}>
+                                    {t('ongoingJourney.backToActivities', 'BACK TO ACTIVITIES')}
+                                </Text>
+                            </TouchableOpacity>
+                        </>
                     )}
                 </View>
 
@@ -477,6 +543,54 @@ export function OngoingJourneyScreen() {
                         </Text>
                     )}
                 </View>
+
+                {/* ---------------- Actions (MOV-297) ---------------- */}
+                {!isEnded && (
+                    <View style={styles.actions}>
+                        {!!endError && (
+                            <Text style={styles.endErrorText} accessibilityLiveRegion="polite">
+                                {endError}
+                            </Text>
+                        )}
+                        <View style={styles.actionRow}>
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.actionButtonBack]}
+                            onPress={() => router.navigate(ongoingActivitiesHref())}
+                            disabled={ending}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('ongoingJourney.backToOngoingLabel', 'Back to your ongoing journeys')}
+                        >
+                            <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+                            <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                                {t('ongoingJourney.backToOngoing', 'Back to Ongoing')}
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.actionButton, styles.actionButtonEnd]}
+                            onPress={handleEndJourney}
+                            disabled={ending}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('ongoingJourney.endJourneyLabel', 'End Journey')}
+                            accessibilityHint={t(
+                                'ongoingJourney.endJourneyHint',
+                                'Marks that you have reached your destination. Asks you to confirm first.'
+                            )}
+                            accessibilityState={{ disabled: ending, busy: ending }}
+                        >
+                            {ending ? (
+                                <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                                <>
+                                    <Ionicons name="flag" size={18} color="#FFFFFF" />
+                                    <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                                        {t('ongoingJourney.endJourney', 'End Journey')}
+                                    </Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
             </ScrollView>
         </View>
     );
@@ -675,7 +789,63 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
     endedButton: {
-        marginTop: 14,
+        marginTop: 12,
+    },
+    secondaryButton: {
+        flexDirection: 'row',
+        minHeight: 52,
+        backgroundColor: '#EBF3FA',
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 20,
+    },
+    secondaryButtonText: {
+        color: '#0066CC',
+        fontWeight: '800',
+        fontSize: 15,
+    },
+    actions: {
+        gap: 12,
+        marginTop: 4,
+        marginBottom: 8,
+    },
+    // The two bottom actions share one shape, side by side at equal width.
+    actionRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    actionButton: {
+        flex: 1,
+        flexDirection: 'row',
+        minHeight: 52,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 12,
+    },
+    // The app's primary blue, as primaryButton.
+    actionButtonBack: {
+        backgroundColor: '#0066CC',
+    },
+    // A significant action: the app's alert red (errors, the destination pin),
+    // with a flag glyph and its own words, never colour alone.
+    actionButtonEnd: {
+        backgroundColor: '#DC2626',
+    },
+    actionButtonText: {
+        flexShrink: 1,
+        color: '#FFFFFF',
+        fontWeight: '800',
+        fontSize: 15,
+    },
+    endErrorText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#B91C1C',
+        textAlign: 'center',
     },
 
     identityRow: {
