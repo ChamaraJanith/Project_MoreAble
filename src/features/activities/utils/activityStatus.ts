@@ -4,46 +4,30 @@
 // nothing about whether the bus has set off. So neither tab is decided by the
 // booking status alone:
 //
-//   ONGOING   — the bus operating THIS booking's trip is sharing its location
-//               right now (Bus Dashboard, MOV-267), and it is within that
-//               trip's scheduled window.
+//   ONGOING   — the bus pressed Start Journey on THIS booking's exact trip, and
+//               that journey is still running: not ended with End Journey, and
+//               within its window from the actual start (journeyLifecycle).
 //   COMPLETED — the passenger was boarded by the conductor (a real, dated
 //               event) and that trip's scheduled arrival has since passed.
 //
-// Everything else — a future or unstarted booking, a cancelled one, a booking
+// Everything else — an unstarted or future trip, a cancelled booking, a booking
 // that was never boarded — belongs to neither tab. It stays in the Booking tab,
 // which is unchanged.
 //
-// The trip-to-bus match itself is made on the server (bookingLiveSharing): the
-// live block on a booking can only describe the bus running that booking's own
-// trip. This module re-checks that the block was resolved for this booking's
-// trip, and adds the two things the server leaves to the reader: whether the
-// report is recent enough to mean "sharing now", and whether now is this
-// trip's time.
+// Ongoing does not depend on the scheduled departure, on the bus's device being
+// signed in, or on how recently it sent a position: a 06:00 trip started at
+// 20:35 is ongoing from 20:35, and stays so while the driver is logged out.
+//
+// The trip match itself is made on the server: `activeJourney` is read from
+// trips/{booking.tripId}, so it can only describe the booking's own trip. This
+// module re-checks that, and re-checks the window against the current time so a
+// list left open drops a journey the moment it expires.
 
 import { Booking } from '../../../entities/booking/model/types';
+import { isJourneyActive } from '../../../shared/utils/journeyLifecycle';
 import { apiTimeToMinutes } from '../../journey/utils/dateTime';
 
-/**
- * How old the latest report may be and still count as "sharing now".
- *
- * The Bus Dashboard publishes every 30 s (DEFAULT_TRACKING_INTERVAL_MS), and
- * stopping tracking does not delete the stored position — it just stops being
- * refreshed. Five minutes tolerates several missed publishes on a weak signal
- * while still letting a bus that stopped sharing drop out of Ongoing.
- */
-export const LIVE_SHARING_FRESH_SECONDS = 5 * 60;
-
-/**
- * How early before the scheduled departure a sharing bus counts as this trip.
- *
- * A driver typically starts sharing at the depot shortly before setting off.
- * Kept short on purpose: the same bus runs several trips ("turns") a day, and a
- * wide window would let its earlier turn light up a later booking.
- */
-export const PRE_DEPARTURE_WINDOW_MINUTES = 30;
-
-/** How long after the scheduled arrival a late-running trip still counts. */
+/** How long after the scheduled arrival a boarded journey still counts as unfinished. */
 export const POST_ARRIVAL_GRACE_MINUTES = 60;
 
 const MINUTES_PER_DAY = 24 * 60;
@@ -79,69 +63,20 @@ export function scheduledTimesOn(booking: Booking, day: Date): ScheduledWindow |
 }
 
 /**
- * Whether `now` falls inside the trip's scheduled window, padded by the lead
- * and grace periods above.
+ * Whether the exact trip this booking is for has a running journey.
  *
- * Bookings carry a time of day but no travel date (see MOV-295), so this
- * follows the convention the boarding reminder already uses for them: the
- * journey is the one running today. Yesterday is checked too, so a trip that
- * departed before midnight is still recognised after it.
+ * The journey block must name this booking's own trip: one resolved for any
+ * other trip — even one on the same route, or the same bus's other turn — is
+ * ignored, never borrowed.
  */
-export function isWithinScheduledWindow(booking: Booking, now: Date): boolean {
-    for (const dayOffset of [0, -1]) {
-        const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
-        const times = scheduledTimesOn(booking, day);
+export function isBookedTripRunning(booking: Booking, now: Date): boolean {
+    const journey = booking.activeJourney;
 
-        if (!times) {
-            return false;
-        }
-
-        const opens = times.departure.getTime() - PRE_DEPARTURE_WINDOW_MINUTES * MS_PER_MINUTE;
-        const closes = times.arrival.getTime() + POST_ARRIVAL_GRACE_MINUTES * MS_PER_MINUTE;
-
-        if (now.getTime() >= opens && now.getTime() <= closes) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/**
- * Seconds since the bus's latest GPS fix, or null when it cannot be told.
- *
- * Measured from `recordedAt` against `now`, so a list left open keeps ageing
- * correctly; the server's own figure is the fallback when the fix time is
- * missing. A negative age means the bus phone's clock is ahead, and reads as
- * "just now" — the same reading liveStatus gives it.
- */
-function reportAgeSeconds(booking: Booking, now: Date): number | null {
-    const sharing = booking.liveSharing;
-    const fixTime = sharing?.recordedAt ? new Date(sharing.recordedAt).getTime() : NaN;
-
-    if (!Number.isNaN(fixTime)) {
-        return Math.max(0, Math.round((now.getTime() - fixTime) / 1000));
-    }
-
-    const serverAge = sharing?.locationAgeSeconds;
-    return typeof serverAge === 'number' && Number.isFinite(serverAge) ? Math.max(0, serverAge) : null;
-}
-
-/**
- * Whether the bus operating this booking's own trip is sharing its location now.
- *
- * The live block must have been resolved for this booking's trip: a block for
- * any other trip — even one on the same route — is ignored, never borrowed.
- */
-export function isBookedBusSharingLive(booking: Booking, now: Date): boolean {
-    const sharing = booking.liveSharing;
-
-    if (!sharing || !sharing.available || sharing.tripId !== booking.tripId) {
+    if (!journey || !booking.tripId || journey.tripId !== booking.tripId) {
         return false;
     }
 
-    const age = reportAgeSeconds(booking, now);
-    return age !== null && age <= LIVE_SHARING_FRESH_SECONDS;
+    return isJourneyActive({ status: 'STARTED', startedAt: journey.startedAt, endedAt: null }, now);
 }
 
 /**
@@ -152,6 +87,7 @@ export function isBookedBusSharingLive(booking: Booking, now: Date): boolean {
  * counts as finished once that day's scheduled arrival, plus grace, has passed.
  * A booking that was never boarded is not a completed journey — it may have
  * been missed, or may still be in the future; nothing stored tells them apart.
+ * Ending or expiring the bus's journey does not complete anyone's trip.
  */
 export function isJourneyCompleted(booking: Booking, now: Date): boolean {
     if (booking.status !== 'CONFIRMED' || booking.boardingStatus !== 'BOARDED' || !booking.boardedAt) {
@@ -183,12 +119,14 @@ export function deriveActivityState(booking: Booking, now: Date): ActivityState 
         return 'NOT_ACTIVE';
     }
 
-    if (isJourneyCompleted(booking, now)) {
-        return 'COMPLETED';
+    // Checked before Completed: while the bus is still running this trip, a
+    // passenger who has boarded is on it, whatever the timetable says.
+    if (isBookedTripRunning(booking, now)) {
+        return 'ONGOING';
     }
 
-    if (isBookedBusSharingLive(booking, now) && isWithinScheduledWindow(booking, now)) {
-        return 'ONGOING';
+    if (isJourneyCompleted(booking, now)) {
+        return 'COMPLETED';
     }
 
     return 'NOT_ACTIVE';
@@ -206,8 +144,8 @@ export interface ActivityGroups {
  * The history endpoint already filters by passenger; this keeps the screen
  * correct even if it were handed a wider list.
  *
- * Ongoing is ordered by scheduled departure, soonest first. Completed is most
- * recent first, by boarding time.
+ * Ongoing is most recently started first. Completed is most recent first, by
+ * boarding time.
  */
 export function groupActivities(bookings: Booking[], passengerId: string, now: Date): ActivityGroups {
     const ongoing: Booking[] = [];
@@ -228,7 +166,7 @@ export function groupActivities(bookings: Booking[], passengerId: string, now: D
 
     ongoing.sort(
         (a, b) =>
-            (apiTimeToMinutes(a.journey?.departureTime) ?? 0) - (apiTimeToMinutes(b.journey?.departureTime) ?? 0)
+            new Date(b.activeJourney?.startedAt ?? 0).getTime() - new Date(a.activeJourney?.startedAt ?? 0).getTime()
     );
     completed.sort((a, b) => new Date(b.boardedAt ?? 0).getTime() - new Date(a.boardedAt ?? 0).getTime());
 

@@ -157,6 +157,23 @@ export interface Booking {
   createdAt: string;
   /** Only present when requested from the booking history (MOV-294). */
   liveSharing?: BookingLiveSharing;
+  /** Present only while this booking's own trip has a running journey (MOV-294). */
+  activeJourney?: BookingActiveJourney;
+}
+
+/**
+ * The running journey of a booking's own trip (MOV-294).
+ *
+ * Read from trips/{booking.tripId}.journey, so it can only ever describe the
+ * exact trip the passenger booked. Sent only while that journey is running.
+ */
+export interface BookingActiveJourney {
+  /** Always the booking's own tripId. */
+  tripId: string;
+  /** ISO 8601, when the bus pressed Start Journey. */
+  startedAt: string;
+  /** ISO 8601, when it stops counting as running if nobody ends it. */
+  expiresAt: string;
 }
 
 

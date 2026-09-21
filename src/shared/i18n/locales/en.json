@@ -214,14 +214,15 @@
     "loginDesc": "Please sign in with your passenger account to see your ongoing and completed journeys.",
     "goToSignIn": "GO TO SIGN IN",
     "noOngoingTitle": "No ongoing journeys",
-    "noOngoingDesc": "A booked journey appears here once its bus starts sharing its live location.",
+    "noOngoingDesc": "A booked journey appears here once its bus starts the journey.",
     "noCompletedTitle": "No completed journeys",
     "noCompletedDesc": "Journeys you have boarded will appear here after they finish.",
     "viewBookings": "VIEW MY BOOKINGS",
     "inProgress": "In Progress",
     "completedStatus": "Completed",
     "viewJourney": "View Journey",
-    "viewDetails": "View Details"
+    "viewDetails": "View Details",
+    "startedAt": "Started {{time}}"
   },
   "auth": {
     "autoFill": "Auto-fill Saved Account",
