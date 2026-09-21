@@ -18,7 +18,10 @@
 
 import { OngoingJourneyRoute } from '../../entities/booking/model/types';
 import { JourneyRoadRoute, JourneyStopPoint } from '../../entities/route/model/types';
-import { normalizeSegmentDurations } from '../../../app/api/journeys/search+api';
+import {
+    normalizeSegmentDurations,
+    resolveJourneyDistanceKm,
+} from '../../../app/api/journeys/search+api';
 import { getRouteThroughCoordinates } from '../api/routingService';
 import { normalizeLocation } from '../utils/location';
 
@@ -144,9 +147,77 @@ function stringList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && !!item.trim()) : [];
 }
 
+export interface PlannedJourney {
+    /** The whole route's stops, in travel order. */
+    stops: string[];
+    /** The passenger's own stops, boarding to alighting. */
+    journeyStops: string[];
+    /** Coordinates for those of `journeyStops` that have them, in the same order. */
+    stopPoints: JourneyStopPoint[];
+    segmentDurationsMinutes: (number | null)[] | null;
+    /** The distance Journey Planning shows for this journey; null when not measurable. */
+    plannedDistanceKm: number | null;
+}
+
 /**
- * The planned path for one authorised ongoing journey, or null when its route
- * cannot be read.
+ * The passenger's planned journey on a route, without the road path.
+ *
+ * `savedJourneyStops` — the stops recorded when a journey finished (MOV-297) —
+ * take precedence over re-deriving them, so a completed journey keeps the path
+ * it was planned on even if the route is edited later. Without a readable
+ * route, those saved stops are still enough to describe the journey.
+ *
+ * The distance is Journey Planning's own (resolveJourneyDistanceKm): the
+ * route's recorded total for a whole-route journey, otherwise the sum of the
+ * stop-to-stop distances, and null rather than an estimate when a stop has no
+ * coordinates.
+ */
+export async function loadPlannedJourney(
+    adminDb: any,
+    routeId: string | null,
+    boardStop: unknown,
+    alightStop: unknown,
+    caches: OngoingRouteCaches,
+    savedJourneyStops?: string[] | null
+): Promise<PlannedJourney | null> {
+    const saved = stringList(savedJourneyStops);
+    const route = routeId ? await loadRouteDoc(adminDb, routeId, caches.routes) : null;
+    const routeStops = stringList(route?.stops);
+
+    if (routeStops.length < 2 && saved.length < 2) return null;
+
+    const stops = routeStops.length >= 2 ? routeStops : saved;
+    const journeyStops = saved.length >= 2 ? saved : sliceJourneyStops(stops, boardStop, alightStop);
+    const coordinates = await loadStopPoints(adminDb, caches);
+    const stopPoints = journeyStops
+        .map((name) => {
+            const point = coordinates.get(normalizeLocation(name));
+            return point ? { name, latitude: point.latitude, longitude: point.longitude } : null;
+        })
+        .filter((point): point is JourneyStopPoint => point !== null);
+
+    const plannedDistanceKm = resolveJourneyDistanceKm(
+        {
+            journeyStops,
+            stops,
+            distanceKm: typeof route?.distanceKm === 'number' ? route.distanceKm : null,
+        } as any,
+        coordinates
+    );
+
+    return {
+        stops,
+        journeyStops,
+        stopPoints,
+        segmentDurationsMinutes:
+            routeStops.length >= 2 ? normalizeSegmentDurations(route?.segmentDurationsMinutes, routeStops.length) : null,
+        plannedDistanceKm,
+    };
+}
+
+/**
+ * The planned path for one authorised journey, or null when its route cannot
+ * be read.
  *
  * `routeId` is the running trip's own (falling back to the booking's snapshot
  * of it only when the trip names none). Stops without stored coordinates are
@@ -158,31 +229,19 @@ export async function loadOngoingJourneyRoute(
     routeId: string | null,
     boardStop: unknown,
     alightStop: unknown,
-    caches: OngoingRouteCaches
+    caches: OngoingRouteCaches,
+    savedJourneyStops?: string[] | null
 ): Promise<OngoingJourneyRoute | null> {
-    if (!routeId) return null;
-
     try {
-        const route = await loadRouteDoc(adminDb, routeId, caches.routes);
-        const stops = stringList(route?.stops);
-
-        if (stops.length < 2) return null;
-
-        const journeyStops = sliceJourneyStops(stops, boardStop, alightStop);
-        const coordinates = await loadStopPoints(adminDb, caches);
-        const stopPoints = journeyStops
-            .map((name) => {
-                const point = coordinates.get(normalizeLocation(name));
-                return point ? { name, latitude: point.latitude, longitude: point.longitude } : null;
-            })
-            .filter((point): point is JourneyStopPoint => point !== null);
+        const planned = await loadPlannedJourney(adminDb, routeId, boardStop, alightStop, caches, savedJourneyStops);
+        if (!planned) return null;
 
         return {
-            stops,
-            journeyStops,
-            stopPoints,
-            segmentDurationsMinutes: normalizeSegmentDurations(route?.segmentDurationsMinutes, stops.length),
-            road: await loadRoad(stopPoints),
+            stops: planned.stops,
+            journeyStops: planned.journeyStops,
+            stopPoints: planned.stopPoints,
+            segmentDurationsMinutes: planned.segmentDurationsMinutes,
+            road: await loadRoad(planned.stopPoints),
         };
     } catch (error) {
         console.error('Ongoing Route Error:', error);

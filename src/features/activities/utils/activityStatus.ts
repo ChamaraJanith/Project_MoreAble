@@ -7,8 +7,12 @@
 //   ONGOING   — the bus pressed Start Journey on THIS booking's exact trip, and
 //               that journey is still running: not ended with End Journey, and
 //               within its window from the actual start (journeyLifecycle).
-//   COMPLETED — the passenger was boarded by the conductor (a real, dated
-//               event) and that trip's scheduled arrival has since passed.
+//   COMPLETED — the journey's completion was recorded (MOV-297): the
+//               passenger pressed End Journey, or the bus ended the run while
+//               theirs was still going. Failing that (journeys finished before
+//               completions were recorded), the passenger was boarded by the
+//               conductor (a real, dated event) and that trip's scheduled
+//               arrival has since passed.
 //
 // Everything else — an unstarted or future trip, a cancelled booking, a booking
 // that was never boarded — belongs to neither tab. It stays in the Booking tab,
@@ -23,7 +27,7 @@
 // module re-checks that, and re-checks the window against the current time so a
 // list left open drops a journey the moment it expires.
 
-import { Booking, PassengerOngoingJourney } from '../../../entities/booking/model/types';
+import { Booking, PassengerCompletedJourney, PassengerOngoingJourney } from '../../../entities/booking/model/types';
 import { isJourneyActive } from '../../../shared/utils/journeyLifecycle';
 import { apiTimeToMinutes } from '../../journey/utils/dateTime';
 
@@ -119,6 +123,13 @@ export function deriveActivityState(booking: Booking, now: Date): ActivityState 
         return 'NOT_ACTIVE';
     }
 
+    // A recorded completion (MOV-297) is final: the passenger ended it, or it
+    // finished when the bus ended the run. Checked before Ongoing, since the
+    // bus may still be running for everyone else.
+    if (booking.passengerJourney?.status === 'COMPLETED') {
+        return 'COMPLETED';
+    }
+
     // Checked before Completed: while the bus is still running this trip, a
     // passenger who has boarded is on it, whatever the timetable says.
     if (isBookedTripRunning(booking, now)) {
@@ -168,9 +179,14 @@ export function groupActivities(bookings: Booking[], passengerId: string, now: D
         (a, b) =>
             new Date(b.activeJourney?.startedAt ?? 0).getTime() - new Date(a.activeJourney?.startedAt ?? 0).getTime()
     );
-    completed.sort((a, b) => new Date(b.boardedAt ?? 0).getTime() - new Date(a.boardedAt ?? 0).getTime());
+    completed.sort((a, b) => finishedAt(b) - finishedAt(a));
 
     return { ongoing, completed };
+}
+
+/** When a completed journey finished: its recorded completion, else its boarding. */
+function finishedAt(booking: Booking): number {
+    return new Date(booking.passengerJourney?.completedAt ?? booking.boardedAt ?? 0).getTime();
 }
 
 /**
@@ -185,17 +201,24 @@ export function groupActivities(bookings: Booking[], passengerId: string, now: D
  * The ongoing response carries only a trimmed booking (MOV-296), so each card
  * shows the passenger's full booking from the history, joined by bookingId,
  * with the server's activeJourney on it.
+ *
+ * Completions come from GET /api/journeys/completed (MOV-297) the same way:
+ * a booking the server reports as completed is Completed, with the server's
+ * record on it, whatever the history's own copy of the field says.
  */
 export function groupActivitiesWithOngoing(
     history: Booking[],
     ongoingJourneys: PassengerOngoingJourney[],
     passengerId: string,
-    now: Date
+    now: Date,
+    completedJourneys: PassengerCompletedJourney[] = []
 ): ActivityGroups {
     const activeById = new Map(ongoingJourneys.map((journey) => [journey.booking?.bookingId, journey.activeJourney]));
+    const completedById = new Map(completedJourneys.map((journey) => [journey.booking?.bookingId, journey.completion]));
     const withServerJourney = history.map((booking) => ({
         ...booking,
         activeJourney: activeById.get(booking.bookingId),
+        passengerJourney: completedById.get(booking.bookingId),
     }));
     const { ongoing, completed } = groupActivities(withServerJourney, passengerId, now);
 

@@ -19,7 +19,11 @@
 // never from elapsed time; when the bus cannot be placed on that road the
 // answer is "unknown", not an estimate.
 
-import { OngoingJourneyRoute, PassengerOngoingJourney } from '../../../entities/booking/model/types';
+import {
+    OngoingJourneyBooking,
+    OngoingJourneyRoute,
+    PassengerOngoingJourney,
+} from '../../../entities/booking/model/types';
 import {
     JourneyGeoInformation,
     JourneyRoadRoute,
@@ -141,7 +145,9 @@ export const INITIAL_TRACKING_STATE: TrackingState = {
 
 export type TrackingEvent =
     | { type: 'LOADED'; journeys: PassengerOngoingJourney[]; bookingId: string; at: Date }
-    | { type: 'FAILED'; status: number | null };
+    | { type: 'FAILED'; status: number | null }
+    /** The passenger ended their own journey on this screen (MOV-297). */
+    | { type: 'PASSENGER_ENDED' };
 
 function withoutLivePosition(journey: PassengerOngoingJourney): PassengerOngoingJourney {
     return { ...journey, liveStatus: { available: false } };
@@ -163,6 +169,14 @@ function withoutLivePosition(journey: PassengerOngoingJourney): PassengerOngoing
 export function reduceTracking(state: TrackingState, event: TrackingEvent): TrackingState {
     if (state.phase === 'ENDED' || state.phase === 'UNAUTHORIZED') {
         return state;
+    }
+
+    if (event.type === 'PASSENGER_ENDED') {
+        // Their journey is over; the bus's is not, but it is no longer theirs
+        // to follow, so its position is dropped like any ended journey's.
+        return state.journey
+            ? { ...state, phase: 'ENDED', journey: withoutLivePosition(state.journey), connectionLost: false }
+            : state;
     }
 
     if (event.type === 'FAILED') {
@@ -549,7 +563,7 @@ export interface OngoingSchedule {
  * These are timetable times. Nothing here revises them from the live position.
  */
 export function describeOngoingSchedule(
-    journey: PassengerOngoingJourney | null,
+    journey: { booking: OngoingJourneyBooking } | null,
     route: OngoingJourneyRoute | null
 ): OngoingSchedule {
     const trip = journey?.booking.journey;
@@ -585,7 +599,7 @@ export function describeOngoingSchedule(
 }
 
 /** 'LKR 90.00', or null when the booking carries no fare. */
-export function formatOngoingFare(journey: PassengerOngoingJourney | null): string | null {
+export function formatOngoingFare(journey: { booking: OngoingJourneyBooking } | null): string | null {
     const fare = journey?.booking.fare;
     if (!fare || !Number.isFinite(fare.totalFare)) return null;
     return `${fare.currency} ${fare.totalFare.toFixed(2)}`;

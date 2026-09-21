@@ -24,6 +24,11 @@ export interface OngoingJourneyTracking {
     refreshing: boolean;
     /** Asks for the latest position now (or retries a failed first load). */
     refresh: () => void;
+    /**
+     * The passenger ended their own journey: stop following it here, for good.
+     * Only this screen stops — the bus and other passengers are unaffected.
+     */
+    stopTracking: () => void;
 }
 
 export function useOngoingJourneyTracking(bookingId: string | undefined, token: string | null): OngoingJourneyTracking {
@@ -105,5 +110,12 @@ export function useOngoingJourneyTracking(bookingId: string | undefined, token: 
             .finally(() => setRefreshing(false));
     }, [load]);
 
-    return { state, refreshing, refresh };
+    const stopTracking = useCallback(() => {
+        pollerRef.current?.stop();
+        // Drops any refresh still in flight.
+        latestRequest.current++;
+        apply({ type: 'PASSENGER_ENDED' });
+    }, [apply]);
+
+    return { state, refreshing, refresh, stopTracking };
 }

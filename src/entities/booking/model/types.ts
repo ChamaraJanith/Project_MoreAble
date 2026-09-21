@@ -161,6 +161,43 @@ export interface Booking {
   liveSharing?: BookingLiveSharing;
   /** Present only while this booking's own trip has a running journey (MOV-294). */
   activeJourney?: BookingActiveJourney;
+  /** Set once the passenger's journey on this booking has finished (MOV-297). */
+  passengerJourney?: PassengerJourneyCompletion;
+}
+
+/**
+ * How a passenger's journey finished (MOV-297).
+ *
+ * PASSENGER — they pressed End Journey on the Live Journey screen.
+ * BUS_JOURNEY_ENDED — the bus pressed End Journey while theirs was still running.
+ */
+export type PassengerJourneyCompletionReason = 'PASSENGER' | 'BUS_JOURNEY_ENDED';
+
+/**
+ * The passenger's own journey, completed (MOV-297). Stored on the booking.
+ *
+ * Separate from the bus's journey on the trip (MOV-294): a passenger finishing
+ * never ends the bus's run, and the bus finishing completes only passengers who
+ * had not already finished. Identifies the exact run it belongs to — tripId is
+ * a daily timetable slot, so the run's startedAt is what tells today's journey
+ * from a later run of the same slot.
+ *
+ * Written once, on the server, with server time; never overwritten.
+ */
+export interface PassengerJourneyCompletion {
+  status: 'COMPLETED';
+  tripId: string;
+  /** The bus that ran it. */
+  busId: string;
+  /** The run: the trip journey's startedAt (MOV-294). */
+  journeyStartedAt: string;
+  /** ISO 8601, server time the journey finished for this passenger. */
+  completedAt: string;
+  completionReason: PassengerJourneyCompletionReason;
+  /** The passenger's stops, boarding to alighting, as planned when it finished. */
+  journeyStops: string[];
+  /** The planned journey distance Journey Planning shows; null when not measurable. */
+  plannedDistanceKm: number | null;
 }
 
 /**
@@ -253,6 +290,18 @@ export interface PassengerOngoingJourney {
    * The planned path (MOV-297). Present only when the request asked for it
    * (`?include=route`); null when the route could not be read.
    */
+  route?: OngoingJourneyRoute | null;
+}
+
+/**
+ * One of the signed-in passenger's finished journeys (MOV-297), as returned by
+ * GET /api/journeys/completed. The same allow-listed booking view as an ongoing
+ * journey, plus how and when it finished — never the raw booking document.
+ */
+export interface PassengerCompletedJourney {
+  booking: OngoingJourneyBooking;
+  completion: PassengerJourneyCompletion;
+  /** The planned path, only when asked for (`?include=route`); null when unreadable. */
   route?: OngoingJourneyRoute | null;
 }
 

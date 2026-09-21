@@ -35,6 +35,7 @@ import {
 } from '../../entities/booking/model/types';
 import { createLiveSharingCaches, loadBookingActiveJourney, loadTrip } from './bookingLiveSharing';
 import { createOngoingRouteCaches, loadOngoingJourneyRoute } from './ongoingJourneyRoute';
+import { readPassengerJourneyCompletion } from './passengerJourneyRecord';
 import { buildLiveStatus, loadVehicleLocation } from './vehicleLocations';
 
 function parseTime(value: unknown): number | null {
@@ -51,7 +52,7 @@ function parseTime(value: unknown): number | null {
  * scan (server time) from before this run started belongs to a previous run:
  * that booking is a completed journey, not this one.
  */
-function boardedBeforeRun(booking: any, startedAt: string): boolean {
+export function boardedBeforeRun(booking: any, startedAt: string): boolean {
     const boarded = parseTime(booking?.boardedAt);
     const started = parseTime(startedAt);
     return boarded !== null && started !== null && boarded < started;
@@ -82,7 +83,7 @@ function ongoingFareView(fare: any): OngoingJourneyFare | null {
  * The allow-listed booking fields (MOV-296). Built field by field rather than
  * spread, so nothing else stored on the document reaches the response.
  */
-function ongoingBookingView(booking: Booking): OngoingJourneyBooking {
+export function ongoingBookingView(booking: Booking): OngoingJourneyBooking {
     return {
         bookingId: booking.bookingId,
         userId: booking.userId,
@@ -141,6 +142,12 @@ export async function loadPassengerOngoingJourneys(
 
             // Defence in depth: the query already filtered on this.
             if (booking.userId !== passengerId) return null;
+
+            // Finished for this passenger (MOV-297) — by them, or when the bus
+            // ended the run. A booking holds one journey: like a booking already
+            // boarded on an earlier run, it is spent, so a later run of the
+            // same timetable slot never brings it back to Ongoing.
+            if (readPassengerJourneyCompletion(data)) return null;
 
             // CONFIRMED, on a readable trip, whose journey is running now.
             const activeJourney = await loadBookingActiveJourney(adminDb, booking, caches, now);

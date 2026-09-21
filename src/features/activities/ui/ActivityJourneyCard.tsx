@@ -4,12 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Booking } from '../../../entities/booking/model/types';
 import { AppText as Text } from '../../../shared/ui/AppText';
+import { statusBadgeStyles } from '../../../shared/ui/statusBadgeStyles';
 import {
     apiTimeToMinutes,
     formatFriendlyDate,
     formatFriendlyTime,
     parseApiTimeString,
 } from '../../journey/utils/dateTime';
+import { completionReasonLabel } from '../utils/completedJourney';
 
 export type ActivityCardVariant = 'ongoing' | 'completed';
 
@@ -67,8 +69,16 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const destination = booking.journey?.endLocation || '—';
     const departure = formatScheduledTime(booking.journey?.departureTime);
     const arrival = formatScheduledTime(booking.journey?.estimatedArrivalTime);
-    const journeyDate = isOngoing ? null : formatJourneyDate(booking.boardedAt);
+    // A recorded completion (MOV-297) dates the journey by when it finished.
+    const completion = isOngoing ? undefined : booking.passengerJourney;
+    const journeyDate = isOngoing ? null : formatJourneyDate(completion?.completedAt ?? booking.boardedAt);
     const startedAt = isOngoing ? formatStartedAt(booking.activeJourney?.startedAt) : null;
+    const completedAt = completion ? formatStartedAt(completion.completedAt) : null;
+    const reason = completion ? completionReasonLabel(completion.completionReason) : null;
+    const fare =
+        !isOngoing && typeof booking.fare?.totalFare === 'number'
+            ? `${booking.fare.currency || 'LKR'} ${booking.fare.totalFare.toFixed(2)}`
+            : null;
     const numberPlate = booking.vehicle?.numberPlate;
 
     const statusLabel = isOngoing
@@ -94,15 +104,15 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
                 </View>
 
                 <View
-                    style={[styles.statusPill, isOngoing ? styles.statusPillOngoing : styles.statusPillCompleted]}
+                    style={[styles.statusPill, statusBadgeStyles.active]}
                     accessibilityLabel={statusLabel}
                 >
                     <Ionicons
                         name={isOngoing ? 'radio-button-on' : 'checkmark-circle'}
                         size={12}
-                        color={isOngoing ? '#0066CC' : '#065F46'}
+                        color={statusBadgeStyles.activeText.color}
                     />
-                    <Text style={[styles.statusText, isOngoing ? styles.statusTextOngoing : styles.statusTextCompleted]}>
+                    <Text style={[styles.statusText, statusBadgeStyles.activeText]}>
                         {statusLabel}
                     </Text>
                 </View>
@@ -142,7 +152,25 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
                         <Text style={styles.metaText}>{journeyDate}</Text>
                     </View>
                 )}
+
+                {!!completedAt && (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="flag-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>
+                            {t('activities.completedAt', 'Completed {{time}}', { time: completedAt })}
+                        </Text>
+                    </View>
+                )}
+
+                {!!fare && (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="cash-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>{fare}</Text>
+                    </View>
+                )}
             </View>
+
+            {!!reason && <Text style={styles.reasonText}>{reason}</Text>}
 
             <View style={styles.divider} />
 
@@ -212,21 +240,9 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         gap: 5,
     },
-    statusPillOngoing: {
-        backgroundColor: '#EBF3FA',
-    },
-    statusPillCompleted: {
-        backgroundColor: '#D1FAE5',
-    },
     statusText: {
         fontSize: 11,
         fontWeight: '900',
-    },
-    statusTextOngoing: {
-        color: '#0066CC',
-    },
-    statusTextCompleted: {
-        color: '#065F46',
     },
     stopsText: {
         fontSize: 17,
@@ -253,6 +269,12 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '800',
         color: '#1E293B',
+    },
+    reasonText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#065F46',
+        marginBottom: 12,
     },
     divider: {
         height: 1.5,
