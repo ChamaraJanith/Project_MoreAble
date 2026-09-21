@@ -102,9 +102,17 @@ export async function updateAssistanceStatus(
 
 export type { SelectedVehicle };
 
-export async function fetchFare(routeId: string, origin: string, destination: string): Promise<FareBreakdown> {
+export async function fetchFare(
+    routeId: string,
+    origin: string,
+    destination: string,
+    options?: { passengerId?: string; hasAssistance?: boolean; isWheelchair?: boolean }
+): Promise<FareBreakdown> {
+    const passengerParam = options?.passengerId ? `&passengerId=${encodeURIComponent(options.passengerId)}` : '';
+    const assistanceParam = options?.hasAssistance ? `&hasAssistance=true` : '';
+    const wheelchairParam = options?.isWheelchair ? `&isWheelchair=true` : '';
     const data = await bookingFetch(
-        `/api/booking/fare?routeId=${encodeURIComponent(routeId)}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`
+        `/api/booking/fare?routeId=${encodeURIComponent(routeId)}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${passengerParam}${assistanceParam}${wheelchairParam}`
     );
     return data.fare as FareBreakdown;
 }

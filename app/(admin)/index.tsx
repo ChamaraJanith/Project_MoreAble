@@ -195,6 +195,10 @@ export default function AdminDashboard() {
         router.push('/(admin)/users');
     };
 
+    const handleFarePolicy = () => {
+        router.push('/(admin)/fare-policy' as any);
+    };
+
     return (
         <View style={styles.container}>
             {/* Header */}
@@ -669,6 +673,37 @@ export default function AdminDashboard() {
                     />
                 </TouchableOpacity>
 
+                {/* Fare Policy & Pricing */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleFarePolicy}
+                    activeOpacity={0.75}
+                >
+                    <View style={styles.iconContainer}>
+                        <Ionicons
+                            name="cash-outline"
+                            size={30}
+                            color="#0066CC"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <Text style={styles.cardTitle}>
+                            Fare Policy & Pricing
+                        </Text>
+
+                        <Text style={styles.cardDescription}>
+                            Configure base fares, concessions, and assistance fees
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
                 {/* Quick Actions */}
                 <Text style={styles.sectionTitle}>
                     Quick Actions
@@ -748,6 +783,25 @@ export default function AdminDashboard() {
 
                         <Text style={styles.quickActionText}>
                             Add Trip
+                        </Text>
+                    </TouchableOpacity>
+
+                    {/* Configure Fare Policy */}
+                    <TouchableOpacity
+                        style={styles.quickAction}
+                        onPress={handleFarePolicy}
+                        activeOpacity={0.75}
+                    >
+                        <View style={styles.quickIconBlue}>
+                            <Ionicons
+                                name="cash"
+                                size={28}
+                                color="#0066CC"
+                            />
+                        </View>
+
+                        <Text style={styles.quickActionText}>
+                            Fare Policy
                         </Text>
                     </TouchableOpacity>
                 </View>

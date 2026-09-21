@@ -6,11 +6,11 @@ import {
     ActivityIndicator,
     ScrollView,
     StyleSheet,
-    
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FareBreakdown } from '../../../src/entities/booking/model/types';
 import {
@@ -25,6 +25,7 @@ import { useAuthStore } from '../../../src/shared/store/authStore';
 
 export default function BookingConfirmScreen() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
 
     const {
         tripId,
@@ -90,6 +91,12 @@ export default function BookingConfirmScreen() {
     const [submitError, setSubmitError] =
         useState('');
 
+    const hasAssistance =
+        wheelchairAssistance ||
+        boardingAssistance ||
+        walkingAssistance ||
+        prioritySeatAssistance;
+
     useEffect(() => {
         if (
             !selectedVehicle?.routeId ||
@@ -106,7 +113,12 @@ export default function BookingConfirmScreen() {
         fetchFare(
             selectedVehicle.routeId,
             journeyOrigin,
-            journeyDestination
+            journeyDestination,
+            {
+                passengerId: user?.passengerId,
+                hasAssistance,
+                isWheelchair: isSeatWheelchair || isUserWheelchair,
+            }
         )
             .then(setFare)
             .catch((err) => setFareError(err.message))
@@ -115,6 +127,10 @@ export default function BookingConfirmScreen() {
         selectedVehicle?.routeId,
         journeyOrigin,
         journeyDestination,
+        user?.passengerId,
+        hasAssistance,
+        isSeatWheelchair,
+        isUserWheelchair,
     ]);
 
     async function handleConfirm() {
@@ -172,13 +188,23 @@ export default function BookingConfirmScreen() {
     }
 
     return (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+            contentContainerStyle={[
+                styles.content,
+                {
+                    paddingTop: insets.top > 0 ? insets.top + 10 : 20,
+                    paddingBottom: insets.bottom > 0 ? insets.bottom + 40 : 40,
+                },
+            ]}
+            showsVerticalScrollIndicator={false}
+        >
             <View style={styles.headerRow}>
                 <TouchableOpacity
                     onPress={() => router.back()}
                     style={styles.backButton}
                     accessibilityRole="button"
                     accessibilityLabel="Go back"
+                    activeOpacity={0.7}
                 >
                     <Ionicons
                         name="arrow-back"
@@ -187,9 +213,14 @@ export default function BookingConfirmScreen() {
                     />
                 </TouchableOpacity>
 
-                <Text style={styles.title}>
-                    Review Booking
-                </Text>
+                <View style={styles.headerTextGroup}>
+                    <Text style={styles.title}>
+                        Review Booking
+                    </Text>
+                    <Text style={styles.subtitle}>
+                        Confirm trip details & accessibility fare
+                    </Text>
+                </View>
             </View>
 
             {/* Passenger Details */}
@@ -347,39 +378,60 @@ export default function BookingConfirmScreen() {
 
             {(wheelchairAssistance || isSeatWheelchair) && (
                 <View style={styles.guardianNoticeCard}>
-                    <Ionicons name="people" size={20} color="#7C3AED" />
-                    <View style={{ marginLeft: 10, flex: 1 }}>
-                        <Text style={styles.guardianNoticeTitle}>
-                            Wheelchair & Guardian Companion Seat Paired ♿
-                        </Text>
-                        <Text style={styles.guardianNoticeText}>
-                            As per safety policy, a paired Guardian seat (G1) has been automatically reserved beside your wheelchair position for your accompanying helper.
-                        </Text>
+                    <View style={styles.guardianNoticeHeader}>
+                        <View style={styles.guardianNoticeIconCircle}>
+                            <Ionicons name="people" size={20} color="#6D28D9" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <View style={styles.guardianBadgeRow}>
+                                <Text style={styles.guardianNoticeTitle}>
+                                    Wheelchair & Companion Paired
+                                </Text>
+                                <View style={styles.guardianSeatBadge}>
+                                    <Text style={styles.guardianSeatBadgeText}>SEAT G1 RESERVED</Text>
+                                </View>
+                            </View>
+                            <Text style={styles.guardianNoticeText}>
+                                Seat G1 is automatically reserved right beside wheelchair space W1 for your accompanying helper or family member.
+                            </Text>
+                        </View>
                     </View>
                 </View>
             )}
 
             <View style={styles.card}>
                 <AssistanceToggle
-                    label="Wheelchair Assistance & Ramp Access"
+                    label="Wheelchair Assistance & Ramp"
+                    description="Crew deploys ramp and secures wheelchair safely"
+                    iconName="accessibility"
+                    iconColor="#0284C7"
                     value={wheelchairAssistance}
                     onChange={setWheelchairAssistance}
                 />
 
                 <AssistanceToggle
                     label="Boarding Support & Assistance"
+                    description="Staff assists with steps, door entry, and heavy bags"
+                    iconName="hand-left"
+                    iconColor="#7C3AED"
                     value={boardingAssistance}
                     onChange={setBoardingAssistance}
                 />
 
                 <AssistanceToggle
                     label="Walking Assistance"
+                    description="Personal guidance and support walking to your seat"
+                    iconName="walk"
+                    iconColor="#D97706"
                     value={walkingAssistance}
                     onChange={setWalkingAssistance}
                 />
 
                 <AssistanceToggle
                     label="Priority Seat Assistance"
+                    description="Reserved front-row seating with extra legroom"
+                    iconName="ribbon"
+                    iconColor="#059669"
                     value={prioritySeatAssistance}
                     onChange={setPrioritySeatAssistance}
                     isLast
@@ -388,62 +440,144 @@ export default function BookingConfirmScreen() {
 
             {/* Estimated Fare */}
             <Text style={styles.sectionLabel}>
-                Estimated Fare
+                Estimated Fare Breakdown
             </Text>
 
-            <View style={styles.fareCard}>
+            <View style={styles.fareContainerCard}>
                 {fareLoading ? (
-                    <ActivityIndicator color="#0066CC" />
+                    <View style={styles.fareLoadingBox}>
+                        <ActivityIndicator size="large" color="#0066CC" />
+                        <Text style={styles.fareLoadingText}>Calculating accurate fare...</Text>
+                    </View>
                 ) : fareError ? (
-                    <Text style={styles.fareErrorText}>
-                        {fareError}
-                    </Text>
+                    <View style={styles.fareErrorBox}>
+                        <Ionicons name="alert-circle" size={24} color="#EF4444" />
+                        <Text style={styles.fareErrorText}>{fareError}</Text>
+                    </View>
                 ) : fare ? (
                     <>
-                        <View style={styles.fareTopRow}>
+                        {/* Summary Header */}
+                        <View style={styles.fareHeaderBanner}>
                             <View>
-                                <Text
-                                    style={styles.fareLabel}
-                                >
-                                    Estimated Fare
-                                </Text>
-
-                                <Text
-                                    style={styles.fareSub}
-                                >
-                                    Payment: Pay on boarding
-                                </Text>
+                                <Text style={styles.fareHeaderSubtitle}>Journey Distance</Text>
+                                <Text style={styles.fareHeaderDistance}>{fare.distanceKm} Kilometers</Text>
                             </View>
-
-                            <Text
-                                style={styles.fareAmount}
-                            >
-                                LKR {fare.totalFare}
-                            </Text>
+                            <View style={styles.fareHeaderTotalBox}>
+                                <Text style={styles.fareHeaderTotalLabel}>TOTAL AMOUNT</Text>
+                                <Text style={styles.fareHeaderTotalValue}>LKR {fare.totalFare}.00</Text>
+                            </View>
                         </View>
 
-                        <Text
-                            style={styles.fareDetail}
-                        >
-                            {fare.distanceKm} km · Base LKR{' '}
-                            {fare.baseFare} + LKR{' '}
-                            {fare.distanceFare} distance fare
-                            {fare.isEstimate
-                                ? ' · approximate'
-                                : ''}
-                        </Text>
+                        {/* Itemized Breakdown Table */}
+                        <View style={styles.fareBreakdownList}>
+                            {/* Base Fare Row */}
+                            <View style={styles.fareItemRow}>
+                                <View style={styles.fareItemIconCircle}>
+                                    <Ionicons name="bus-outline" size={16} color="#0284C7" />
+                                </View>
+                                <View style={styles.fareItemTextCol}>
+                                    <Text style={styles.fareItemTitle}>Transit Journey Fare</Text>
+                                    <Text style={styles.fareItemDesc}>
+                                        Base Rs. {fare.baseFare} + Distance Rs. {fare.distanceFare}
+                                        {fare.isEstimate ? ' (estimated)' : ''}
+                                    </Text>
+                                </View>
+                                <Text style={styles.fareItemPrice}>LKR {fare.subtotalFare}.00</Text>
+                            </View>
+
+                            {/* Concession Discount Row */}
+                            {Boolean(fare.concessionDiscount && fare.concessionDiscount > 0) && (
+                                <View style={styles.fareItemRow}>
+                                    <View style={[styles.fareItemIconCircle, { backgroundColor: '#ECFDF5' }]}>
+                                        <Ionicons name="gift-outline" size={16} color="#059669" />
+                                    </View>
+                                    <View style={styles.fareItemTextCol}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <Text style={[styles.fareItemTitle, { color: '#047857' }]}>
+                                                {fare.concessionType === 'ACCESSIBILITY'
+                                                    ? 'Accessibility Concession'
+                                                    : 'Senior Citizen (60+) Discount'}
+                                            </Text>
+                                            <View style={styles.discountBadge}>
+                                                <Text style={styles.discountBadgeText}>-{fare.concessionDiscountPercent}%</Text>
+                                            </View>
+                                        </View>
+                                        <Text style={styles.fareItemDesc}>Applied to verified passenger profile</Text>
+                                    </View>
+                                    <Text style={[styles.fareItemPrice, { color: '#059669', fontWeight: '800' }]}>
+                                        - LKR {fare.concessionDiscount}.00
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Conductor Assistance Fee Row */}
+                            {Boolean(fare.assistanceFee && fare.assistanceFee > 0) && (
+                                <View style={styles.fareItemRow}>
+                                    <View style={[styles.fareItemIconCircle, { backgroundColor: '#F3E8FF' }]}>
+                                        <Ionicons name="hand-left-outline" size={16} color="#7C3AED" />
+                                    </View>
+                                    <View style={styles.fareItemTextCol}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <Text style={[styles.fareItemTitle, { color: '#6D28D9' }]}>
+                                                Dedicated Crew Assistance
+                                            </Text>
+                                            <View style={styles.assistBadge}>
+                                                <Text style={styles.assistBadgeText}>STAFF SUPPORT</Text>
+                                            </View>
+                                        </View>
+                                        <Text style={styles.fareItemDesc}>Ramp deployment & boarding care</Text>
+                                    </View>
+                                    <Text style={[styles.fareItemPrice, { color: '#6D28D9' }]}>
+                                        + LKR {fare.assistanceFee}.00
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Guardian Companion Seat Row */}
+                            {Boolean(fare.guardianFare && fare.guardianFare > 0) && (
+                                <View style={styles.fareItemRow}>
+                                    <View style={[styles.fareItemIconCircle, { backgroundColor: '#EFF6FF' }]}>
+                                        <Ionicons name="people-outline" size={16} color="#0284C7" />
+                                    </View>
+                                    <View style={styles.fareItemTextCol}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <Text style={[styles.fareItemTitle, { color: '#0369A1' }]}>
+                                                Guardian Seat ({fare.pairedSeatNumber ?? 'G1'})
+                                            </Text>
+                                            <View style={styles.guardianPill}>
+                                                <Text style={styles.guardianPillText}>COMPANION SEAT</Text>
+                                            </View>
+                                        </View>
+                                        <Text style={styles.fareItemDesc}>Auto-reserved companion ticket ({fare.guardianRatePercent}%)</Text>
+                                    </View>
+                                    <Text style={[styles.fareItemPrice, { color: '#0284C7' }]}>
+                                        + LKR {fare.guardianFare}.00
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Total Card Footer */}
+                        <View style={styles.fareFooterBox}>
+                            <View style={styles.fareFooterRow}>
+                                <Ionicons name="card-outline" size={18} color="#0284C7" />
+                                <Text style={styles.fareFooterNote}>
+                                    Pay cash or scan contactless QR upon boarding to conductor
+                                </Text>
+                            </View>
+                        </View>
                     </>
                 ) : (
-                    <Text style={styles.fareErrorText}>
-                        Fare unavailable for this journey.
-                    </Text>
+                    <View style={styles.fareErrorBox}>
+                        <Text style={styles.fareErrorText}>Fare details currently unavailable.</Text>
+                    </View>
                 )}
             </View>
 
             <View style={styles.noteBanner}>
                 <Ionicons
-                    name="information-circle-outline"
-                    size={16}
+                    name="time-outline"
+                    size={18}
                     color="#0066CC"
                 />
 
@@ -471,7 +605,7 @@ export default function BookingConfirmScreen() {
                             ? 'checkbox'
                             : 'square-outline'
                     }
-                    size={22}
+                    size={24}
                     color={
                         hasConfirmedDetails
                             ? '#0066CC'
@@ -480,7 +614,7 @@ export default function BookingConfirmScreen() {
                 />
 
                 <Text style={styles.checkboxText}>
-                    I confirm that the booking details are correct.
+                    I confirm that the passenger and journey details are correct.
                 </Text>
             </TouchableOpacity>
 
@@ -521,13 +655,12 @@ export default function BookingConfirmScreen() {
                 {isSubmitting ? (
                     <ActivityIndicator color="#fff" />
                 ) : (
-                    <Text
-                        style={
-                            styles.confirmButtonText
-                        }
-                    >
-                        CONFIRM BOOKING
-                    </Text>
+                    <View style={styles.confirmButtonContent}>
+                        <Ionicons name="checkmark-circle-outline" size={22} color="#FFFFFF" />
+                        <Text style={styles.confirmButtonText}>
+                            CONFIRM BOOKING
+                        </Text>
+                    </View>
                 )}
             </TouchableOpacity>
 
@@ -539,7 +672,7 @@ export default function BookingConfirmScreen() {
                 accessibilityLabel="Edit booking"
             >
                 <Text style={styles.editButtonText}>
-                    Edit Booking
+                    Edit Booking Details
                 </Text>
             </TouchableOpacity>
         </ScrollView>
@@ -548,11 +681,17 @@ export default function BookingConfirmScreen() {
 
 function AssistanceToggle({
     label,
+    description,
+    iconName,
+    iconColor = '#0066CC',
     value,
     onChange,
     isLast,
 }: {
     label: string;
+    description?: string;
+    iconName: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
     value: boolean;
     onChange: (v: boolean) => void;
     isLast?: boolean;
@@ -561,30 +700,41 @@ function AssistanceToggle({
         <TouchableOpacity
             style={[
                 styles.assistanceRow,
-                isLast &&
-                    styles.assistanceRowLast,
+                value && styles.assistanceRowActive,
+                isLast && styles.assistanceRowLast,
             ]}
             onPress={() => onChange(!value)}
             accessibilityRole="checkbox"
             accessibilityState={{
                 checked: value,
             }}
-            accessibilityLabel={label}
+            accessibilityLabel={`${label}. ${description || ''}`}
         >
-            <Text style={styles.assistanceLabel}>
-                {label}
-            </Text>
+            <View style={[styles.assistanceIconContainer, { backgroundColor: value ? '#EBF3FA' : '#F1F5F9' }]}>
+                <Ionicons name={iconName} size={20} color={value ? iconColor : '#94A3B8'} />
+            </View>
+
+            <View style={styles.assistanceTextContainer}>
+                <Text style={[styles.assistanceLabel, value && styles.assistanceLabelActive]}>
+                    {label}
+                </Text>
+                {!!description && (
+                    <Text style={styles.assistanceDescription}>
+                        {description}
+                    </Text>
+                )}
+            </View>
 
             <Ionicons
                 name={
                     value
-                        ? 'checkmark-circle'
-                        : 'ellipse-outline'
+                        ? 'checkbox'
+                        : 'square-outline'
                 }
-                size={20}
+                size={24}
                 color={
                     value
-                        ? '#10B981'
+                        ? '#059669'
                         : '#CBD5E1'
                 }
             />
@@ -603,38 +753,65 @@ const styles = StyleSheet.create({
     headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 16,
     },
 
     backButton: {
-        width: 40,
-        height: 40,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
         justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+
+    headerTextGroup: {
+        marginLeft: 12,
+        flex: 1,
     },
 
     title: {
-        fontSize: 19,
+        fontSize: 22,
         fontWeight: '800',
         color: '#0F172A',
-        marginLeft: 6,
+        letterSpacing: -0.3,
+    },
+
+    subtitle: {
+        fontSize: 13,
+        color: '#64748B',
+        fontWeight: '500',
+        marginTop: 2,
     },
 
     sectionLabel: {
         fontSize: 13,
         fontWeight: '800',
-        color: '#64748B',
+        color: '#475569',
         textTransform: 'uppercase',
-        letterSpacing: 0.4,
-        marginTop: 16,
+        letterSpacing: 0.5,
+        marginTop: 18,
         marginBottom: 8,
     },
 
     card: {
-        backgroundColor: '#fff',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 16,
         borderWidth: 1,
         borderColor: '#E2E8F0',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+        elevation: 2,
     },
 
     passengerRow: {
@@ -643,9 +820,9 @@ const styles = StyleSheet.create({
     },
 
     passengerAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: '#F1F5F9',
         justifyContent: 'center',
         alignItems: 'center',
@@ -653,15 +830,16 @@ const styles = StyleSheet.create({
     },
 
     passengerName: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '700',
         color: '#0F172A',
     },
 
     passengerType: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#64748B',
         marginTop: 2,
+        fontWeight: '500',
     },
 
     assistanceInput: {
@@ -669,11 +847,12 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#E2E8F0',
         borderRadius: 10,
-        padding: 10,
-        minHeight: 44,
-        fontSize: 13,
+        padding: 12,
+        minHeight: 48,
+        fontSize: 14,
         color: '#0F172A',
         textAlignVertical: 'top',
+        backgroundColor: '#FAFAFA',
     },
 
     busRow: {
@@ -683,13 +862,13 @@ const styles = StyleSheet.create({
     },
 
     busPlate: {
-        fontSize: 16,
+        fontSize: 17,
         fontWeight: '800',
         color: '#0F172A',
     },
 
     busModel: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#64748B',
         marginTop: 2,
     },
@@ -697,14 +876,17 @@ const styles = StyleSheet.create({
     busBadge: {
         backgroundColor: '#EBF3FA',
         borderRadius: 8,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderWidth: 1,
+        borderColor: '#BAE6FD',
     },
 
     busBadgeText: {
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: '800',
         color: '#0066CC',
+        letterSpacing: 0.3,
     },
 
     divider: {
@@ -723,13 +905,14 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#94A3B8',
         fontWeight: '600',
+        textTransform: 'uppercase',
     },
 
     stopValue: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: '700',
         color: '#0F172A',
-        marginTop: 1,
+        marginTop: 2,
     },
 
     timeRow: {
@@ -738,7 +921,7 @@ const styles = StyleSheet.create({
     },
 
     timeText: {
-        fontSize: 12,
+        fontSize: 13,
         color: '#475569',
         fontWeight: '600',
     },
@@ -746,123 +929,369 @@ const styles = StyleSheet.create({
     row: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
     },
 
     rowLabel: {
-        fontSize: 13,
+        fontSize: 14,
         color: '#64748B',
+        fontWeight: '500',
     },
 
     rowValue: {
-        fontSize: 14,
+        fontSize: 16,
         fontWeight: '700',
         color: '#0F172A',
     },
 
+    // Guardian Notice Card
+    guardianNoticeCard: {
+        backgroundColor: '#FAF5FF',
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 12,
+        borderWidth: 1.5,
+        borderColor: '#DDD6FE',
+    },
+
+    guardianNoticeHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+    },
+
+    guardianNoticeIconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#EDE9FE',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    guardianBadgeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginBottom: 4,
+    },
+
+    guardianNoticeTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#6B21A8',
+    },
+
+    guardianSeatBadge: {
+        backgroundColor: '#7C3AED',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+
+    guardianSeatBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        letterSpacing: 0.4,
+    },
+
+    guardianNoticeText: {
+        fontSize: 12,
+        color: '#581C87',
+        lineHeight: 17,
+    },
+
+    // Assistance Rows
     assistanceRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        paddingVertical: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 6,
         borderBottomWidth: 1,
         borderBottomColor: '#F1F5F9',
+        borderRadius: 10,
+    },
+
+    assistanceRowActive: {
+        backgroundColor: '#F8FAFC',
     },
 
     assistanceRowLast: {
         borderBottomWidth: 0,
     },
 
+    assistanceIconContainer: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+
+    assistanceTextContainer: {
+        flex: 1,
+        marginRight: 8,
+    },
+
     assistanceLabel: {
         fontSize: 14,
+        color: '#1E293B',
+        fontWeight: '700',
+    },
+
+    assistanceLabelActive: {
         color: '#0F172A',
-        fontWeight: '600',
     },
 
-    fareCard: {
-        backgroundColor: '#0F172A',
+    assistanceDescription: {
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 2,
+        lineHeight: 16,
+    },
+
+    // Enhanced Fare Card Breakdown
+    fareContainerCard: {
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
-        padding: 16,
+        borderWidth: 1.5,
+        borderColor: '#E2E8F0',
+        overflow: 'hidden',
+        shadowColor: '#0052A3',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
     },
 
-    fareTopRow: {
+    fareHeaderBanner: {
+        backgroundColor: '#0052A3',
+        paddingHorizontal: 18,
+        paddingVertical: 18,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
 
-    fareLabel: {
-        fontSize: 13,
-        color: '#CBD5E1',
+    fareHeaderSubtitle: {
+        fontSize: 11,
+        color: '#BAE6FD',
         fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
     },
 
-    fareSub: {
-        fontSize: 11,
-        color: '#94A3B8',
+    fareHeaderDistance: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: '#FFFFFF',
         marginTop: 2,
     },
 
-    fareAmount: {
-        fontSize: 22,
-        fontWeight: '800',
-        color: '#fff',
+    fareHeaderTotalBox: {
+        alignItems: 'flex-end',
     },
 
-    fareDetail: {
+    fareHeaderTotalLabel: {
         fontSize: 11,
-        color: '#94A3B8',
+        fontWeight: '800',
+        color: '#BAE6FD',
+        letterSpacing: 0.6,
+    },
+
+    fareHeaderTotalValue: {
+        fontSize: 24,
+        fontWeight: '900',
+        color: '#FFFFFF',
+        marginTop: 1,
+    },
+
+    fareBreakdownList: {
+        padding: 16,
+        backgroundColor: '#FFFFFF',
+        gap: 12,
+    },
+
+    fareItemRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+
+    fareItemIconCircle: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: '#EBF3FA',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 10,
+    },
+
+    fareItemTextCol: {
+        flex: 1,
+        marginRight: 10,
+    },
+
+    fareItemTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#1E293B',
+    },
+
+    fareItemDesc: {
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 1,
+    },
+
+    fareItemPrice: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#0F172A',
+    },
+
+    discountBadge: {
+        backgroundColor: '#D1FAE5',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 4,
+    },
+
+    discountBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#059669',
+    },
+
+    assistBadge: {
+        backgroundColor: '#EDE9FE',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 4,
+    },
+
+    assistBadgeText: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: '#7C3AED',
+    },
+
+    guardianPill: {
+        backgroundColor: '#E0F2FE',
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 4,
+    },
+
+    guardianPillText: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: '#0284C7',
+    },
+
+    fareFooterBox: {
+        backgroundColor: '#F0F7FF',
+        borderTopWidth: 1,
+        borderTopColor: '#E0F2FE',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+    },
+
+    fareFooterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+
+    fareFooterNote: {
+        flex: 1,
+        fontSize: 12,
+        color: '#0284C7',
+        fontWeight: '600',
+        lineHeight: 16,
+    },
+
+    fareLoadingBox: {
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    fareLoadingText: {
         marginTop: 10,
+        fontSize: 13,
+        color: '#64748B',
+        fontWeight: '600',
+    },
+
+    fareErrorBox: {
+        padding: 20,
+        alignItems: 'center',
+        gap: 8,
     },
 
     fareErrorText: {
         fontSize: 13,
-        color: '#FCA5A5',
+        color: '#EF4444',
         textAlign: 'center',
+        fontWeight: '600',
     },
 
+    // Note Banner
     noteBanner: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: '#EBF3FA',
-        borderRadius: 10,
+        borderRadius: 12,
         padding: 12,
         marginTop: 16,
+        borderWidth: 1,
+        borderColor: '#BAE6FD',
     },
 
     noteText: {
         flex: 1,
-        fontSize: 12,
+        fontSize: 13,
         color: '#0066CC',
         marginLeft: 8,
         fontWeight: '600',
-        lineHeight: 16,
+        lineHeight: 17,
     },
 
     checkboxRow: {
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 16,
+        paddingVertical: 4,
     },
 
     checkboxText: {
         flex: 1,
-        fontSize: 13,
-        color: '#334155',
+        fontSize: 14,
+        color: '#1E293B',
         marginLeft: 10,
         fontWeight: '600',
+        lineHeight: 18,
     },
 
     errorBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FEF4F4',
-        borderRadius: 10,
+        backgroundColor: '#FEF2F2',
+        borderRadius: 12,
         padding: 12,
         marginTop: 16,
+        borderWidth: 1,
+        borderColor: '#FECACA',
     },
 
     errorText: {
-        color: '#D32F2F',
+        color: '#DC2626',
         marginLeft: 8,
         flex: 1,
         fontSize: 13,
@@ -870,58 +1299,47 @@ const styles = StyleSheet.create({
     },
 
     confirmButton: {
-        backgroundColor: '#0F172A',
-        minHeight: 54,
-        borderRadius: 14,
+        backgroundColor: '#0066CC',
+        minHeight: 56,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: 20,
+        shadowColor: '#0066CC',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        elevation: 4,
     },
 
     confirmButtonDisabled: {
         backgroundColor: '#94A3B8',
+        shadowOpacity: 0,
+        elevation: 0,
+    },
+
+    confirmButtonContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
 
     confirmButtonText: {
-        color: '#fff',
+        color: '#FFFFFF',
         fontWeight: '800',
         fontSize: 16,
         letterSpacing: 0.5,
     },
 
-    guardianNoticeCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F3E8FF',
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#DDD6FE',
-    },
-
-    guardianNoticeTitle: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#6B21A8',
-        marginBottom: 2,
-    },
-
-    guardianNoticeText: {
-        fontSize: 12,
-        color: '#581C87',
-        lineHeight: 16,
-    },
-
     editButton: {
-        minHeight: 50,
+        minHeight: 48,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 10,
+        marginTop: 8,
     },
 
     editButtonText: {
-        color: '#334155',
+        color: '#475569',
         fontWeight: '700',
         fontSize: 14,
     },

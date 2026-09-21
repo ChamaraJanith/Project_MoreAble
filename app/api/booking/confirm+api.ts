@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { getActiveFarePolicy } from '../../../src/shared/server/farePolicyServer';
 import { computeRouteSegmentDistance } from '../../../src/shared/server/routeDistance';
 import { generateBookingId } from '../../../src/shared/utils/bookingId';
 import { calculateFare } from '../../../src/shared/utils/fare';
@@ -156,6 +157,48 @@ export async function POST(request: Request) {
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
         const stops: string[] = route && Array.isArray(route.stops) ? route.stops : [];
+        // Check general user accessibility and elderly eligibility for concession
+        let isUserAccessibilityEligible = false;
+        let isUserElderlyEligible = false;
+
+        if (passengerId && passengerId !== 'GUEST') {
+            try {
+                let userDoc = await adminDb.collection('users').doc(passengerId).get();
+                if (!userDoc.exists) {
+                    const qSnap = await adminDb.collection('users').where('passengerId', '==', passengerId).limit(1).get();
+                    if (!qSnap.empty) {
+                        userDoc = qSnap.docs[0];
+                    }
+                }
+                if (userDoc && userDoc.exists) {
+                    const uData = userDoc.data();
+                    if (
+                        uData?.isLowVisionPerson ||
+                        uData?.isHearingImpaired ||
+                        uData?.isOtherAccessibilityPerson ||
+                        uData?.isWheelchairUser ||
+                        uData?.isWalkingDifficultyPerson ||
+                        (Array.isArray(uData?.accessibilityNeeds) && uData.accessibilityNeeds.length > 0)
+                    ) {
+                        isUserAccessibilityEligible = true;
+                    }
+                    const age = typeof uData?.calculatedAge === 'number' ? uData.calculatedAge : null;
+                    if (uData?.isElderPerson || (age != null && age >= 60)) {
+                        isUserElderlyEligible = true;
+                    }
+                }
+            } catch {}
+        }
+
+        const isWheelchairReq = !!assistanceRequested?.wheelchairAssistance || targetSeat?.category === 'WHEELCHAIR';
+        const hasAssistance =
+            isWheelchairReq ||
+            !!assistanceRequested?.boardingAssistance ||
+            !!assistanceRequested?.walkingAssistance ||
+            !!assistanceRequested?.prioritySeatAssistance;
+
+        // Fetch active fare policy from Firestore
+        const activeFarePolicy = await getActiveFarePolicy(adminDb);
 
         // ---- Authoritative fare calculation ----
         // The actual searched origin/destination (mid-route stops like
@@ -164,7 +207,16 @@ export async function POST(request: Request) {
         const journeyOrigin = origin || route?.startLocation || null;
         const journeyDestination = destination || route?.endLocation || null;
 
-        let fare = calculateFare(0, true);
+        const pairedSeatNumberId = targetSeat?.pairedSeatNumber || (isWheelchairReq ? 'G1' : null);
+
+        let fare = calculateFare(0, true, {
+            policy: activeFarePolicy,
+            isAccessibilityEligible: isUserAccessibilityEligible,
+            isElderlyEligible: isUserElderlyEligible,
+            hasAssistanceRequested: hasAssistance,
+            isWheelchairPaired: isWheelchairReq,
+            pairedSeatNumber: pairedSeatNumberId,
+        });
 
         if (journeyOrigin && journeyDestination && stops.length > 0) {
             const normalizedStops = stops.map((s) => normalizeLocation(s));
@@ -179,15 +231,36 @@ export async function POST(request: Request) {
                     destinationIndex,
                     route?.distanceKm ?? null
                 );
-                fare = calculateFare(distanceKm, isPrecise);
+                fare = calculateFare(distanceKm, isPrecise, {
+                    policy: activeFarePolicy,
+                    isAccessibilityEligible: isUserAccessibilityEligible,
+                    isElderlyEligible: isUserElderlyEligible,
+                    hasAssistanceRequested: hasAssistance,
+                    isWheelchairPaired: isWheelchairReq,
+                    pairedSeatNumber: pairedSeatNumberId,
+                });
             } else if (route?.distanceKm != null) {
                 // Origin/destination weren't recognised on this route (e.g. an
                 // older booking link) — fall back to the full route distance
                 // rather than charging LKR 0.
-                fare = calculateFare(route.distanceKm, true);
+                fare = calculateFare(route.distanceKm, true, {
+                    policy: activeFarePolicy,
+                    isAccessibilityEligible: isUserAccessibilityEligible,
+                    isElderlyEligible: isUserElderlyEligible,
+                    hasAssistanceRequested: hasAssistance,
+                    isWheelchairPaired: isWheelchairReq,
+                    pairedSeatNumber: pairedSeatNumberId,
+                });
             }
         } else if (route?.distanceKm != null) {
-            fare = calculateFare(route.distanceKm, true);
+            fare = calculateFare(route.distanceKm, true, {
+                policy: activeFarePolicy,
+                isAccessibilityEligible: isUserAccessibilityEligible,
+                isElderlyEligible: isUserElderlyEligible,
+                hasAssistanceRequested: hasAssistance,
+                isWheelchairPaired: isWheelchairReq,
+                pairedSeatNumber: pairedSeatNumberId,
+            });
         }
 
         const bookingsRef = adminDb.collection('bookings');

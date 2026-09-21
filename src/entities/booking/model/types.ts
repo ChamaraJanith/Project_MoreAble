@@ -206,9 +206,32 @@ export interface FareBreakdown {
   distanceKm: number;
   baseFare: number;
   distanceFare: number;
+  subtotalFare?: number;
+  concessionDiscount?: number;
+  concessionType?: 'ACCESSIBILITY' | 'ELDERLY' | 'NONE';
+  concessionDiscountPercent?: number;
+  assistanceFee?: number;
+  isWheelchairPaired?: boolean;
+  pairedSeatNumber?: string | null;
+  guardianFare?: number;
+  guardianRatePercent?: number;
   totalFare: number;
   currency: 'LKR';
   isEstimate: boolean;
+}
+
+export interface FarePolicy {
+  id: string;
+  currency: 'LKR';
+  baseFare: number;
+  baseDistanceKm: number;
+  ratePerKm: number;
+  accessibilityDiscountPercent: number;
+  elderlyDiscountPercent: number;
+  assistanceSurchargeLkr: number;
+  guardianCompanionRatePercent: number;
+  updatedAt: string;
+  updatedBy?: string;
 }
 
 
