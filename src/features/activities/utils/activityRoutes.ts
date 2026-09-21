@@ -1,18 +1,17 @@
 // Where an Activities card leads (MOV-294).
 //
-// Both destinations live here, rather than inline in the screen, so the next
-// step has one place to change. Until the dedicated ongoing-journey tracking
-// screen exists (MOV-297), an ongoing journey opens the passenger's existing
-// ticket and journey details — the same screen the Booking tab uses.
+// Both destinations live here, rather than inline in the screen, so each has
+// one place to change. An ongoing journey opens its live tracking screen
+// (MOV-297); a completed one still opens the passenger's ticket and journey
+// details — the same screen the Booking tab uses, which MOV-297 leaves alone.
 
-export interface ActivityHref {
-    pathname: '/booking/ticket/[bookingId]';
-    params: { bookingId: string };
-}
+export type ActivityHref =
+    | { pathname: '/activities/journey/[bookingId]'; params: { bookingId: string } }
+    | { pathname: '/booking/ticket/[bookingId]'; params: { bookingId: string } };
 
-/** The journey view for an ongoing activity. MOV-297 repoints this to live tracking. */
+/** The live journey view for an ongoing activity (MOV-297). */
 export function ongoingJourneyHref(bookingId: string): ActivityHref {
-    return { pathname: '/booking/ticket/[bookingId]', params: { bookingId } };
+    return { pathname: '/activities/journey/[bookingId]', params: { bookingId } };
 }
 
 /** The details view for a completed activity. */

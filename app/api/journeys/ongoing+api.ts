@@ -32,12 +32,17 @@ function fail(status: number, message: string) {
 //
 // Access (MOV-296): a verified PASSENGER session only — see
 // ongoingJourneyAuthorization. The passenger is the session's, and the trip is
-// derived from that passenger's own bookings. Nothing is read from the URL,
-// body or custom headers, so a passengerId or tripId supplied there cannot
+// derived from that passenger's own bookings. No identifier is read from the
+// URL, body or custom headers, so a passengerId or tripId supplied there cannot
 // change whose journey, or which trip, is returned.
 //
 // Nothing running is a normal answer, not an error:
 //   { success: true, ongoing: false, journeys: [] }
+//
+// `?include=route` (MOV-297) adds each journey's planned path for the live
+// tracking map. It names no journey, trip or route — it only asks for more of
+// what this passenger is already allowed to see — so it changes nothing about
+// whose journey, or which trip, is returned.
 export async function GET(request: Request) {
   try {
     const authorization = authoriseOngoingJourneyAccess(await authenticateRequest(request));
@@ -48,7 +53,10 @@ export async function GET(request: Request) {
         : fail(authorization.status, authorization.message);
     }
 
-    const journeys = await loadPassengerOngoingJourneys(getAdminDb(), authorization.passengerId);
+    const includeRoute = new URL(request.url).searchParams.get('include') === 'route';
+    const journeys = await loadPassengerOngoingJourneys(getAdminDb(), authorization.passengerId, new Date(), {
+      includeRoute,
+    });
 
     return Response.json(
       {

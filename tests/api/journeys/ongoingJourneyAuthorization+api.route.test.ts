@@ -350,6 +350,7 @@ describe('data minimisation', () => {
                 'boardingStatus',
                 'bookingId',
                 'busId',
+                'fare',
                 'journey',
                 'pairedSeatNumber',
                 'routeId',
@@ -360,7 +361,21 @@ describe('data minimisation', () => {
                 'vehicle',
             ].sort()
         );
-        for (const secret of ['qrPayload', 'fare', 'specialRequests', 'Private note', 'guardianPhone', '+9477', 'assistance', 'passengerName']) {
+        // MOV-297: the ticket price only, never its breakdown.
+        expect(body.journeys[0].booking.fare).toEqual({ totalFare: 90, currency: 'LKR', isEstimate: false });
+        for (const secret of [
+            'qrPayload',
+            'baseFare',
+            'distanceFare',
+            'distanceKm',
+            'concession',
+            'specialRequests',
+            'Private note',
+            'guardianPhone',
+            '+9477',
+            'assistance',
+            'passengerName',
+        ]) {
             expect(text).not.toContain(secret);
         }
         expect(Object.keys(body.journeys[0].liveStatus.location).sort()).toEqual(

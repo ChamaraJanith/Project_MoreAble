@@ -1,4 +1,4 @@
-import { JourneyLiveStatus } from '../../route/model/types';
+import { JourneyLiveStatus, JourneyRoadRoute, JourneyStopPoint } from '../../route/model/types';
 
 export type SeatStatus ='AVAILABLE' | 'RESERVED' | 'OCCUPIED';
 export type SeatCategory = 'STANDARD' | 'PRIORITY' | 'GUARDIAN' | 'ELDERLY' | 'WHEELCHAIR';
@@ -187,10 +187,17 @@ export interface BookingActiveJourney {
  * blocks rather than copies of them.
  */
 /**
+ * The ticket price of an ongoing journey (MOV-297): what the passenger paid and
+ * nothing of how it was worked out — no distance, concession or assistance
+ * breakdown, which could reveal why a discount applied.
+ */
+export type OngoingJourneyFare = Pick<FareBreakdown, 'totalFare' | 'currency' | 'isEstimate'>;
+
+/**
  * The part of a booking an ongoing journey needs (MOV-296). A fixed allow-list:
- * no ticket QR, fare, assistance or free-text notes, and no stray fields from
- * the stored document. The full booking stays available through the booking
- * screens.
+ * no ticket QR, assistance or free-text notes, and no stray fields from the
+ * stored document. The full booking stays available through the booking
+ * screens. MOV-297 adds only the ticket price, reduced to `OngoingJourneyFare`.
  */
 export type OngoingJourneyBooking = Pick<
   Booking,
@@ -206,7 +213,30 @@ export type OngoingJourneyBooking = Pick<
   | 'boardedAt'
   | 'journey'
   | 'vehicle'
->;
+> & {
+  /** Null when the stored booking has no readable total. */
+  fare: OngoingJourneyFare | null;
+};
+
+/**
+ * The planned path of an ongoing journey, for the live tracking map (MOV-297).
+ *
+ * Derived on the server from the running trip's own route — never from an id
+ * the client sent — and only sent when the screen asks for it, since none of it
+ * changes while the journey runs.
+ */
+export interface OngoingJourneyRoute {
+  /** The whole route's stops in travel order; needed to place the passenger's times. */
+  stops: string[];
+  /** The passenger's own stops, boarding to alighting, in travel order. */
+  journeyStops: string[];
+  /** Coordinates for those of `journeyStops` that have them, in the same order. */
+  stopPoints: JourneyStopPoint[];
+  /** The route's configured stop-to-stop minutes, aligned to `stops`; null when untimed. */
+  segmentDurationsMinutes: (number | null)[] | null;
+  /** The OSRM road path through `stopPoints`; null when it could not be resolved. */
+  road: JourneyRoadRoute | null;
+}
 
 export interface PassengerOngoingJourney {
   booking: OngoingJourneyBooking;
@@ -219,6 +249,11 @@ export interface PassengerOngoingJourney {
    * bus's latest fix was reported for THIS trip; age is reported, not judged.
    */
   liveStatus: JourneyLiveStatus;
+  /**
+   * The planned path (MOV-297). Present only when the request asked for it
+   * (`?include=route`); null when the route could not be read.
+   */
+  route?: OngoingJourneyRoute | null;
 }
 
 

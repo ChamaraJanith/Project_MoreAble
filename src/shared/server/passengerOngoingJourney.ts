@@ -27,8 +27,14 @@
 // established, from the verified session, whose bookings these are
 // (ongoingJourneyAuthorization); nothing here takes an id from a request.
 
-import { Booking, OngoingJourneyBooking, PassengerOngoingJourney } from '../../entities/booking/model/types';
+import {
+    Booking,
+    OngoingJourneyBooking,
+    OngoingJourneyFare,
+    PassengerOngoingJourney,
+} from '../../entities/booking/model/types';
 import { createLiveSharingCaches, loadBookingActiveJourney, loadTrip } from './bookingLiveSharing';
+import { createOngoingRouteCaches, loadOngoingJourneyRoute } from './ongoingJourneyRoute';
 import { buildLiveStatus, loadVehicleLocation } from './vehicleLocations';
 
 function parseTime(value: unknown): number | null {
@@ -52,6 +58,27 @@ function boardedBeforeRun(booking: any, startedAt: string): boolean {
 }
 
 /**
+ * The ticket price only (MOV-297): the total, its currency and whether it was
+ * an estimate. The rest of the breakdown — distance, concession type and
+ * percentage, assistance fee, guardian pricing — stays out, since it can
+ * reveal why a passenger was discounted. Null when no usable total is stored.
+ */
+function ongoingFareView(fare: any): OngoingJourneyFare | null {
+    const totalFare = fare?.totalFare;
+
+    if (typeof totalFare !== 'number' || !Number.isFinite(totalFare) || totalFare < 0) {
+        return null;
+    }
+
+    return {
+        totalFare,
+        // Every fare the project calculates is in rupees (FareBreakdown).
+        currency: 'LKR',
+        isEstimate: fare.isEstimate === true,
+    };
+}
+
+/**
  * The allow-listed booking fields (MOV-296). Built field by field rather than
  * spread, so nothing else stored on the document reaches the response.
  */
@@ -69,11 +96,21 @@ function ongoingBookingView(booking: Booking): OngoingJourneyBooking {
         boardedAt: booking.boardedAt,
         journey: booking.journey,
         vehicle: booking.vehicle,
+        fare: ongoingFareView(booking.fare),
     };
 }
 
 function nonEmpty(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+export interface OngoingJourneyLoadOptions {
+    /**
+     * Also send each journey's planned path (MOV-297). Off by default: the path
+     * never changes while a journey runs, so the tracking screen asks for it
+     * once and its live refreshes, like the Activities list, leave it out.
+     */
+    includeRoute?: boolean;
 }
 
 /**
@@ -90,10 +127,12 @@ function nonEmpty(value: unknown): string | null {
 export async function loadPassengerOngoingJourneys(
     adminDb: any,
     passengerId: string,
-    now: Date = new Date()
+    now: Date = new Date(),
+    { includeRoute = false }: OngoingJourneyLoadOptions = {}
 ): Promise<PassengerOngoingJourney[]> {
     const snapshot = await adminDb.collection('bookings').where('userId', '==', passengerId).get();
     const caches = createLiveSharingCaches();
+    const routeCaches = createOngoingRouteCaches();
 
     const candidates = await Promise.all(
         snapshot.docs.map(async (doc: any): Promise<PassengerOngoingJourney | null> => {
@@ -122,12 +161,26 @@ export async function loadPassengerOngoingJourneys(
                     ? location
                     : null;
 
-            return {
+            const journey: PassengerOngoingJourney = {
                 booking: ongoingBookingView(booking),
                 activeJourney,
                 busId,
                 liveStatus: buildLiveStatus(tripLocation, now),
             };
+
+            if (includeRoute) {
+                // The running trip's own route; the booking's copy only if the
+                // trip names none.
+                journey.route = await loadOngoingJourneyRoute(
+                    adminDb,
+                    nonEmpty(trip?.routeId) ?? nonEmpty(booking.routeId),
+                    booking.journey?.startLocation,
+                    booking.journey?.endLocation,
+                    routeCaches
+                );
+            }
+
+            return journey;
         })
     );
 
