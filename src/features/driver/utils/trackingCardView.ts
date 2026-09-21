@@ -51,9 +51,11 @@ const START_TRACKING: PhoneLocationAction = {
     label: 'Start sharing location',
 };
 
+// Since MOV-294 sharing always belongs to a started trip, so stopping it ends
+// that journey. The action is unchanged; only what the driver is told it does.
 const STOP_TRACKING: PhoneLocationAction = {
     kind: 'STOP_TRACKING',
-    label: 'Stop sharing location',
+    label: 'End Journey',
 };
 
 const OPEN_SETTINGS: PhoneLocationAction = { kind: 'OPEN_SETTINGS', label: 'Open settings' };

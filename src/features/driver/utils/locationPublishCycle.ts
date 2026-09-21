@@ -70,11 +70,17 @@ export interface PublishCycleDependencies {
     publish: (
         busId: string,
         location: PhoneLocation,
-        sessionCredential: string
+        sessionCredential: string,
+        /** The started trip, when a journey wraps these (MOV-294). */
+        tripId?: string
     ) => Promise<void>;
 }
 
-const LIVE_DEPENDENCIES: PublishCycleDependencies = {
+/**
+ * The production functions. Exported so a journey (MOV-294) can wrap them to
+ * name its trip, rather than keeping a second copy of the list.
+ */
+export const LIVE_DEPENDENCIES: PublishCycleDependencies = {
     readLocation: getCurrentPhoneLocation,
     readSession: getBusSession,
     publish: publishBusLocation,

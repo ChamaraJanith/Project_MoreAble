@@ -31,6 +31,19 @@ function formatScheduledTime(value?: string): string {
     return formatFriendlyTime(parseApiTimeString(value as string));
 }
 
+/** When the bus actually pressed Start Journey, in local time. */
+function formatStartedAt(value?: string): string | null {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const hour24 = date.getHours();
+    return formatFriendlyTime({
+        hour: hour24 % 12 === 0 ? 12 : hour24 % 12,
+        minute: date.getMinutes(),
+        period: hour24 >= 12 ? 'PM' : 'AM',
+    });
+}
+
 function formatJourneyDate(value?: string): string | null {
     if (!value) return null;
     const date = new Date(value);
@@ -55,6 +68,7 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const departure = formatScheduledTime(booking.journey?.departureTime);
     const arrival = formatScheduledTime(booking.journey?.estimatedArrivalTime);
     const journeyDate = isOngoing ? null : formatJourneyDate(booking.boardedAt);
+    const startedAt = isOngoing ? formatStartedAt(booking.activeJourney?.startedAt) : null;
     const numberPlate = booking.vehicle?.numberPlate;
 
     const statusLabel = isOngoing
@@ -110,6 +124,15 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
                     <View style={styles.metaBadge}>
                         <Ionicons name="bus-outline" size={14} color="#0066CC" />
                         <Text style={styles.metaText}>{numberPlate}</Text>
+                    </View>
+                )}
+
+                {!!startedAt && (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="play-circle-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>
+                            {t('activities.startedAt', 'Started {{time}}', { time: startedAt })}
+                        </Text>
                     </View>
                 )}
 

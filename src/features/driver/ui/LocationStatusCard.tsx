@@ -15,7 +15,7 @@ import { describeBusMap, nextLastKnownLocation } from '../utils/busMapView';
 import { PhoneLocationAction } from '../utils/phoneLocationState';
 import { describeTrackingCard } from '../utils/trackingCardView';
 import { BusLocationMap } from './BusLocationMap';
-import { usePhoneLocationTracking } from './usePhoneLocationTracking';
+import { PhoneLocationTracking } from './usePhoneLocationTracking';
 
 /**
  * How tall the map sits inside the card.
@@ -26,6 +26,13 @@ import { usePhoneLocationTracking } from './usePhoneLocationTracking';
  */
 const MAP_HEIGHT = 190;
 
+interface LocationStatusCardProps {
+    /** The running journey's tracking loop, owned by the dashboard (MOV-294). */
+    tracking: PhoneLocationTracking;
+    /** Ends the journey — stops sharing and releases the trip. */
+    onEndJourney: () => void;
+}
+
 /**
  * Location sharing on the vehicle dashboard (MOV-264, MOV-268).
  *
@@ -34,14 +41,15 @@ const MAP_HEIGHT = 190;
  * behind it lives in `locationTracker` (MOV-267). This renders the result and
  * forwards presses.
  *
- * Nothing starts on mount or on focus. Tracking begins only when the driver
- * presses the button, so opening the dashboard never sets off a permission
- * prompt or a network request by itself. There is no timer here — the periodic
- * publishing, and the retrying after a failure, both belong to the tracker.
+ * Since MOV-294 it is shown for a started journey on the Trip Control tab, and
+ * the loop is handed in rather than created here. Sharing starts only from a
+ * specific trip's Start Journey, never from this card, so a stopped card offers
+ * no generic start; its stop control is End Journey. There is no timer here —
+ * the periodic publishing, and the retrying after a failure, both belong to the
+ * tracker.
  */
-export function LocationStatusCard() {
-    const { state, isTracking, startTracking, stopTracking, publishOnce } =
-        usePhoneLocationTracking();
+export function LocationStatusCard({ tracking, onEndJourney }: LocationStatusCardProps) {
+    const { state, isTracking, publishOnce } = tracking;
 
     const openSettings = useCallback(async () => {
         try {
@@ -57,14 +65,13 @@ export function LocationStatusCard() {
         (action: PhoneLocationAction) => {
             switch (action.kind) {
                 case 'START_TRACKING':
-                    // Pressing again while it is already on does nothing: the
-                    // tracker itself refuses a second loop.
-                    startTracking();
+                    // Never rendered: a journey starts from its trip card, so
+                    // sharing can never begin without a trip attached.
                     return;
                 case 'STOP_TRACKING':
-                    // Safe to press repeatedly; stopping something already
-                    // stopped is a no-op.
-                    stopTracking();
+                    // End Journey. Safe to press repeatedly; ending a journey
+                    // that has already ended is a no-op.
+                    onEndJourney();
                     return;
                 case 'OPEN_SETTINGS':
                     openSettings();
@@ -80,10 +87,11 @@ export function LocationStatusCard() {
                     publishOnce();
             }
         },
-        [openSettings, publishOnce, startTracking, stopTracking]
+        [onEndJourney, openSettings, publishOnce]
     );
 
     const view = describeTrackingCard(state, isTracking);
+    const endAction = view.trackingAction?.kind === 'STOP_TRACKING' ? view.trackingAction : undefined;
     const toneStyles = TONE_STYLES[view.tone];
 
     // The state model drops its reading when a GPS request fails, so the last
@@ -161,43 +169,28 @@ export function LocationStatusCard() {
                 disabled while a round is in flight — turning sharing off has to
                 work at any moment, and a button that greys out every thirty
                 seconds would be worse than useless. */}
-            {!!view.trackingAction && (
+            {!!endAction && (
                 <TouchableOpacity
-                    style={[
-                        styles.primaryButton,
-                        view.trackingAction.kind === 'STOP_TRACKING' && styles.stopButton,
-                    ]}
-                    onPress={() => runAction(view.trackingAction!)}
+                    style={[styles.primaryButton, styles.stopButton]}
+                    onPress={() => runAction(endAction)}
                     accessibilityRole="button"
-                    accessibilityLabel={view.trackingAction.label}
-                    accessibilityHint={
-                        view.trackingAction.kind === 'STOP_TRACKING'
-                            ? 'Stops sending this bus location to passengers'
-                            : 'Starts sending this bus location to passengers every 30 seconds'
-                    }
-                    accessibilityState={{ selected: isTracking }}
+                    accessibilityLabel={endAction.label}
+                    accessibilityHint="Ends this trip and stops sending this bus location to passengers"
                 >
-                    <Text
-                        style={[
-                            styles.primaryButtonText,
-                            view.trackingAction.kind === 'STOP_TRACKING' && styles.stopButtonText,
-                        ]}
-                    >
-                        {view.trackingAction.label}
-                    </Text>
+                    <Text style={[styles.primaryButtonText, styles.stopButtonText]}>{endAction.label}</Text>
                 </TouchableOpacity>
             )}
 
             {!!view.primaryAction && (
                 <TouchableOpacity
-                    style={view.trackingAction ? styles.secondaryButton : styles.primaryButton}
+                    style={endAction ? styles.secondaryButton : styles.primaryButton}
                     onPress={() => runAction(view.primaryAction!)}
                     accessibilityRole="button"
                     accessibilityLabel={view.primaryAction.label}
                 >
                     <Text
                         style={
-                            view.trackingAction
+                            endAction
                                 ? styles.secondaryButtonText
                                 : styles.primaryButtonText
                         }

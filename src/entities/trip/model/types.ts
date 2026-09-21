@@ -1,3 +1,5 @@
+import { TripJourneyRecord } from '../../../shared/utils/journeyLifecycle';
+
 export type TripStatus = 'ACTIVE' | 'INACTIVE';
 
 // One scheduled journey ("turn") made by one bus on one route at a particular time.
@@ -11,6 +13,8 @@ export interface Trip {
     estimatedArrivalTime: string; // 'HH:MM' (24-hour)
     turnNumber: number;
     status: TripStatus;
+    /** The latest Start/End Journey for this trip (MOV-294); absent if never started. */
+    journey?: TripJourneyRecord;
     createdAt?: unknown;
     updatedAt?: unknown;
 }

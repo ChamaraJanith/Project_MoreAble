@@ -172,7 +172,7 @@ describe('describeTrackingCard - stopped and active never read alike', () => {
             // mid-round and including while something is failing.
             expect(view.trackingAction).toEqual({
                 kind: 'STOP_TRACKING',
-                label: 'Stop sharing location',
+                label: 'End Journey',
             });
         });
     });

@@ -82,10 +82,15 @@ function reasonForStatus(status: number): PublishLocationErrorReason {
  * caller may move it — the endpoint compares the two and refuses when they
  * disagree, so a wrong id here is rejected rather than acted on.
  *
- * The body is exactly the three fields the endpoint accepts. Nothing else from
+ * The body is the three position fields the endpoint accepts. Nothing else from
  * the handset travels with it: speed, heading, altitude and accuracy are all
  * available from the GPS reading and none of them is sent. The credential
  * travels in the Authorization header and never in the body or the URL.
+ *
+ * `tripId` (MOV-294) names the assigned trip the driver started with Start
+ * Journey. It is added to the body only when there is one, so a publish outside
+ * a journey is byte-for-byte what it always was. The endpoint does not read it
+ * yet — associating a stored position with its trip is MOV-295's backend work.
  *
  * Coordinates are never logged — they go into the request body and nowhere
  * else.
@@ -93,7 +98,8 @@ function reasonForStatus(status: number): PublishLocationErrorReason {
 export async function publishBusLocation(
     busId: string,
     location: PhoneLocation,
-    sessionCredential: string
+    sessionCredential: string,
+    tripId?: string
 ): Promise<void> {
     // Guarded rather than left to build a malformed URL: `/api/buses//location`
     // would reach a different route entirely.
@@ -121,6 +127,7 @@ export async function publishBusLocation(
                     latitude: location.latitude,
                     longitude: location.longitude,
                     recordedAt: location.recordedAt,
+                    ...(typeof tripId === 'string' && tripId.trim() ? { tripId: tripId.trim() } : {}),
                 }),
             }
         );

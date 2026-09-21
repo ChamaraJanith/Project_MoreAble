@@ -14,13 +14,14 @@ import {
     View
 } from 'react-native';
 
-import { LocationStatusCard } from '../src/features/driver/ui/LocationStatusCard';
+import { TripControlTab } from '../src/features/driver/ui/TripControlTab';
+import { useTripJourney } from '../src/features/driver/ui/useTripJourney';
 import { PassengerManifestTab } from '../src/features/driver/ui/PassengerManifestTab';
 import { TripInfoTab } from '../src/features/driver/ui/TripInfoTab';
 import { describeBusSession } from '../src/features/driver/utils/busSessionView';
 import { BusSession, clearBusSession, getBusSession } from '../src/shared/utils/busSession';
 
-type VehicleTab = 'PASSENGERS' | 'LOCATION' | 'TRIP';
+type VehicleTab = 'PASSENGERS' | 'TRIP_CONTROL' | 'TRIP';
 
 export default function VehicleDashboardScreen() {
   const { t } = useTranslation();
@@ -28,6 +29,11 @@ export default function VehicleDashboardScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [exitError, setExitError] = useState('');
     const [activeTab, setActiveTab] = useState<VehicleTab>('PASSENGERS');
+
+    // Held here rather than in the Trip Control tab (MOV-294): tabs unmount as
+    // the driver switches between them, and a started journey must keep
+    // sharing while the conductor works in the Passengers tab.
+    const journey = useTripJourney(session?.busId);
 
     useFocusEffect(
         useCallback(() => {
@@ -152,21 +158,21 @@ export default function VehicleDashboardScreen() {
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                                style={[styles.tabItem, activeTab === 'LOCATION' && styles.tabItemActive]}
-                                onPress={() => setActiveTab('LOCATION')}
+                                style={[styles.tabItem, activeTab === 'TRIP_CONTROL' && styles.tabItemActive]}
+                                onPress={() => setActiveTab('TRIP_CONTROL')}
                             >
                                 <Ionicons
-                                    name="location"
+                                    name="navigate"
                                     size={18}
-                                    color={activeTab === 'LOCATION' ? '#0066CC' : '#64748B'}
+                                    color={activeTab === 'TRIP_CONTROL' ? '#0066CC' : '#64748B'}
                                 />
                                 <Text
                                     style={[
                                         styles.tabText,
-                                        activeTab === 'LOCATION' && styles.tabTextActive,
+                                        activeTab === 'TRIP_CONTROL' && styles.tabTextActive,
                                     ]}
                                 >
-                                    GPS Location
+                                    Trip Control
                                 </Text>
                             </TouchableOpacity>
 
@@ -196,10 +202,8 @@ export default function VehicleDashboardScreen() {
                                 <PassengerManifestTab busId={session?.busId} numberPlate={session?.numberPlate} />
                             )}
 
-                            {activeTab === 'LOCATION' && (
-                                <View style={{ flex: 1, paddingVertical: 10 }}>
-                                    <LocationStatusCard />
-                                </View>
+                            {activeTab === 'TRIP_CONTROL' && (
+                                <TripControlTab journey={journey} />
                             )}
 
                             {activeTab === 'TRIP' && (

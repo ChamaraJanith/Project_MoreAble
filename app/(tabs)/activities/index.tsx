@@ -199,7 +199,7 @@ export default function ActivitiesScreen() {
                                     {isOngoingTab
                                         ? t(
                                               'activities.noOngoingDesc',
-                                              'A booked journey appears here once its bus starts sharing its live location.'
+                                              'A booked journey appears here once its bus starts the journey.'
                                           )
                                         : t(
                                               'activities.noCompletedDesc',

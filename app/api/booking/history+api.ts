@@ -1,5 +1,9 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
-import { createLiveSharingCaches, loadBookingLiveSharing } from '../../../src/shared/server/bookingLiveSharing';
+import {
+    createLiveSharingCaches,
+    loadBookingActiveJourney,
+    loadBookingLiveSharing,
+} from '../../../src/shared/server/bookingLiveSharing';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -96,9 +100,17 @@ export async function GET(request: Request) {
 
             await Promise.all(
                 bookings.map(async (b: any) => {
-                    const liveSharing = await loadBookingLiveSharing(adminDb, b, caches, now);
+                    const [liveSharing, activeJourney] = await Promise.all([
+                        loadBookingLiveSharing(adminDb, b, caches, now),
+                        loadBookingActiveJourney(adminDb, b, caches, now),
+                    ]);
                     if (liveSharing) {
                         b.liveSharing = liveSharing;
+                    }
+                    // The persisted Start Journey of this booking's own trip —
+                    // what Activities > Ongoing is decided by.
+                    if (activeJourney) {
+                        b.activeJourney = activeJourney;
                     }
                 })
             );
