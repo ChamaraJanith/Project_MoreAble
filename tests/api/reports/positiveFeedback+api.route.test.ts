@@ -37,6 +37,8 @@ import {
     readRequestedReportType,
 } from '../../../src/shared/server/reportContent';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
+import { submitPositiveFeedback } from '../../../src/features/reports/api/positiveFeedbackApi';
+import { buildPositiveFeedbackPayload } from '../../../src/features/reports/utils/positiveFeedbackValidation';
 
 const mockGetAdminDb = jest.fn();
 const mockVerifyToken = jest.fn();
@@ -49,6 +51,9 @@ jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
 jest.mock('../../../src/shared/config/jwt', () => ({
     verifyToken: (token: string) => mockVerifyToken(token),
 }));
+
+// The app's API base URL, which reads Expo config at import time.
+jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: 'http://localhost' }));
 
 // ------------------------------------------------------------------
 // Fixtures
@@ -886,5 +891,122 @@ describe('reportContent', () => {
         expect(
             readReportContent({ issueCategory: 'BROKEN_RAMP', description: ' Broken. ' }, 'ISSUE')
         ).toEqual({ ok: true, value: { issueCategory: 'BROKEN_RAMP', description: 'Broken.' } });
+    });
+});
+
+// ==================================================================
+// End to end: the screen's client → POST /api/reports → Firestore
+//
+// The regression this guards: the MOV-300 client used to simulate success in
+// development builds without ever sending the request, so the screen thanked
+// the passenger while nothing reached Firestore. Here `fetch` is routed into
+// the real handler, so the only thing not exercised is the network itself.
+// ==================================================================
+describe('positive feedback from the screen client to Firestore', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+    });
+
+    function routeFetchTo(db: any) {
+        const calls: Request[] = [];
+
+        global.fetch = (async (input: any, init?: RequestInit) => {
+            const request = new Request(String(input), init);
+            calls.push(request.clone());
+            mockGetAdminDb.mockReturnValue(db);
+
+            return createReport(request);
+        }) as typeof fetch;
+
+        return calls;
+    }
+
+    it('sends the request and stores the feedback as a PENDING report', async () => {
+        const db = seededFirestore({ counters: [{ id: 'reports', lastNumber: 11 }] });
+        const calls = routeFetchTo(db);
+
+        const payload = buildPositiveFeedbackPayload({
+            category: 'CLEAR_STOP_ANNOUNCEMENT',
+            description: '  Every stop was announced clearly on the display and audio.  ',
+            routeId: ROUTE_ID,
+            busId: BUS_ID,
+        })!;
+
+        const result = await submitPositiveFeedback(payload, AUTHOR_SESSION);
+
+        // The request actually left the client, to the existing endpoint.
+        expect(calls).toHaveLength(1);
+        expect(calls[0].method).toBe('POST');
+        expect(new URL(calls[0].url).pathname).toBe('/api/reports');
+        expect(calls[0].headers.get('Authorization')).toBe(`Bearer ${AUTHOR_SESSION}`);
+        expect(await calls[0].json()).toEqual({
+            type: 'POSITIVE',
+            category: 'CLEAR_STOP_ANNOUNCEMENT',
+            description: 'Every stop was announced clearly on the display and audio.',
+            routeId: ROUTE_ID,
+            busId: BUS_ID,
+        });
+
+        // The response carries the created report.
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.report.reportId).toBe('REP-00012');
+
+        // And the document is in the reports collection.
+        expect(await stored(db, 'REP-00012')).toEqual({
+            reportId: 'REP-00012',
+            passengerId: AUTHOR,
+            type: 'POSITIVE',
+            category: 'CLEAR_STOP_ANNOUNCEMENT',
+            description: 'Every stop was announced clearly on the display and audio.',
+            busId: BUS_ID,
+            vehicle: {
+                numberPlate: 'NB-1234',
+                busModel: 'Ashok Leyland Viking',
+                manufacturer: 'Ashok Leyland',
+            },
+            routeId: ROUTE_ID,
+            route: { routeNumber: '138', routeName: 'Colombo - Kandy', direction: 'OUTBOUND' },
+            status: 'PENDING',
+            createdAt: expect.any(Date),
+            updatedAt: expect.any(Date),
+        });
+    });
+
+    it('reports a refusal instead of success, and writes nothing', async () => {
+        const db = seededFirestore();
+        routeFetchTo(db);
+
+        const result = await submitPositiveFeedback(
+            buildPositiveFeedbackPayload({
+                category: 'HELPFUL_DRIVER',
+                description: DESCRIPTION,
+                routeId: null,
+                busId: 'BUS-99999',
+            })!,
+            AUTHOR_SESSION
+        );
+
+        expect(result).toMatchObject({ ok: false, status: 404 });
+        expect((await db.collection('counters').doc('reports').get()).exists).toBe(false);
+    });
+
+    it('does not report success for a session the API refuses', async () => {
+        const db = seededFirestore();
+        routeFetchTo(db);
+
+        const result = await submitPositiveFeedback(
+            buildPositiveFeedbackPayload({
+                category: 'HELPFUL_DRIVER',
+                description: DESCRIPTION,
+                routeId: null,
+                busId: null,
+            })!,
+            ADMIN_SESSION
+        );
+
+        expect(result).toMatchObject({ ok: false, status: 403 });
     });
 });
