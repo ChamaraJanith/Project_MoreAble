@@ -13,6 +13,11 @@ const OSRM_BASE_URL = (
 
 const OSRM_PROFILE = process.env.OSRM_PROFILE || 'driving';
 
+// Sent explicitly: the public OSRM server refuses requests that carry no
+// User-Agent (HTTP 403), and the Expo server runtime's fetch does not add one.
+const OSRM_USER_AGENT =
+    process.env.OSRM_USER_AGENT || 'MoreAble/1.0 (Inclusive Public Transport Companion)';
+
 /** GeoJSON LineString describing the road path. */
 export interface RouteGeometry {
     type: string;
@@ -72,7 +77,9 @@ export async function getRouteThroughCoordinates(
         `${OSRM_BASE_URL}/route/v1/${OSRM_PROFILE}/${coordinatePath}` +
         `?overview=full&geometries=geojson`;
 
-    const payload = await fetchGeoJson(url);
+    const payload = await fetchGeoJson(url, {
+        headers: { 'User-Agent': OSRM_USER_AGENT },
+    });
 
     if (!payload || payload.code !== 'Ok' || !Array.isArray(payload.routes)) {
         return null;
