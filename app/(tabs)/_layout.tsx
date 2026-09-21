@@ -62,6 +62,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="activities/journey/[bookingId]"
+        options={{
+          // Reached via "View Journey" on an ongoing activity (MOV-297), not a standalone tab.
+          href: null,
+        }}
+      />
+      <Tabs.Screen
           name="booking/index"
           options={{
               title: 'Bookings',

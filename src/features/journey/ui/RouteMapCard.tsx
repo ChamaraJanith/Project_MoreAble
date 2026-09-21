@@ -31,8 +31,13 @@ interface RouteMapCardProps {
     road?: JourneyRoadRoute | null;
     /** The live vehicle position (MOV-119). Absent when the bus is not reporting. */
     vehicle?: RouteMapVehicle | null;
+    /** See RouteMap: bump to move the camera to the bus once. */
+    vehicleFocusRequest?: number;
     originLabel: string;
     destinationLabel: string;
+    /** Card heading; the planning screen keeps the default. */
+    title?: string;
+    mapHeight?: number;
 }
 
 const MAP_HEIGHT = 260;
@@ -56,8 +61,11 @@ export function RouteMapCard({
     unmappedStopCount = 0,
     road: routeRoad,
     vehicle,
+    vehicleFocusRequest,
     originLabel,
     destinationLabel,
+    title = 'Route map',
+    mapHeight = MAP_HEIGHT,
 }: RouteMapCardProps) {
     const origin = geo?.origin;
     const destination = geo?.destination;
@@ -70,7 +78,7 @@ export function RouteMapCard({
         <View style={styles.card}>
             <View style={styles.headingRow}>
                 <Ionicons name="map-outline" size={16} color="#0F172A" />
-                <Text style={styles.heading}>Route map</Text>
+                <Text style={styles.heading}>{title}</Text>
             </View>
 
             <View style={styles.mapFrame}>
@@ -81,12 +89,13 @@ export function RouteMapCard({
                         stops={stops}
                         geometry={road?.geometry}
                         vehicle={vehicle}
+                        vehicleFocusRequest={vehicleFocusRequest}
                         originLabel={originLabel}
                         destinationLabel={destinationLabel}
-                        height={MAP_HEIGHT}
+                        height={mapHeight}
                     />
                 ) : (
-                    <View style={[styles.placeholder, { height: MAP_HEIGHT }]}>
+                    <View style={[styles.placeholder, { height: mapHeight }]}>
                         <Ionicons name="map-outline" size={30} color="#94A3B8" />
                         <Text style={styles.placeholderText}>
                             {geo?.message ||

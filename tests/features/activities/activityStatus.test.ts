@@ -268,10 +268,14 @@ describe('Grouping a passenger history', () => {
     });
 
     it('opens the booking the card was built from', () => {
+        // Ongoing opens the live journey screen (MOV-297), not the ticket.
         expect(ongoingJourneyHref('BK-2026-00001')).toEqual({
-            pathname: '/booking/ticket/[bookingId]',
+            pathname: '/activities/journey/[bookingId]',
             params: { bookingId: 'BK-2026-00001' },
         });
-        expect(completedJourneyHref('BK-2026-00002').params.bookingId).toBe('BK-2026-00002');
+        expect(completedJourneyHref('BK-2026-00002')).toEqual({
+            pathname: '/booking/ticket/[bookingId]',
+            params: { bookingId: 'BK-2026-00002' },
+        });
     });
 });

@@ -37,6 +37,12 @@ export interface RouteMapProps {
     geometry?: RouteGeometry;
     /** The live vehicle position. Absent when the bus is not reporting. */
     vehicle?: RouteMapVehicle | null;
+    /**
+     * Bumped by the caller to move the camera to the bus once (MOV-297's
+     * "Center on bus"). Live updates alone never move the camera, so a
+     * passenger who has panned or zoomed keeps their view.
+     */
+    vehicleFocusRequest?: number;
     originLabel: string;
     destinationLabel: string;
     height: number;
@@ -61,6 +67,12 @@ export const STOP_COLOR = '#64748B';
 export const VEHICLE_COLOR = VEHICLE_MARKER_COLOR;
 
 const VEHICLE_BADGE_SIZE = 34;
+
+/** How closely "Center on bus" zooms in, in degrees of latitude/longitude shown. */
+const VEHICLE_FOCUS_DELTA = 0.01;
+
+/** How long a marker keeps re-snapshotting so its icon-font glyph can paint. */
+const MARKER_PAINT_MS = 1500;
 
 /** A pin hangs above its coordinate, so its tip is the anchor. */
 const PIN_ANCHOR = { x: 0.5, y: 1 } as const;
@@ -123,6 +135,53 @@ function isDrawablePoint(point: { latitude: number; longitude: number }): boolea
 }
 
 /**
+ * The bus itself: a round badge rather than a pin, because it marks where the
+ * vehicle is, not a fixed place on the route. It does not animate — each
+ * position is a snapshot, and movement between them would imply otherwise.
+ *
+ * Its own component so it owns its paint window: mounted when the bus starts
+ * reporting — which may be long after the map's first paint — it re-snapshots
+ * just long enough for the icon glyph to draw. Moving an existing marker needs
+ * no snapshot, so position updates do not reopen the window.
+ */
+function VehicleMarker({ vehicle, coordinate }: { vehicle: RouteMapVehicle; coordinate: LatLng }) {
+    const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setTracksViewChanges(false), MARKER_PAINT_MS);
+        return () => clearTimeout(timer);
+    }, []);
+
+    return (
+        <Marker
+            coordinate={coordinate}
+            anchor={DOT_ANCHOR}
+            tracksViewChanges={tracksViewChanges}
+            accessibilityLabel={
+                `Live bus location: ${vehicle.title}` +
+                (vehicle.updatedLabel ? `. ${vehicle.updatedLabel}` : '')
+            }
+        >
+            <View style={styles.vehicleBadge}>
+                <Ionicons name="bus" size={18} color="#FFFFFF" />
+            </View>
+            <Callout tooltip>
+                <View style={styles.callout}>
+                    <Text style={styles.calloutCaption}>Bus location</Text>
+                    <Text style={styles.calloutText}>{vehicle.title}</Text>
+                    {!!vehicle.subtitle && (
+                        <Text style={styles.calloutSubtext}>{vehicle.subtitle}</Text>
+                    )}
+                    {!!vehicle.updatedLabel && (
+                        <Text style={styles.calloutSubtext}>{vehicle.updatedLabel}</Text>
+                    )}
+                </View>
+            </Callout>
+        </Marker>
+    );
+}
+
+/**
  * The interactive route map.
  *
  * Renders an OpenStreetMap base layer with the road path the backend already
@@ -135,6 +194,7 @@ export function RouteMap({
     stops = [],
     geometry,
     vehicle,
+    vehicleFocusRequest,
     originLabel,
     destinationLabel,
     height,
@@ -147,7 +207,7 @@ export function RouteMap({
     const [tracksMarkerChanges, setTracksMarkerChanges] = useState(true);
 
     useEffect(() => {
-        const timer = setTimeout(() => setTracksMarkerChanges(false), 1500);
+        const timer = setTimeout(() => setTracksMarkerChanges(false), MARKER_PAINT_MS);
         return () => clearTimeout(timer);
     }, []);
 
@@ -213,6 +273,24 @@ export function RouteMap({
             animated: false,
         });
     }, [fitTargets]);
+
+    // Only an explicit request moves the camera to the bus. The latest position
+    // is read through a ref so a new fix alone never re-runs the move.
+    const vehicleCoordinateRef = useRef<LatLng | null>(null);
+
+    useEffect(() => {
+        vehicleCoordinateRef.current = vehicleCoordinate;
+    }, [vehicleCoordinate]);
+
+    useEffect(() => {
+        const target = vehicleCoordinateRef.current;
+        if (!vehicleFocusRequest || !target) return;
+
+        mapRef.current?.animateToRegion(
+            { ...target, latitudeDelta: VEHICLE_FOCUS_DELTA, longitudeDelta: VEHICLE_FOCUS_DELTA },
+            400
+        );
+    }, [vehicleFocusRequest]);
 
     return (
         <MapView
@@ -314,31 +392,7 @@ export function RouteMap({
                 not a fixed place on the route. It does not animate — the
                 position is a snapshot, and movement would imply otherwise. */}
             {vehicle && vehicleCoordinate && (
-                <Marker
-                    coordinate={vehicleCoordinate}
-                    anchor={DOT_ANCHOR}
-                    tracksViewChanges={tracksMarkerChanges}
-                    accessibilityLabel={
-                        `Live bus location: ${vehicle.title}` +
-                        (vehicle.updatedLabel ? `. ${vehicle.updatedLabel}` : '')
-                    }
-                >
-                    <View style={styles.vehicleBadge}>
-                        <Ionicons name="bus" size={18} color="#FFFFFF" />
-                    </View>
-                    <Callout tooltip>
-                        <View style={styles.callout}>
-                            <Text style={styles.calloutCaption}>Bus location</Text>
-                            <Text style={styles.calloutText}>{vehicle.title}</Text>
-                            {!!vehicle.subtitle && (
-                                <Text style={styles.calloutSubtext}>{vehicle.subtitle}</Text>
-                            )}
-                            {!!vehicle.updatedLabel && (
-                                <Text style={styles.calloutSubtext}>{vehicle.updatedLabel}</Text>
-                            )}
-                        </View>
-                    </Callout>
-                </Marker>
+                <VehicleMarker vehicle={vehicle} coordinate={vehicleCoordinate} />
             )}
         </MapView>
     );

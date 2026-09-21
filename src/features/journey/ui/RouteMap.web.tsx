@@ -22,6 +22,8 @@ export interface RouteMapProps {
     stops?: JourneyStopPoint[];
     geometry?: RouteGeometry;
     vehicle?: RouteMapVehicle | null;
+    /** Native only: there is no camera to move on the web stand-in. */
+    vehicleFocusRequest?: number;
     originLabel: string;
     destinationLabel: string;
     height: number;
