@@ -28,6 +28,50 @@ export interface JwtPayload {
      * person-shaped session minted by the user login carries no such claim.
      */
     busId?: string;
+    /**
+     * Narrows what a token may be used for. Absent on every login session.
+     * Set to JOURNEY_SHARING_SCOPE on the credential a started journey shares
+     * its location with (MOV-294).
+     */
+    scope?: string;
+    /** The trip a journey-sharing token was issued for. */
+    tripId?: string;
+}
+
+/**
+ * The scope of a journey's location-sharing credential (MOV-294).
+ *
+ * Start Journey hands the device this narrow token so location sharing can
+ * outlive the dashboard sign-in: logging out ends the bus session, not the
+ * journey. It names one bus and one trip, expires with the journey's window,
+ * and may only report that bus's position — routes that change a journey
+ * refuse it.
+ */
+export const JOURNEY_SHARING_SCOPE = 'JOURNEY_LOCATION';
+
+/** Issues the location-sharing credential for a started journey. */
+export async function generateJourneySharingToken(
+    busId: string,
+    tripId: string,
+    expiresAt: Date
+): Promise<string> {
+    const secret = getJwtSecret();
+
+    return new SignJWT({
+        uid: busId,
+        passengerId: busId,
+        role: 'BUS',
+        email: '',
+        busId,
+        tripId,
+        scope: JOURNEY_SHARING_SCOPE,
+    })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
+        .setIssuer('moreable-api')
+        .setSubject(busId)
+        .sign(secret);
 }
 
 /**
@@ -74,6 +118,8 @@ export async function verifyToken(token: string): Promise<JwtPayload | null> {
             role: payload.role as string,
             email: payload.email as string,
             busId: typeof payload.busId === 'string' ? payload.busId : undefined,
+            scope: typeof payload.scope === 'string' ? payload.scope : undefined,
+            tripId: typeof payload.tripId === 'string' ? payload.tripId : undefined,
         };
     } catch (error) {
         console.error('JWT Verification Failed:', error);

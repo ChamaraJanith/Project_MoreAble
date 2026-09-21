@@ -3,6 +3,7 @@ import {
   unauthorizedResponse,
 } from '../../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { JOURNEY_SHARING_SCOPE, generateJourneySharingToken } from '../../../../src/shared/config/jwt';
 import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
 import {
   TripJourneyRecord,
@@ -30,14 +31,30 @@ function fail(status: number, message: string, code?: string) {
   );
 }
 
-function journeyResponse(message: string, journey: TripJourneyRecord, now: Date) {
+async function journeyResponse(
+  message: string,
+  journey: TripJourneyRecord,
+  now: Date,
+  shareFor?: { busId: string; tripId: string }
+) {
+  const active = isJourneyActive(journey, now);
+  const expiresAt = journeyExpiresAt(journey);
+
+  // A running journey hands the device its location-sharing credential, so
+  // sharing can carry on after the dashboard signs out (see jwt.ts).
+  const sharingToken =
+    shareFor && active && expiresAt
+      ? await generateJourneySharingToken(shareFor.busId, shareFor.tripId, expiresAt)
+      : undefined;
+
   return Response.json(
     {
       success: true,
       message,
       journey,
-      active: isJourneyActive(journey, now),
-      expiresAt: journeyExpiresAt(journey)?.toISOString() ?? null,
+      active,
+      expiresAt: expiresAt?.toISOString() ?? null,
+      ...(sharingToken ? { sharingToken } : {}),
     },
     { status: 200, headers: corsHeaders }
   );
@@ -57,7 +74,7 @@ function extractTripId(request: Request, context: any): string {
   return candidate && candidate !== 'trips' ? decodeURIComponent(candidate) : '';
 }
 
-// POST /api/trips/:tripId/journey   { "action": "START" | "END" }
+// POST /api/trips/:tripId/journey   { "action": "START" | "END" | "SHARE" }
 //
 // The persisted journey lifecycle (MOV-294). Start Journey records that THIS
 // trip is running, stamped with the server's time; End Journey records that it
@@ -70,9 +87,17 @@ function extractTripId(request: Request, context: any): string {
 // A bus runs one journey at a time: starting a trip while another of the same
 // bus's trips is running is refused.
 //
-// Both actions are idempotent. Starting a running journey returns it unchanged
+// START and END are idempotent. Starting a running journey returns it unchanged
 // (its startedAt is never reset), and ending one that is not running reports
 // the record as it stands.
+//
+// START and SHARE return the journey's location-sharing credential. SHARE is
+// for a signed-in device that finds the journey already running and has no
+// credential of its own (another phone, or cleared storage): it never starts,
+// restarts or extends a journey, and is refused when none is running.
+//
+// A location-sharing credential may not call this route: it can report where
+// the bus is, never start or end its journey.
 export async function POST(request: Request, context?: any) {
   try {
     const tripId = extractTripId(request, context);
@@ -84,14 +109,18 @@ export async function POST(request: Request, context?: any) {
     const body = await request.json().catch(() => null);
     const action = body?.action;
 
-    if (action !== 'START' && action !== 'END') {
-      return fail(400, 'action must be "START" or "END".');
+    if (action !== 'START' && action !== 'END' && action !== 'SHARE') {
+      return fail(400, 'action must be "START", "END" or "SHARE".');
     }
 
     const account = await authenticateRequest(request);
 
     if (!account) {
       return unauthorizedResponse('Authentication required.', corsHeaders);
+    }
+
+    if (account.scope === JOURNEY_SHARING_SCOPE) {
+      return fail(403, 'Sign in to the bus device to start or end a journey.');
     }
 
     const adminDb = getAdminDb();
@@ -118,23 +147,30 @@ export async function POST(request: Request, context?: any) {
 
     const now = new Date();
     const current: TripJourneyRecord | undefined = trip.journey;
+    const shareFor = { busId: tripBusId, tripId };
+
+    if (action === 'SHARE') {
+      return isJourneyActive(current, now)
+        ? journeyResponse('Journey is running.', current, now, shareFor)
+        : fail(409, 'This journey is not running.', 'JOURNEY_NOT_STARTED');
+    }
 
     if (action === 'END') {
       if (!isJourneyActive(current, now)) {
         return current
-          ? journeyResponse('This journey is not running.', current, now)
+          ? await journeyResponse('This journey is not running.', current, now)
           : fail(409, 'This journey has not been started.', 'JOURNEY_NOT_STARTED');
       }
 
       const ended: TripJourneyRecord = { ...current, status: 'ENDED', endedAt: now.toISOString() };
       await tripRef.update({ journey: ended });
 
-      return journeyResponse('Journey ended.', ended, now);
+      return await journeyResponse('Journey ended.', ended, now);
     }
 
     // ---- START ----
     if (isJourneyActive(current, now)) {
-      return journeyResponse('Journey already started.', current, now);
+      return await journeyResponse('Journey already started.', current, now, shareFor);
     }
 
     if (trip.status && trip.status !== 'ACTIVE') {
@@ -163,7 +199,7 @@ export async function POST(request: Request, context?: any) {
 
     await tripRef.update({ journey: started });
 
-    return journeyResponse('Journey started.', started, now);
+    return await journeyResponse('Journey started.', started, now, shareFor);
   } catch (error: any) {
     console.error('Trip Journey API Error:', error);
 

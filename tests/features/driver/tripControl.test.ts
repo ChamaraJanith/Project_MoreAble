@@ -1,44 +1,49 @@
 // Trip Control on the Transit Console (MOV-294).
 //
-// The driver starts a SPECIFIC assigned trip. Start Journey persists that on
-// the server with the actual start time; only then does the EXISTING location
-// sharing begin, naming that trip. The journey belongs to the trip, not to the
-// device session:
+// Three lifecycles, kept apart:
 //
-//   - signing out stops this device's sharing and never ends the journey
-//   - signing back in finds the running journey from the persisted records,
-//     and sharing can be resumed
-//   - End Journey persists the end, then stops sharing
-//   - only one trip runs at a time
-//   - the existing permission flow and live map are untouched
+//   sign-in   Device Login -> logout
+//   journey   Start Journey -> End Journey / 23-hour expiry   (the server)
+//   sharing   Start Journey -> End Journey                    (journeySharing)
+//
+// LOGOUT is not END JOURNEY, and it does not stop location sharing. These pin
+// the device side of that: sharing starts from a specific trip's Start Journey,
+// keeps publishing through a logout with the journey's own credential, is still
+// running when the device signs back in (no resume step), and stops only once
+// End Journey has been saved on the server.
 //
 // The project has no React renderer, so the tab and hook are not rendered.
-// Everything they decide lives in the pure modules exercised here, driven
-// through the REAL tracker, the REAL publish cycle and the REAL GPS read; only
-// the device GPS, the keystore, the clock, the network and the server's
-// journey store are substituted. The server side is covered end to end in
-// tests/api/trips/tripJourney+api.route.test.ts.
+// Everything they decide lives in the modules exercised here, driven through
+// the REAL sharing service, the REAL tracker, the REAL publish cycle and the
+// REAL GPS read; only the device GPS, the keystore, the clock, the network and
+// the server's journey store are substituted. The server side, including a
+// passenger receiving the location while the dashboard is logged out, is
+// covered end to end in tests/api/trips/tripJourney+api.route.test.ts.
+//
+// Letters refer to the lifecycle test plan (A–U).
 
 import { Trip } from '../../../src/entities/trip/model/types';
 import { fetchAssignedTrips } from '../../../src/features/driver/api/assignedTripsApi';
 import { publishBusLocation } from '../../../src/features/driver/api/busLocationApi';
-import { TripJourneyAction, TripJourneyError } from '../../../src/features/driver/api/tripJourneyApi';
+import {
+    TripJourneyAction,
+    TripJourneyError,
+    TripJourneyResult,
+} from '../../../src/features/driver/api/tripJourneyApi';
+import { createJourneySharing } from '../../../src/features/driver/services/journeySharing';
 import { AssignedTrip, AssignedTripRoute, buildAssignedTrips } from '../../../src/features/driver/utils/assignedTrips';
 import { describeBusMap } from '../../../src/features/driver/utils/busMapView';
 import {
     ActiveJourney,
     createJourneyController,
     findActiveJourney,
-    journeyTripIdFor,
     startRefusal,
     tripCardState,
-    withJourneyTrip,
 } from '../../../src/features/driver/utils/journeyControl';
-import { LIVE_DEPENDENCIES, PublishCycleDependencies } from '../../../src/features/driver/utils/locationPublishCycle';
-import { TrackingScheduler, createLocationTracker } from '../../../src/features/driver/utils/locationTracker';
-import { PhoneLocationState, initialPhoneLocationState } from '../../../src/features/driver/utils/phoneLocationState';
+import { TrackingScheduler } from '../../../src/features/driver/utils/locationTracker';
 import { describeTrackingCard } from '../../../src/features/driver/utils/trackingCardView';
-import { BusSession } from '../../../src/shared/utils/busSession';
+import { BusSession, clearBusSession, getBusSession, saveBusSession } from '../../../src/shared/utils/busSession';
+import { JourneySharingGrant } from '../../../src/shared/utils/journeySharingStorage';
 import { TripJourneyRecord } from '../../../src/shared/utils/journeyLifecycle';
 import { PhoneLocation, getCurrentPhoneLocation } from '../../../src/shared/utils/phoneLocation';
 
@@ -58,10 +63,17 @@ jest.mock('expo-location', () => ({
     Accuracy: { Lowest: 1, Low: 2, Balanced: 3, High: 4, Highest: 5, BestForNavigation: 6 },
 }));
 
+// The device keystore, shared by the bus sign-in and the sharing grant.
+const mockDeviceStore = new Map<string, string>();
+
 jest.mock('expo-secure-store', () => ({
-    setItemAsync: jest.fn(),
-    getItemAsync: jest.fn(async () => null),
-    deleteItemAsync: jest.fn(),
+    setItemAsync: async (key: string, value: string) => {
+        mockDeviceStore.set(key, value);
+    },
+    getItemAsync: async (key: string) => mockDeviceStore.get(key) ?? null,
+    deleteItemAsync: async (key: string) => {
+        mockDeviceStore.delete(key);
+    },
 }));
 
 jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
@@ -121,11 +133,21 @@ const SESSION: BusSession = { busId: BUS_ID, numberPlate: 'NB-8899', token: 'ses
 
 /** When the server stamps a start in these tests. */
 const SERVER_NOW = new Date();
+const HOUR = 3600_000;
+
+/** The dashboard sign-in's credential, and the journey's narrower one. */
+const SIGN_IN_TOKEN = SESSION.token;
+const sharingTokenFor = (tripId: string) => `sharing-credential-${tripId}`;
 
 // ------------------------------------------------------------------
-// A journey harness: the real tracker and the real publish cycle, wired the
-// way useTripJourney wires them, over an in-memory journey store standing in
-// for POST /api/trips/:tripId/journey.
+// A device harness: the real sharing service (real tracker, real publish
+// cycle) and the real journey controller, wired the way useTripJourney wires
+// them, over an in-memory journey store standing in for
+// POST /api/trips/:tripId/journey.
+//
+// The service is created once per "app process" and survives sign-ins, as the
+// app-level singleton does. `signIn()` builds a fresh controller — a new
+// dashboard — against the same service and server.
 // ------------------------------------------------------------------
 function manualScheduler() {
     const timers: { run: () => void; cleared: boolean }[] = [];
@@ -153,32 +175,39 @@ function manualScheduler() {
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function createHarness(base: Partial<PublishCycleDependencies> = {}, server = new Map<string, TripJourneyRecord>()) {
-    const published: { busId: string; tripId?: string }[] = [];
+interface Published {
+    busId: string;
+    tripId?: string;
+    credential: string;
+}
+
+function createDevice(options: { readLocation?: () => Promise<PhoneLocation>; server?: Map<string, TripJourneyRecord> } = {}) {
+    const server = options.server ?? new Map<string, TripJourneyRecord>();
+    const published: Published[] = [];
     const persistCalls: { tripId: string; action: TripJourneyAction }[] = [];
-    let active: ActiveJourney | null = null;
-    let state: PhoneLocationState = initialPhoneLocationState;
+    const storedGrants = new Map<string, JourneySharingGrant>();
     let failNext: Error | null = null;
 
-    const baseDependencies: PublishCycleDependencies = {
-        readLocation: async () => READING,
-        readSession: async () => SESSION,
-        publish: async (busId, _location, _credential, tripId) => {
-            published.push({ busId, tripId });
-        },
-        ...base,
-    };
-
     const clock = manualScheduler();
-    const tracker = createLocationTracker({
-        update: (reduce) => {
-            state = reduce(state);
+
+    const sharing = createJourneySharing({
+        storage: {
+            save: async (grant) => {
+                storedGrants.set('grant', grant);
+            },
+            get: async () => storedGrants.get('grant') ?? null,
+            clear: async () => {
+                storedGrants.delete('grant');
+            },
         },
-        dependencies: withJourneyTrip(baseDependencies, () => active),
+        readLocation: options.readLocation ?? (async () => READING),
+        publish: async (busId, _location, credential, tripId) => {
+            published.push({ busId, tripId, credential });
+        },
         scheduler: clock.scheduler,
     });
 
-    const persist = async (tripId: string, action: TripJourneyAction): Promise<TripJourneyRecord> => {
+    const persist = async (tripId: string, action: TripJourneyAction): Promise<TripJourneyResult> => {
         persistCalls.push({ tripId, action });
 
         if (failNext) {
@@ -187,50 +216,78 @@ function createHarness(base: Partial<PublishCycleDependencies> = {}, server = ne
             throw error;
         }
 
-        const record: TripJourneyRecord =
-            action === 'START'
-                ? { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID }
-                : { ...(server.get(tripId) as TripJourneyRecord), status: 'ENDED', endedAt: new Date().toISOString() };
+        const current = server.get(tripId);
 
-        server.set(tripId, record);
-        return record;
+        if (action === 'SHARE') {
+            if (current?.status !== 'STARTED') throw new TripJourneyError('JOURNEY_NOT_STARTED', 'Not running.');
+            return { journey: current, sharingToken: sharingTokenFor(tripId) };
+        }
+
+        if (action === 'START') {
+            // Idempotent, like the real route: a running journey keeps its start.
+            const record: TripJourneyRecord =
+                current?.status === 'STARTED'
+                    ? current
+                    : { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID };
+            server.set(tripId, record);
+            return { journey: record, sharingToken: sharingTokenFor(tripId) };
+        }
+
+        const ended: TripJourneyRecord = { ...(current as TripJourneyRecord), status: 'ENDED', endedAt: new Date().toISOString() };
+        server.set(tripId, ended);
+        return { journey: ended };
     };
 
-    const controller = createJourneyController({
-        tracking: { startTracking: tracker.start, stopTracking: tracker.stop },
-        getBusId: () => BUS_ID,
-        getActiveJourney: () => active,
-        setActiveJourney: (next) => {
-            active = next;
-        },
-        persist,
-    });
+    /** A dashboard: what signing in to Trip Control builds. */
+    function signIn() {
+        let active: ActiveJourney | null = findActiveJourney(tripsWithServerState(server));
+
+        const controller = createJourneyController({
+            sharing,
+            getBusId: () => BUS_ID,
+            getActiveJourney: () => active,
+            setActiveJourney: (next) => {
+                active = next;
+            },
+            persist,
+        });
+
+        return { controller, active: () => active };
+    }
 
     return {
-        tracker,
-        controller,
+        sharing,
+        server,
         clock,
         published,
         persistCalls,
-        server,
-        active: () => active,
-        /** What a fresh sign-in does: reads the persisted records. */
-        adopt: (journey: ActiveJourney | null) => {
-            active = journey;
-        },
+        storedGrants,
+        signIn,
         failNextWith: (error: Error) => {
             failNext = error;
         },
-        state: () => state,
+        /** One tracking interval passing, and the resulting publish settling. */
+        async tick() {
+            clock.advance();
+            await flush();
+        },
     };
 }
 
-/** The bus's trips as a device reads them after signing in again. */
-const tripsWithServerState = (server: Map<string, TripJourneyRecord>) =>
-    assigned().map((t) => ({ ...t, journey: server.get(t.tripId) ?? null }));
+/** The bus's trips as a device reads them from the server when it signs in. */
+function tripsWithServerState(server: Map<string, TripJourneyRecord>) {
+    return assigned().map((t) => ({ ...t, journey: server.get(t.tripId) ?? null }));
+}
 
-beforeEach(() => {
+/** What Device Dashboard logout does: clears the sign-in and leaves the screen. */
+async function logout() {
+    await clearBusSession();
+}
+
+beforeEach(async () => {
     jest.clearAllMocks();
+    mockDeviceStore.clear();
+    await saveBusSession(SESSION);
 });
 
 // ==================================================================
@@ -313,144 +370,241 @@ describe('Assigned trips', () => {
 // Start Journey
 // ==================================================================
 describe('Start Journey', () => {
-    it('persists the exact trip that was pressed, with the start time the server stamped', async () => {
-        const harness = createHarness();
+    it('A. persists the exact trip that was pressed, with the start time the server stamped', async () => {
+        const device = createDevice();
+        const dashboard = device.signIn();
 
-        const result = await harness.controller.startJourney(tripNamed('TRIP-00008'));
+        const result = await dashboard.controller.startJourney(tripNamed('TRIP-00008'));
 
         expect(result.ok).toBe(true);
-        expect(harness.persistCalls).toEqual([{ tripId: 'TRIP-00008', action: 'START' }]);
-        expect(harness.active()?.trip.tripId).toBe('TRIP-00008');
-        expect(harness.active()?.startedAt).toBe(SERVER_NOW.toISOString());
-        expect(harness.active()?.expiresAt).toBe(new Date(SERVER_NOW.getTime() + 23 * 3600_000).toISOString());
-        harness.tracker.stop();
+        expect(device.persistCalls).toEqual([{ tripId: 'TRIP-00008', action: 'START' }]);
+        expect(device.server.get('TRIP-00008')?.startedAt).toBe(SERVER_NOW.toISOString());
+        expect(dashboard.active()?.trip.tripId).toBe('TRIP-00008');
+        await device.sharing.stop();
     });
 
-    it('starts the existing location sharing once saved, publishing immediately for that trip', async () => {
-        const harness = createHarness();
+    it('B. starts location sharing for that trip, publishing immediately with the journey credential', async () => {
+        const device = createDevice();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
 
-        expect(harness.tracker.isTracking()).toBe(true);
-        expect(harness.published).toEqual([{ busId: BUS_ID, tripId: 'TRIP-00004' }]);
-        harness.tracker.stop();
+        expect(device.sharing.isSharing('TRIP-00004')).toBe(true);
+        expect(device.published).toEqual([
+            { busId: BUS_ID, tripId: 'TRIP-00004', credential: sharingTokenFor('TRIP-00004') },
+        ]);
+        expect(device.storedGrants.get('grant')).toMatchObject({ tripId: 'TRIP-00004', busId: BUS_ID });
+        await device.sharing.stop();
     });
 
     it('keeps naming the same trip on every later publish', async () => {
-        const harness = createHarness();
+        const device = createDevice();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
-        harness.clock.advance();
-        await flush();
-        harness.clock.advance();
-        await flush();
+        await device.tick();
+        await device.tick();
 
-        expect(harness.published.map((p) => p.tripId)).toEqual(['TRIP-00004', 'TRIP-00004', 'TRIP-00004']);
-        harness.tracker.stop();
+        expect(device.published.map((p) => p.tripId)).toEqual(['TRIP-00004', 'TRIP-00004', 'TRIP-00004']);
+        await device.sharing.stop();
     });
 
     it('starts nothing when the server does not save the start', async () => {
-        const harness = createHarness();
-        harness.failNextWith(new TripJourneyError('NETWORK_UNAVAILABLE', 'Network error.'));
+        const device = createDevice();
+        const dashboard = device.signIn();
+        device.failNextWith(new TripJourneyError('NETWORK_UNAVAILABLE', 'Network error.'));
 
-        const result = await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        const result = await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
 
         expect(result).toEqual({ ok: false, reason: 'FAILED', message: 'Network error.' });
-        expect(harness.tracker.isTracking()).toBe(false);
-        expect(harness.active()).toBeNull();
-        expect(harness.published).toEqual([]);
+        expect(device.sharing.getSnapshot().isTracking).toBe(false);
+        expect(dashboard.active()).toBeNull();
+        expect(device.published).toEqual([]);
     });
 
     it('refuses a trip that is not assigned to this bus, without asking the server', async () => {
-        const harness = createHarness();
+        const device = createDevice();
         const foreign = { ...tripNamed('TRIP-00004'), tripId: 'TRIP-99999', busId: OTHER_BUS };
 
-        expect(await harness.controller.startJourney(foreign)).toEqual({ ok: false, reason: 'TRIP_NOT_ASSIGNED' });
-        expect(harness.persistCalls).toEqual([]);
-        expect(harness.tracker.isTracking()).toBe(false);
+        expect(await device.signIn().controller.startJourney(foreign)).toEqual({ ok: false, reason: 'TRIP_NOT_ASSIGNED' });
+        expect(device.persistCalls).toEqual([]);
     });
 });
 
 // ==================================================================
-// Signing out and back in
+// Logout is not End Journey, and does not stop sharing
 // ==================================================================
-describe('The device session does not end the journey', () => {
-    it('A. signing out stops this device sharing, and never ends the journey', async () => {
-        const harness = createHarness();
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
-        await flush();
+describe('Logging out', () => {
+    it('C. leaves the journey running on the server', async () => {
+        const device = createDevice();
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
 
-        harness.controller.releaseDevice();
-        harness.clock.advance();
-        await flush();
+        await logout();
 
-        expect(harness.tracker.isTracking()).toBe(false);
-        expect(harness.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'START' }]);
-        expect(harness.server.get('TRIP-00004')?.status).toBe('STARTED');
-        expect(harness.published).toHaveLength(1);
+        expect(await getBusSession()).toBeNull();
+        expect(device.server.get('TRIP-00004')?.status).toBe('STARTED');
+        expect(device.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'START' }]);
+        await device.sharing.stop();
     });
 
-    it('B. signing in again finds the running journey, with its original start time', async () => {
-        const firstSignIn = createHarness();
-        await firstSignIn.controller.startJourney(tripNamed('TRIP-00004'));
-        firstSignIn.controller.releaseDevice();
+    it('D. does not stop location sharing — it keeps publishing after the sign-in is gone', async () => {
+        const device = createDevice();
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
+        await flush();
 
-        const running = findActiveJourney(tripsWithServerState(firstSignIn.server));
+        await logout();
+        await device.tick();
+        await device.tick();
 
-        expect(running?.trip.tripId).toBe('TRIP-00004');
-        expect(running?.startedAt).toBe(SERVER_NOW.toISOString());
-        expect(tripsWithServerState(firstSignIn.server).map((t) => tripCardState(t, running))).toEqual([
+        expect(device.sharing.isSharing('TRIP-00004')).toBe(true);
+        expect(device.published).toHaveLength(3);
+        // Every publish after logout still names the trip, with the journey's
+        // credential — the deleted sign-in token is never needed.
+        expect(device.published.every((p) => p.tripId === 'TRIP-00004')).toBe(true);
+        expect(device.published.every((p) => p.credential === sharingTokenFor('TRIP-00004'))).toBe(true);
+        expect(device.published.some((p) => p.credential === SIGN_IN_TOKEN)).toBe(false);
+        await device.sharing.stop();
+    });
+
+    it('keeps the sharing grant, so a closed and reopened app carries on sharing', async () => {
+        const device = createDevice();
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
+        await logout();
+
+        // A new app process on the same phone: a fresh service, same keystore.
+        const stored = device.storedGrants.get('grant') as JourneySharingGrant;
+        const published: Published[] = [];
+        const relaunched = createJourneySharing({
+            storage: { save: async () => {}, get: async () => stored, clear: async () => {} },
+            readLocation: async () => READING,
+            publish: async (busId, _l, credential, tripId) => {
+                published.push({ busId, tripId, credential });
+            },
+            scheduler: manualScheduler().scheduler,
+        });
+
+        expect(await relaunched.restore()).toBe(true);
+        await flush();
+
+        expect(relaunched.isSharing('TRIP-00004')).toBe(true);
+        expect(published).toEqual([{ busId: BUS_ID, tripId: 'TRIP-00004', credential: sharingTokenFor('TRIP-00004') }]);
+        await relaunched.stop();
+        await device.sharing.stop();
+    });
+
+    it('S. stops sharing by itself once the journey window has passed', async () => {
+        const expired: JourneySharingGrant = {
+            tripId: 'TRIP-00004',
+            busId: BUS_ID,
+            token: sharingTokenFor('TRIP-00004'),
+            expiresAt: new Date(Date.now() - 1000).toISOString(),
+        };
+        const cleared = jest.fn(async () => {});
+        const service = createJourneySharing({
+            storage: { save: async () => {}, get: async () => expired, clear: cleared },
+            readLocation: async () => READING,
+            publish: jest.fn(),
+            scheduler: manualScheduler().scheduler,
+        });
+
+        expect(await service.restore()).toBe(false);
+        expect(service.getSnapshot().isTracking).toBe(false);
+        expect(cleared).toHaveBeenCalled();
+    });
+});
+
+// ==================================================================
+// Signing in again
+// ==================================================================
+describe('Signing in again', () => {
+    async function startThenLogout() {
+        const device = createDevice();
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
+        await flush();
+        await logout();
+        await saveBusSession(SESSION); // Device Login again
+        return device;
+    }
+
+    it('F. finds the active journey from the server', async () => {
+        const device = await startThenLogout();
+
+        const dashboard = device.signIn();
+
+        expect(dashboard.active()?.trip.tripId).toBe('TRIP-00004');
+        expect(tripsWithServerState(device.server).map((t) => tripCardState(t, dashboard.active()))).toEqual([
             'ACTIVE',
             'BLOCKED',
             'BLOCKED',
         ]);
+        await device.sharing.stop();
     });
 
-    it('B. sharing can be resumed for it, still naming the same trip', async () => {
-        const firstSignIn = createHarness();
-        await firstSignIn.controller.startJourney(tripNamed('TRIP-00004'));
-        firstSignIn.controller.releaseDevice();
+    it('G. finds sharing still running — attaching is a no-op, with no resume step', async () => {
+        const device = await startThenLogout();
+        const dashboard = device.signIn();
 
-        const secondSignIn = createHarness({}, firstSignIn.server);
-        secondSignIn.adopt(findActiveJourney(tripsWithServerState(firstSignIn.server)));
+        expect(device.sharing.isSharing('TRIP-00004')).toBe(true);
+        expect(await dashboard.controller.attachSharing()).toBe(true);
+        expect(device.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'START' }]);
+        await device.sharing.stop();
+    });
 
-        expect(secondSignIn.tracker.isTracking()).toBe(false); // never on by itself
-        expect(secondSignIn.controller.resumeSharing()).toBe(true);
+    it('H. keeps the original startedAt', async () => {
+        const device = await startThenLogout();
+
+        expect(device.signIn().active()?.startedAt).toBe(SERVER_NOW.toISOString());
+        await device.sharing.stop();
+    });
+
+    it('I. creates no second journey, and refuses to start another trip', async () => {
+        const device = await startThenLogout();
+        const dashboard = device.signIn();
+
+        expect(await dashboard.controller.startJourney(tripNamed('TRIP-00004'))).toEqual({
+            ok: false,
+            reason: 'ANOTHER_JOURNEY_ACTIVE',
+        });
+        expect(await dashboard.controller.startJourney(tripNamed('TRIP-00008'))).toMatchObject({
+            ok: false,
+            reason: 'ANOTHER_JOURNEY_ACTIVE',
+        });
+        expect(device.persistCalls.filter((c) => c.action === 'START')).toHaveLength(1);
+        await device.sharing.stop();
+    });
+
+    it('a different phone signing in as the bus attaches sharing for the running journey', async () => {
+        const firstPhone = await startThenLogout();
+        await firstPhone.sharing.stop(); // e.g. that phone was switched off
+
+        const secondPhone = createDevice({ server: firstPhone.server });
+        const dashboard = secondPhone.signIn();
+
+        expect(await dashboard.controller.attachSharing()).toBe(true);
         await flush();
 
-        expect(secondSignIn.published).toEqual([{ busId: BUS_ID, tripId: 'TRIP-00004' }]);
-        expect(secondSignIn.persistCalls).toEqual([]); // resuming does not restart it
-        secondSignIn.tracker.stop();
+        expect(secondPhone.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'SHARE' }]);
+        expect(secondPhone.published).toEqual([
+            { busId: BUS_ID, tripId: 'TRIP-00004', credential: sharingTokenFor('TRIP-00004') },
+        ]);
+        expect(secondPhone.server.get('TRIP-00004')?.startedAt).toBe(SERVER_NOW.toISOString());
+        await secondPhone.sharing.stop();
     });
 
-    it('C. after signing in again, End Journey ends it on the server', async () => {
-        const firstSignIn = createHarness();
-        await firstSignIn.controller.startJourney(tripNamed('TRIP-00004'));
-        firstSignIn.controller.releaseDevice();
-
-        const secondSignIn = createHarness({}, firstSignIn.server);
-        secondSignIn.adopt(findActiveJourney(tripsWithServerState(firstSignIn.server)));
-
-        expect(await secondSignIn.controller.endJourney()).toEqual({ ok: true });
-        expect(secondSignIn.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'END' }]);
-        expect(findActiveJourney(tripsWithServerState(secondSignIn.server))).toBeNull();
-    });
-
-    it('does not offer to resume when nothing is running', () => {
-        expect(createHarness().controller.resumeSharing()).toBe(false);
-    });
-
-    it('H. does not find a journey whose 23 hours have passed, or one that was ended', () => {
+    it('S. does not find a journey whose 23 hours have passed, or one that was ended', () => {
         const expired: TripJourneyRecord = {
             status: 'STARTED',
-            startedAt: new Date(Date.now() - 23 * 3600_000).toISOString(),
+            startedAt: new Date(Date.now() - 23 * HOUR).toISOString(),
             endedAt: null,
             busId: BUS_ID,
         };
-        const ended: TripJourneyRecord = { ...expired, startedAt: SERVER_NOW.toISOString(), status: 'ENDED', endedAt: SERVER_NOW.toISOString() };
+        const ended: TripJourneyRecord = {
+            ...expired,
+            startedAt: SERVER_NOW.toISOString(),
+            status: 'ENDED',
+            endedAt: SERVER_NOW.toISOString(),
+        };
 
         expect(findActiveJourney([{ ...tripNamed('TRIP-00004'), journey: expired }])).toBeNull();
         expect(findActiveJourney([{ ...tripNamed('TRIP-00004'), journey: ended }])).toBeNull();
@@ -461,51 +615,70 @@ describe('The device session does not end the journey', () => {
 // End Journey
 // ==================================================================
 describe('End Journey', () => {
-    it('saves the end, then stops the existing location sharing', async () => {
-        const harness = createHarness();
+    it('J. saves the end on the server first, then stops location sharing', async () => {
+        const device = createDevice();
+        const dashboard = device.signIn();
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
+        await flush();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
-        await flush();
-        const result = await harness.controller.endJourney();
-        harness.clock.advance();
-        await flush();
+        const result = await dashboard.controller.endJourney();
+        await device.tick();
 
         expect(result).toEqual({ ok: true });
-        expect(harness.persistCalls.map((c) => c.action)).toEqual(['START', 'END']);
-        expect(harness.server.get('TRIP-00004')?.status).toBe('ENDED');
-        expect(harness.tracker.isTracking()).toBe(false);
-        expect(harness.active()).toBeNull();
-        expect(harness.published).toHaveLength(1);
+        expect(device.persistCalls.map((c) => c.action)).toEqual(['START', 'END']);
+        expect(device.server.get('TRIP-00004')?.status).toBe('ENDED');
+        expect(device.sharing.getSnapshot().isTracking).toBe(false);
+        expect(device.storedGrants.size).toBe(0);
+        expect(dashboard.active()).toBeNull();
+        expect(device.published).toHaveLength(1);
     });
 
-    it('keeps the journey running, and sharing, when the end cannot be saved', async () => {
-        const harness = createHarness();
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
-        harness.failNextWith(new TripJourneyError('NETWORK_UNAVAILABLE', 'Network error.'));
+    it('J. works the same after logging out and back in', async () => {
+        const device = createDevice();
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
+        await logout();
+        await saveBusSession(SESSION);
 
-        const result = await harness.controller.endJourney();
+        expect(await device.signIn().controller.endJourney()).toEqual({ ok: true });
+        expect(device.sharing.getSnapshot().isTracking).toBe(false);
+        expect(device.server.get('TRIP-00004')?.status).toBe('ENDED');
+    });
+
+    it('K. when the end cannot be saved, the journey stays active and sharing continues', async () => {
+        const device = createDevice();
+        const dashboard = device.signIn();
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
+        await flush();
+        device.failNextWith(new TripJourneyError('NETWORK_UNAVAILABLE', 'Network error.'));
+
+        const result = await dashboard.controller.endJourney();
+        await device.tick();
 
         expect(result).toEqual({ ok: false, reason: 'FAILED', message: 'Network error.' });
-        expect(harness.tracker.isTracking()).toBe(true);
-        expect(harness.active()?.trip.tripId).toBe('TRIP-00004');
-        harness.tracker.stop();
+        expect(device.server.get('TRIP-00004')?.status).toBe('STARTED');
+        expect(dashboard.active()?.trip.tripId).toBe('TRIP-00004');
+        expect(device.sharing.isSharing('TRIP-00004')).toBe(true);
+        expect(device.published).toHaveLength(2);
+        expect(device.storedGrants.get('grant')).toBeDefined();
+        await device.sharing.stop();
     });
 
     it('catches up when the server says the journey is no longer running', async () => {
-        const harness = createHarness();
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
-        harness.failNextWith(new TripJourneyError('JOURNEY_NOT_STARTED', 'This journey has not been started.'));
+        const device = createDevice();
+        const dashboard = device.signIn();
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
+        device.failNextWith(new TripJourneyError('JOURNEY_NOT_STARTED', 'This journey has not been started.'));
 
-        expect(await harness.controller.endJourney()).toEqual({ ok: true });
-        expect(harness.tracker.isTracking()).toBe(false);
-        expect(harness.active()).toBeNull();
+        expect(await dashboard.controller.endJourney()).toEqual({ ok: true });
+        expect(device.sharing.getSnapshot().isTracking).toBe(false);
+        expect(dashboard.active()).toBeNull();
     });
 
     it('does nothing when nothing is running', async () => {
-        const harness = createHarness();
+        const device = createDevice();
 
-        expect(await harness.controller.endJourney()).toEqual({ ok: false, reason: 'NO_ACTIVE_JOURNEY' });
-        expect(harness.persistCalls).toEqual([]);
+        expect(await device.signIn().controller.endJourney()).toEqual({ ok: false, reason: 'NO_ACTIVE_JOURNEY' });
+        expect(device.persistCalls).toEqual([]);
     });
 });
 
@@ -514,87 +687,73 @@ describe('End Journey', () => {
 // ==================================================================
 describe('One journey at a time', () => {
     it('refuses a second trip while one is running, without asking the server', async () => {
-        const harness = createHarness();
+        const device = createDevice();
+        const dashboard = device.signIn();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
-        const second = await harness.controller.startJourney(tripNamed('TRIP-00008'));
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
+        const second = await dashboard.controller.startJourney(tripNamed('TRIP-00008'));
         await flush();
 
         expect(second).toEqual({ ok: false, reason: 'ANOTHER_JOURNEY_ACTIVE' });
-        expect(harness.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'START' }]);
-        expect(harness.published.map((p) => p.tripId)).toEqual(['TRIP-00004']);
-        harness.tracker.stop();
+        expect(device.persistCalls).toEqual([{ tripId: 'TRIP-00004', action: 'START' }]);
+        expect(device.published.map((p) => p.tripId)).toEqual(['TRIP-00004']);
+        await device.sharing.stop();
     });
 
     it('reports the server refusing because another trip of this bus is running', async () => {
-        const harness = createHarness();
-        harness.failNextWith(new TripJourneyError('ANOTHER_JOURNEY_ACTIVE', 'This bus is already running another trip.'));
+        const device = createDevice();
+        device.failNextWith(new TripJourneyError('ANOTHER_JOURNEY_ACTIVE', 'This bus is already running another trip.'));
 
-        const result = await harness.controller.startJourney(tripNamed('TRIP-00008'));
+        const result = await device.signIn().controller.startJourney(tripNamed('TRIP-00008'));
 
         expect(result).toMatchObject({ ok: false, reason: 'ANOTHER_JOURNEY_ACTIVE' });
-        expect(harness.tracker.isTracking()).toBe(false);
+        expect(device.sharing.getSnapshot().isTracking).toBe(false);
     });
 
     it('ignores a double press while the first start is still being saved', async () => {
-        const harness = createHarness();
+        const device = createDevice();
+        const dashboard = device.signIn();
 
         const [first, second] = await Promise.all([
-            harness.controller.startJourney(tripNamed('TRIP-00004')),
-            harness.controller.startJourney(tripNamed('TRIP-00008')),
+            dashboard.controller.startJourney(tripNamed('TRIP-00004')),
+            dashboard.controller.startJourney(tripNamed('TRIP-00008')),
         ]);
 
         expect(first.ok).toBe(true);
         expect(second).toEqual({ ok: false, reason: 'IN_PROGRESS' });
-        expect(harness.persistCalls).toHaveLength(1);
-        harness.tracker.stop();
-    });
-
-    it('marks the running trip active and blocks every other card', async () => {
-        const harness = createHarness();
-
-        await harness.controller.startJourney(tripNamed('TRIP-00008'));
-
-        expect(assigned().map((t) => [t.tripId, tripCardState(t, harness.active())])).toEqual([
-            ['TRIP-00004', 'BLOCKED'],
-            ['TRIP-00008', 'ACTIVE'],
-            ['TRIP-00011', 'BLOCKED'],
-        ]);
-        harness.tracker.stop();
+        expect(device.persistCalls).toHaveLength(1);
+        await device.sharing.stop();
     });
 
     it('never restarts a running trip when its own button is pressed again', () => {
         const running = findActiveJourney([
-            { ...tripNamed('TRIP-00004'), journey: { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID } },
+            {
+                ...tripNamed('TRIP-00004'),
+                journey: { status: 'STARTED', startedAt: SERVER_NOW.toISOString(), endedAt: null, busId: BUS_ID },
+            },
         ]);
 
         expect(startRefusal(running, tripNamed('TRIP-00004'), BUS_ID)).toBe('ANOTHER_JOURNEY_ACTIVE');
     });
 
     it('starting Trip A never associates Trip B, and B only after A has ended', async () => {
-        const harness = createHarness();
+        const device = createDevice();
+        const dashboard = device.signIn();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
-        await harness.controller.endJourney();
-        await harness.controller.startJourney(tripNamed('TRIP-00008'));
+        await dashboard.controller.endJourney();
+        await dashboard.controller.startJourney(tripNamed('TRIP-00008'));
         await flush();
-        harness.clock.advance();
-        await flush();
+        await device.tick();
 
-        expect(harness.published.map((p) => p.tripId)).toEqual(['TRIP-00004', 'TRIP-00008', 'TRIP-00008']);
-        harness.tracker.stop();
-    });
-
-    it('never names a journey started on a different bus', () => {
-        const elsewhere = {
-            trip: { ...tripNamed('TRIP-00004'), busId: OTHER_BUS },
-            startedAt: SERVER_NOW.toISOString(),
-            expiresAt: SERVER_NOW.toISOString(),
-        };
-
-        expect(journeyTripIdFor(elsewhere, BUS_ID)).toBeUndefined();
-        expect(journeyTripIdFor(null, BUS_ID)).toBeUndefined();
+        expect(device.published.map((p) => p.tripId)).toEqual(['TRIP-00004', 'TRIP-00008', 'TRIP-00008']);
+        expect(device.published.map((p) => p.credential)).toEqual([
+            sharingTokenFor('TRIP-00004'),
+            sharingTokenFor('TRIP-00008'),
+            sharingTokenFor('TRIP-00008'),
+        ]);
+        await device.sharing.stop();
     });
 });
 
@@ -602,32 +761,26 @@ describe('One journey at a time', () => {
 // The existing permission flow and live map
 // ==================================================================
 describe('Existing location flow, reused', () => {
-    it('uses the existing GPS read and session unchanged', () => {
-        const wrapped = withJourneyTrip(LIVE_DEPENDENCIES, () => null);
-
-        expect(wrapped.readLocation).toBe(LIVE_DEPENDENCIES.readLocation);
-        expect(wrapped.readLocation).toBe(getCurrentPhoneLocation);
-        expect(wrapped.readSession).toBe(LIVE_DEPENDENCIES.readSession);
-    });
-
     it('asks for location permission the existing way, and publishes nothing when refused', async () => {
         mockRequestPermissions.mockResolvedValue({ granted: false, canAskAgain: false, status: 'denied' });
-        const harness = createHarness({ readLocation: getCurrentPhoneLocation });
+        const device = createDevice({ readLocation: getCurrentPhoneLocation });
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
 
         expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
-        expect(harness.published).toEqual([]);
-        expect(harness.state().status).toBe('PERMISSION_DENIED');
+        expect(device.published).toEqual([]);
 
-        // The journey is started regardless; the card points at the fix and
-        // still lets the journey end.
-        expect(harness.server.get('TRIP-00004')?.status).toBe('STARTED');
-        const view = describeTrackingCard(harness.state(), harness.tracker.isTracking());
+        // The journey is started regardless; the card shows the real problem
+        // and its fix, and never claims sharing is working.
+        const { state, isTracking } = device.sharing.getSnapshot();
+        expect(state.status).toBe('PERMISSION_DENIED');
+        expect(device.server.get('TRIP-00004')?.status).toBe('STARTED');
+        const view = describeTrackingCard(state, isTracking);
+        expect(view.title).not.toBe('Tracking active');
         expect(view.primaryAction?.kind).toBe('OPEN_SETTINGS');
         expect(view.trackingAction).toEqual({ kind: 'STOP_TRACKING', label: 'End Journey' });
-        harness.tracker.stop();
+        await device.sharing.stop();
     });
 
     it('publishes the real fix once permission is granted', async () => {
@@ -637,23 +790,27 @@ describe('Existing location flow, reused', () => {
             coords: { latitude: READING.latitude, longitude: READING.longitude },
             timestamp: Date.parse(READING.recordedAt),
         });
-        const harness = createHarness({ readLocation: getCurrentPhoneLocation });
+        const device = createDevice({ readLocation: getCurrentPhoneLocation });
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await device.signIn().controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
 
-        expect(harness.published).toEqual([{ busId: BUS_ID, tripId: 'TRIP-00004' }]);
-        harness.tracker.stop();
+        expect(device.published.map((p) => p.tripId)).toEqual(['TRIP-00004']);
+        await device.sharing.stop();
     });
 
-    it('shows the existing live map, readings and "Tracking active" while the journey runs', async () => {
-        const harness = createHarness();
+    it('shows the existing live map, readings and "Tracking active" while the journey runs — including after logout', async () => {
+        const device = createDevice();
+        const dashboard = device.signIn();
 
-        await harness.controller.startJourney(tripNamed('TRIP-00004'));
+        await dashboard.controller.startJourney(tripNamed('TRIP-00004'));
         await flush();
+        await logout();
+        await device.tick();
 
-        const map = describeBusMap(harness.state(), harness.tracker.isTracking());
-        const card = describeTrackingCard(harness.state(), harness.tracker.isTracking());
+        const { state, isTracking } = device.sharing.getSnapshot();
+        const map = describeBusMap(state, isTracking);
+        const card = describeTrackingCard(state, isTracking);
 
         expect(map.visible).toBe(true);
         expect(map.freshness).toBe('LIVE');
@@ -661,8 +818,10 @@ describe('Existing location flow, reused', () => {
         expect(card.title).toBe('Tracking active');
         expect(card.trackingAction?.label).toBe('End Journey');
 
-        await harness.controller.endJourney();
-        expect(describeBusMap(harness.state(), harness.tracker.isTracking()).visible).toBe(false);
+        await saveBusSession(SESSION);
+        await device.signIn().controller.endJourney();
+        const after = device.sharing.getSnapshot();
+        expect(describeBusMap(after.state, after.isTracking).visible).toBe(false);
     });
 });
 

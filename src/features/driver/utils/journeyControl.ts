@@ -5,27 +5,29 @@
 // running (trips/{tripId}.journey, stamped with the actual start time). That
 // record — not this device — is what passengers are shown.
 //
-// Two lifecycles, kept apart on purpose:
+// Three lifecycles, kept apart on purpose:
+//
+//   the SIGN-IN   — Device Login to logout. Needed to start or end a journey,
+//                   and nothing else here depends on it.
 //
 //   the JOURNEY   — started by Start Journey, stopped only by End Journey or by
 //                   its window running out (journeyLifecycle). Persisted, so it
 //                   survives the device signing out, the app closing, or the
 //                   phone being swapped.
 //
-//   the SHARING   — this device's location loop (MOV-267), unchanged. It runs
-//                   while this device is signed in and sharing for the running
-//                   journey. Signing out stops the loop and nothing else.
+//   the SHARING   — the journey's location sharing (services/journeySharing):
+//                   starts with Start Journey, stops with End Journey. Logging
+//                   out does not stop it.
 //
 // Nothing here collects a position. Location sharing is the existing tracker
-// and publish cycle; this decides when they run and which trip each publish
-// names.
+// and publish cycle; this decides when it starts and stops.
 //
 // No React, like the rest of `driver/utils`, so every rule is testable.
 
+import { JourneySharingGrant } from '../../../shared/utils/journeySharingStorage';
 import { TripJourneyRecord, isJourneyActive, journeyExpiresAt } from '../../../shared/utils/journeyLifecycle';
-import { PublishCycleDependencies } from './locationPublishCycle';
 import { AssignedTrip } from './assignedTrips';
-import type { TripJourneyAction } from '../api/tripJourneyApi';
+import type { TripJourneyAction, TripJourneyResult } from '../api/tripJourneyApi';
 
 /** The trip whose journey is running, as this device knows it. */
 export interface ActiveJourney {
@@ -38,7 +40,9 @@ export interface ActiveJourney {
 
 function toActiveJourney(trip: AssignedTrip, record: TripJourneyRecord): ActiveJourney | null {
     const expiresAt = journeyExpiresAt(record);
-    return expiresAt ? { trip: { ...trip, journey: record }, startedAt: record.startedAt, expiresAt: expiresAt.toISOString() } : null;
+    return expiresAt
+        ? { trip: { ...trip, journey: record }, startedAt: record.startedAt, expiresAt: expiresAt.toISOString() }
+        : null;
 }
 
 /**
@@ -99,49 +103,33 @@ export function startRefusal(
     return null;
 }
 
-/**
- * The trip a publish should name, or undefined for none.
- *
- * Only a journey on the same bus the reading is being published as counts.
- */
-export function journeyTripIdFor(journey: ActiveJourney | null, busId: string): string | undefined {
-    return journey && journey.trip.busId === busId ? journey.trip.tripId : undefined;
+/** The journey's location sharing, as services/journeySharing exposes it. */
+export interface JourneySharingControls {
+    start: (grant: JourneySharingGrant) => Promise<void>;
+    stop: () => Promise<void>;
+    isSharing: (tripId: string) => boolean;
 }
 
-/**
- * The existing publish dependencies, with each publish naming the running trip.
- *
- * Reading the position and the session are passed through untouched, so the
- * permission prompt, the GPS read and the endpoint are exactly the ones used
- * before. The journey is read at the moment of each publish.
- */
-export function withJourneyTrip(
-    base: PublishCycleDependencies,
-    getJourney: () => ActiveJourney | null
-): PublishCycleDependencies {
-    return {
-        readLocation: base.readLocation,
-        readSession: base.readSession,
-        publish: (busId, location, sessionCredential) =>
-            base.publish(busId, location, sessionCredential, journeyTripIdFor(getJourney(), busId)),
-    };
-}
-
-/** The tracking loop's controls, as `usePhoneLocationTracking` exposes them. */
-export interface JourneyTrackingControls {
-    startTracking: () => void;
-    stopTracking: () => void;
+/** The sharing grant a server answer carries for a running journey, or null. */
+export function sharingGrantFor(journey: ActiveJourney, result: TripJourneyResult): JourneySharingGrant | null {
+    return result.sharingToken
+        ? {
+            tripId: journey.trip.tripId,
+            busId: journey.trip.busId,
+            token: result.sharingToken,
+            expiresAt: journey.expiresAt,
+        }
+        : null;
 }
 
 export interface JourneyControllerOptions {
-    tracking: JourneyTrackingControls;
+    sharing: JourneySharingControls;
     /** The bus this device is signed in as. */
     getBusId: () => string | null | undefined;
     getActiveJourney: () => ActiveJourney | null;
-    /** Called synchronously, so the very next publish sees the change. */
     setActiveJourney: (journey: ActiveJourney | null) => void;
-    /** Records a start or end on the server; resolves with the stored record. */
-    persist: (tripId: string, action: TripJourneyAction) => Promise<TripJourneyRecord>;
+    /** Records a start, end or share on the server; resolves with its answer. */
+    persist: (tripId: string, action: TripJourneyAction) => Promise<TripJourneyResult>;
     /** Told about every record the server confirms, to keep the trip list current. */
     onPersisted?: (tripId: string, record: TripJourneyRecord) => void;
 }
@@ -149,15 +137,15 @@ export interface JourneyControllerOptions {
 export interface JourneyController {
     /** Persists the start, then begins sharing for that trip. */
     startJourney: (trip: AssignedTrip) => Promise<StartJourneyResult>;
-    /** Persists the end, then stops sharing. */
+    /** Persists the end; only once the server confirms it, stops sharing. */
     endJourney: () => Promise<EndJourneyResult>;
-    /** Shares location again for the running journey, e.g. after signing back in. */
-    resumeSharing: () => boolean;
     /**
-     * Stops this device's sharing WITHOUT ending the journey — for signing out
-     * or switching bus. The journey stays running for passengers.
+     * Makes sure the running journey is being shared from this device. A no-op
+     * when it already is — the usual case after logging back in, since logging
+     * out never stopped it. Otherwise (another phone, or cleared storage) it
+     * fetches the running journey's grant; it never starts or restarts one.
      */
-    releaseDevice: () => void;
+    attachSharing: () => Promise<boolean>;
 }
 
 function codeOf(error: unknown): string | undefined {
@@ -183,18 +171,18 @@ export function createJourneyController(options: JourneyControllerOptions): Jour
             inFlight = true;
 
             try {
-                const record = await options.persist(trip.tripId, 'START');
-                const journey = toActiveJourney(trip, record);
+                const result = await options.persist(trip.tripId, 'START');
+                const journey = toActiveJourney(trip, result.journey);
 
                 if (!journey) {
                     return { ok: false, reason: 'FAILED', message: 'The server did not confirm the start time.' };
                 }
 
-                // The trip is set BEFORE sharing begins, so the very first
-                // publish — sent immediately — already names it.
                 options.setActiveJourney(journey);
-                options.onPersisted?.(trip.tripId, record);
-                options.tracking.startTracking();
+                options.onPersisted?.(trip.tripId, result.journey);
+
+                const grant = sharingGrantFor(journey, result);
+                if (grant) await options.sharing.start(grant);
 
                 return { ok: true, journey };
             } catch (error) {
@@ -214,37 +202,52 @@ export function createJourneyController(options: JourneyControllerOptions): Jour
             inFlight = true;
 
             try {
-                const record = await options.persist(active.trip.tripId, 'END');
+                const result = await options.persist(active.trip.tripId, 'END');
 
-                options.tracking.stopTracking();
+                // Only now that the server has recorded the end.
+                await options.sharing.stop();
                 options.setActiveJourney(null);
-                options.onPersisted?.(active.trip.tripId, record);
+                options.onPersisted?.(active.trip.tripId, result.journey);
 
                 return { ok: true };
             } catch (error) {
                 if (codeOf(error) === 'JOURNEY_NOT_STARTED') {
                     // Nothing is running on the server, so there is nothing to
                     // end: the device simply catches up.
-                    options.tracking.stopTracking();
+                    await options.sharing.stop();
                     options.setActiveJourney(null);
                     return { ok: true };
                 }
 
-                // Still running for passengers, so sharing carries on too.
+                // The journey is still running, so sharing carries on too.
                 return { ok: false, reason: 'FAILED', message: messageOf(error) };
             } finally {
                 inFlight = false;
             }
         },
 
-        resumeSharing() {
-            if (!options.getActiveJourney()) return false;
-            options.tracking.startTracking();
-            return true;
-        },
+        async attachSharing() {
+            const active = options.getActiveJourney();
 
-        releaseDevice() {
-            options.tracking.stopTracking();
+            if (!active) return false;
+            if (options.sharing.isSharing(active.trip.tripId)) return true;
+            if (inFlight) return false;
+
+            inFlight = true;
+
+            try {
+                const result = await options.persist(active.trip.tripId, 'SHARE');
+                const grant = sharingGrantFor(active, result);
+
+                if (!grant) return false;
+
+                await options.sharing.start(grant);
+                return true;
+            } catch {
+                return false;
+            } finally {
+                inFlight = false;
+            }
         },
     };
 }

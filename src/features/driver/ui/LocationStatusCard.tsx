@@ -17,6 +17,9 @@ import { describeTrackingCard } from '../utils/trackingCardView';
 import { BusLocationMap } from './BusLocationMap';
 import { PhoneLocationTracking } from './usePhoneLocationTracking';
 
+/** The parts of a tracking loop this card reads. */
+export type LocationStatusSource = Pick<PhoneLocationTracking, 'state' | 'isTracking' | 'publishOnce'>;
+
 /**
  * How tall the map sits inside the card.
  *
@@ -27,8 +30,8 @@ import { PhoneLocationTracking } from './usePhoneLocationTracking';
 const MAP_HEIGHT = 190;
 
 interface LocationStatusCardProps {
-    /** The running journey's tracking loop, owned by the dashboard (MOV-294). */
-    tracking: PhoneLocationTracking;
+    /** The running journey's sharing loop (services/journeySharing, MOV-294). */
+    tracking: LocationStatusSource;
     /** Ends the journey — stops sharing and releases the trip. */
     onEndJourney: () => void;
 }

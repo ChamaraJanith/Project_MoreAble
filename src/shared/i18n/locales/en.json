@@ -218,7 +218,7 @@
     "noCompletedTitle": "No completed journeys",
     "noCompletedDesc": "Journeys you have boarded will appear here after they finish.",
     "viewBookings": "VIEW MY BOOKINGS",
-    "inProgress": "In Progress",
+    "ongoingStatus": "Ongoing",
     "completedStatus": "Completed",
     "viewJourney": "View Journey",
     "viewDetails": "View Details",

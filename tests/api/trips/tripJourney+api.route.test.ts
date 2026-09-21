@@ -8,16 +8,23 @@
 //
 // The point it pins: the journey is a property of the TRIP, persisted with the
 // actual start time. Nothing a device does to its own session ends it — only
-// End Journey, or 23 hours passing from the actual start.
+// End Journey, or 23 hours passing from the actual start. And its location
+// sharing follows the journey, not the sign-in: after the dashboard logs out
+// the bus keeps reporting with the journey's own credential, and passengers
+// keep receiving it.
 //
 // Letters refer to the lifecycle test plan (A–J).
 
 import { GET as getHistory } from '../../../app/api/booking/history+api';
+import { PUT as locationRoute } from '../../../app/api/buses/[busId]/location+api';
 import { POST as journeyRoute } from '../../../app/api/trips/[tripId]/journey+api';
 import { GET as getTrips } from '../../../app/api/trips/index+api';
 import { groupActivities } from '../../../src/features/activities/utils/activityStatus';
 import { buildAssignedTrips } from '../../../src/features/driver/utils/assignedTrips';
+import { createJourneySharing } from '../../../src/features/driver/services/journeySharing';
 import { findActiveJourney } from '../../../src/features/driver/utils/journeyControl';
+import { TrackingScheduler } from '../../../src/features/driver/utils/locationTracker';
+import { clearBusSession, saveBusSession } from '../../../src/shared/utils/busSession';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 
 const mockGetAdminDb = jest.fn();
@@ -27,10 +34,45 @@ jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
     getAdminDb: () => mockGetAdminDb(),
 }));
 
-// Only the token check is stubbed; header parsing and the 401 helper run for real.
+// Only token signing and checking are stubbed (`jose` is ESM-only under this
+// project's Jest); header parsing, the 401 helper and every rule run for real.
+// A journey-sharing token is modelled with exactly the claims the real one
+// carries: this bus, this trip, and the narrow scope.
 jest.mock('../../../src/shared/config/jwt', () => ({
+    JOURNEY_SHARING_SCOPE: 'JOURNEY_LOCATION',
+    generateJourneySharingToken: async (busId: string, tripId: string) => `sharing:${busId}:${tripId}`,
     verifyToken: (token: string) => mockVerifyToken(token),
 }));
+
+jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: '' }));
+
+jest.mock('expo-location', () => ({
+    requestForegroundPermissionsAsync: jest.fn(),
+    hasServicesEnabledAsync: jest.fn(),
+    getCurrentPositionAsync: jest.fn(),
+    Accuracy: { High: 4 },
+}));
+
+const mockDeviceStore = new Map<string, string>();
+
+jest.mock('expo-secure-store', () => ({
+    setItemAsync: async (key: string, value: string) => {
+        mockDeviceStore.set(key, value);
+    },
+    getItemAsync: async (key: string) => mockDeviceStore.get(key) ?? null,
+    deleteItemAsync: async (key: string) => {
+        mockDeviceStore.delete(key);
+    },
+}));
+
+jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+
+/** The token check: login sessions from TOKENS, sharing tokens by their claims. */
+async function verify(token: string) {
+    const sharing = /^sharing:([^:]+):(.+)$/.exec(token);
+    if (sharing) return { role: 'BUS', busId: sharing[1], tripId: sharing[2], scope: 'JOURNEY_LOCATION' };
+    return TOKENS[token] ?? null;
+}
 
 // ------------------------------------------------------------------
 // Fixtures: route 177 is run by BUS-A (two turns) and BUS-B (one).
@@ -107,12 +149,15 @@ beforeEach(() => {
             booking('BK-B', PASSENGER_B, 'TRIP-B', 'BUS-B'),
             booking('BK-C', PASSENGER_C, 'TRIP-A2', 'BUS-A'),
         ],
+        // The location route only accepts positions for buses that exist.
+        buses: [{ busId: 'BUS-A' }, { busId: 'BUS-B' }],
         vehicleLocations: [],
         users: [],
     });
 
     mockGetAdminDb.mockReset().mockReturnValue(db);
-    mockVerifyToken.mockReset().mockImplementation(async (token: string) => TOKENS[token] ?? null);
+    mockVerifyToken.mockReset().mockImplementation(verify);
+    mockDeviceStore.clear();
 });
 
 afterEach(() => {
@@ -121,7 +166,7 @@ afterEach(() => {
 
 const at = (msFromStart: number) => jest.setSystemTime(new Date(START_8_35_PM.getTime() + msFromStart));
 
-async function journey(tripId: string, action: 'START' | 'END', token?: string) {
+async function journey(tripId: string, action: 'START' | 'END' | 'SHARE', token?: string) {
     const response = await journeyRoute(
         new Request(`http://localhost/api/trips/${tripId}/journey`, {
             method: 'POST',
@@ -134,6 +179,15 @@ async function journey(tripId: string, action: 'START' | 'END', token?: string) 
         { tripId }
     );
     return { status: response.status, body: await response.json() };
+}
+
+/** What the passenger's Activities receives about their bus's location. */
+async function liveSharingFor(passengerId: string, bookingId: string) {
+    const response = await getHistory(
+        new Request(`http://localhost/api/booking/history?passengerId=${passengerId}&include=liveSharing`)
+    );
+    const { bookings } = await response.json();
+    return bookings.find((b: any) => b.bookingId === bookingId)?.liveSharing;
 }
 
 /** What Activities shows a passenger right now. */
@@ -338,5 +392,112 @@ describe('J. Callers that do not ask are unchanged', () => {
         const { bookings } = await response.json();
 
         expect(bookings.every((b: any) => !('activeJourney' in b) && !('liveSharing' in b))).toBe(true);
+    });
+});
+
+// ==================================================================
+describe('The journey location-sharing credential', () => {
+    it('is issued with Start Journey, for exactly this bus and trip', async () => {
+        const { body } = await journey('TRIP-A', 'START', 'bus-a-session');
+
+        expect(body.sharingToken).toBe('sharing:BUS-A:TRIP-A');
+    });
+
+    it('I. SHARE hands a signed-in device the running journey without creating or restarting it', async () => {
+        await journey('TRIP-A', 'START', 'bus-a-session');
+        at(4 * HOUR);
+
+        const { status, body } = await journey('TRIP-A', 'SHARE', 'bus-a-session');
+
+        expect(status).toBe(200);
+        expect(body.sharingToken).toBe('sharing:BUS-A:TRIP-A');
+        expect(body.journey.startedAt).toBe(START_8_35_PM.toISOString());
+        expect((await storedTrip('TRIP-A')).journey.startedAt).toBe(START_8_35_PM.toISOString());
+    });
+
+    it('SHARE is refused when the journey is not running, and never starts one', async () => {
+        const { status, body } = await journey('TRIP-A', 'SHARE', 'bus-a-session');
+
+        expect(status).toBe(409);
+        expect(body.code).toBe('JOURNEY_NOT_STARTED');
+        expect((await storedTrip('TRIP-A')).journey).toBeUndefined();
+    });
+
+    it('cannot start, end or share a journey — it only reports location', async () => {
+        const { body } = await journey('TRIP-A', 'START', 'bus-a-session');
+        const sharingToken = body.sharingToken;
+
+        expect((await journey('TRIP-A', 'END', sharingToken)).status).toBe(403);
+        expect((await journey('TRIP-A2', 'START', sharingToken)).status).toBe(403);
+        expect((await journey('TRIP-A', 'SHARE', sharingToken)).status).toBe(403);
+        expect((await storedTrip('TRIP-A')).journey.status).toBe('STARTED');
+    });
+
+    it('is not issued once the journey has ended', async () => {
+        await journey('TRIP-A', 'START', 'bus-a-session');
+
+        const { body } = await journey('TRIP-A', 'END', 'bus-a-session');
+
+        expect(body.sharingToken).toBeUndefined();
+    });
+});
+
+// ==================================================================
+describe('E. Passengers keep receiving the location while the dashboard is logged out', () => {
+    it('Start Journey, log out, and the bus position still reaches the passenger', async () => {
+        // The real publisher talks to the real location route.
+        global.fetch = jest.fn(async (url: string, init: any) =>
+            locationRoute(new Request(`http://localhost${url}`, init), {
+                params: { busId: String(url).split('/')[3] },
+            })
+        ) as unknown as typeof fetch;
+
+        const timers: (() => void)[] = [];
+        const scheduler: TrackingScheduler = {
+            setTimer: (run) => {
+                timers.push(run);
+                return run as any;
+            },
+            clearTimer: () => {},
+        };
+        const flush = () => new Promise((resolve) => setImmediate(resolve));
+        let fix = { latitude: 6.9147, longitude: 79.9728, recordedAt: new Date().toISOString() };
+
+        // The bus signs in and presses Start Journey.
+        await saveBusSession({ busId: 'BUS-A', numberPlate: 'NB-8899', token: 'bus-a-session' });
+        const { body } = await journey('TRIP-A', 'START', 'bus-a-session');
+        const sharing = createJourneySharing({
+            readLocation: async () => fix,
+            scheduler,
+        });
+        await sharing.start({ tripId: 'TRIP-A', busId: 'BUS-A', token: body.sharingToken, expiresAt: body.expiresAt });
+        await flush();
+
+        expect(await liveSharingFor(PASSENGER_A, 'BK-A')).toMatchObject({ available: true, recordedAt: fix.recordedAt });
+
+        // Device Dashboard logout: the sign-in is gone.
+        await clearBusSession();
+
+        // The next interval: the bus has moved, and reports it anyway.
+        at(30 * 1000);
+        fix = { latitude: 6.9102, longitude: 79.9411, recordedAt: new Date().toISOString() };
+        timers.splice(0).forEach((run) => run());
+        await flush();
+
+        expect(sharing.isSharing('TRIP-A')).toBe(true);
+        expect(await liveSharingFor(PASSENGER_A, 'BK-A')).toMatchObject({ available: true, recordedAt: fix.recordedAt });
+        expect((await db.collection('vehicleLocations').doc('BUS-A').get()).data()).toMatchObject({
+            latitude: 6.9102,
+            longitude: 79.9411,
+        });
+        expect(await ongoingFor(PASSENGER_A)).toEqual(['BK-A']);
+
+        // Only End Journey stops it — which needs a sign-in again.
+        await saveBusSession({ busId: 'BUS-A', numberPlate: 'NB-8899', token: 'bus-a-session' });
+        await journey('TRIP-A', 'END', 'bus-a-session');
+        await sharing.stop();
+
+        expect(sharing.getSnapshot().isTracking).toBe(false);
+        expect(await ongoingFor(PASSENGER_A)).toEqual([]);
     });
 });

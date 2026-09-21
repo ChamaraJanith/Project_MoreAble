@@ -6,6 +6,7 @@ import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 import { useAuthStore } from '../src/shared/store/authStore';
 import { usePreferencesStore } from '../src/shared/store/preferencesStore';
 import { usePushNotifications } from '../src/features/notifications/hooks/usePushNotifications';
+import { journeySharing } from '../src/features/driver/services/journeySharing';
 import '../src/shared/i18n'; // Import i18n config
 
 // Keep native splash screen visible while loading JS
@@ -24,6 +25,10 @@ export default function RootLayout() {
     // Hydrate auth state and preferences from secure storage
     hydrate();
     hydratePreferences();
+
+    // A bus journey started before the app was closed keeps sharing its
+    // location, whoever is signed in (MOV-294). No-op on any other phone.
+    journeySharing.restore().catch(() => {});
 
     // 3 seconds timer for splash screen
     const timer = setTimeout(() => {

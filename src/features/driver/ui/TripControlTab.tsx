@@ -9,7 +9,7 @@ import { LocationStatusCard } from './LocationStatusCard';
 import { TripJourney } from './useTripJourney';
 
 interface TripControlTabProps {
-    /** The bus's trips, running journey and tracking loop, held by the dashboard. */
+    /** The bus's trips, running journey and its location sharing. */
     journey: TripJourney;
 }
 
@@ -49,10 +49,10 @@ function stopsLabel(trip: AssignedTrip): string {
  * its Start Journey button, which records the start on the server and begins
  * the existing location sharing for that trip.
  *
- * A started journey belongs to the trip, not to this sign-in: it is still shown
- * as running after the device signs out and back in, from any device signed in
- * as this bus. Sharing on THIS device can then be resumed, and End Journey is
- * always available for it.
+ * A started journey belongs to the trip, not to this sign-in: logging out ends
+ * the sign-in only. The journey keeps running and its location sharing keeps
+ * going, and signing back in simply shows it again with End Journey — End
+ * Journey is the only thing that stops sharing.
  *
  * Only one trip runs at a time: while one is active, every other card's start
  * is disabled.
@@ -60,8 +60,7 @@ function stopsLabel(trip: AssignedTrip): string {
 export function TripControlTab({ journey }: TripControlTabProps) {
     const [notice, setNotice] = useState('');
 
-    const { trips, loading, refreshing, error, reload, busy, tracking, startJourney, endJourney, resumeSharing } =
-        journey;
+    const { trips, loading, refreshing, error, reload, busy, sharing, startJourney, endJourney } = journey;
     const active = journey.journey;
 
     const handleStart = useCallback(
@@ -82,11 +81,6 @@ export function TripControlTab({ journey }: TripControlTabProps) {
             );
         }
     }, [endJourney]);
-
-    const handleResume = useCallback(() => {
-        setNotice('');
-        resumeSharing();
-    }, [resumeSharing]);
 
     return (
         <ScrollView
@@ -120,14 +114,10 @@ export function TripControlTab({ journey }: TripControlTabProps) {
                     <Text style={styles.sectionLabel}>Active journey</Text>
                     <View style={styles.activeSummary}>
                         <TripSummary trip={active.trip} />
-                        <JourneyTimes journey={active} />
+                        <JourneyStarted journey={active} />
                     </View>
 
-                    {tracking.isTracking ? (
-                        <LocationStatusCard tracking={tracking} onEndJourney={handleEnd} />
-                    ) : (
-                        <SharingOffCard busy={busy} onResume={handleResume} onEnd={handleEnd} />
-                    )}
+                    <LocationStatusCard tracking={sharing} onEndJourney={handleEnd} />
                 </>
             )}
 
@@ -171,63 +161,14 @@ export function TripControlTab({ journey }: TripControlTabProps) {
     );
 }
 
-/** When the running journey started, and when it stops counting if not ended. */
-function JourneyTimes({ journey }: { journey: ActiveJourney }) {
+/** When the running journey actually started. */
+function JourneyStarted({ journey }: { journey: ActiveJourney }) {
     return (
-        <View style={styles.journeyTimes} accessible>
+        <View style={styles.journeyTimes}>
             <View style={styles.activePillInline}>
                 <Ionicons name="navigate" size={14} color="#047857" />
                 <Text style={styles.activePillText}>Journey started at {formatClock(journey.startedAt)}</Text>
             </View>
-            <Text style={styles.turnText}>
-                Shown to booked passengers until {formatClock(journey.expiresAt)} unless you end it.
-            </Text>
-        </View>
-    );
-}
-
-/**
- * The journey is running but this device is not sharing — typically after
- * signing back in. Sharing is turned on deliberately, never by itself, so a
- * sign-in never sets off a permission prompt on its own.
- */
-function SharingOffCard({ busy, onResume, onEnd }: { busy: boolean; onResume: () => void; onEnd: () => void }) {
-    return (
-        <View style={styles.card}>
-            <View style={styles.sharingOffRow}>
-                <Ionicons name="location-outline" size={20} color="#B45309" />
-                <Text style={styles.sharingOffTitle}>Location sharing is off on this device</Text>
-            </View>
-            <Text style={styles.mutedTextLeft}>
-                This journey is still running for passengers. Resume sharing so they can see where the bus is.
-            </Text>
-
-            <TouchableOpacity
-                style={styles.startButton}
-                onPress={onResume}
-                accessibilityRole="button"
-                accessibilityLabel="Resume location sharing"
-                accessibilityHint="Starts sending this bus location for the running journey"
-            >
-                <Ionicons name="play" size={16} color="#FFFFFF" />
-                <Text style={styles.startButtonText}>Resume location sharing</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-                style={styles.endButton}
-                onPress={onEnd}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel="End Journey"
-                accessibilityHint="Ends this trip for passengers"
-                accessibilityState={{ disabled: busy }}
-            >
-                {busy ? (
-                    <ActivityIndicator size="small" color="#0066CC" />
-                ) : (
-                    <Text style={styles.endButtonText}>End Journey</Text>
-                )}
-            </TouchableOpacity>
         </View>
     );
 }
@@ -441,22 +382,6 @@ const styles = StyleSheet.create({
     startButtonTextDisabled: {
         color: '#64748B',
     },
-    endButton: {
-        minHeight: 52,
-        borderRadius: 14,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 24,
-        marginTop: 10,
-        backgroundColor: '#FFFFFF',
-        borderWidth: 2,
-        borderColor: '#0066CC',
-    },
-    endButtonText: {
-        color: '#0066CC',
-        fontSize: 16,
-        fontWeight: '700',
-    },
     blockedHint: {
         fontSize: 13,
         color: '#64748B',
@@ -488,23 +413,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '800',
         color: '#065F46',
-    },
-    sharingOffRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    sharingOffTitle: {
-        flex: 1,
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#92400E',
-    },
-    mutedTextLeft: {
-        fontSize: 14,
-        color: '#5A6E7F',
-        lineHeight: 20,
-        marginTop: 6,
     },
     center: {
         padding: 30,

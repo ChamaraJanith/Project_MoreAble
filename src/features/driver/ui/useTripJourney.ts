@@ -1,25 +1,24 @@
-// The bus's trips and running journey, held for the whole Transit Console
-// (MOV-294).
+// The bus's trips and running journey, for the Transit Console (MOV-294).
 //
 // The running journey is read from the server — each assigned trip carries its
 // persisted Start/End Journey record — so it is the same whichever device, or
-// whichever sign-in, is looking. This device only adds its own location
-// sharing on top.
+// whichever sign-in, is looking.
 //
-// Held by the dashboard screen rather than by the Trip Control tab. Tabs mount
-// and unmount as the driver switches between them, and the tracking loop stops
-// on unmount — held inside the tab, scanning a ticket in the Passengers tab
-// would silently stop sharing.
+// Location sharing is NOT owned here. It belongs to the journey and lives in
+// services/journeySharing for the life of the app, so this screen unmounting
+// on logout cannot stop it. This hook only reads that service's state for the
+// live card, and — when the dashboard finds a running journey this device is
+// not sharing (another phone, cleared storage) — attaches it once.
 //
-// Signing out, or a different bus signing in, stops this device's sharing and
-// nothing more. It never ends the journey: only End Journey, or the journey's
-// window running out, does that.
+// Logging out therefore changes nothing here but the sign-in: the journey stays
+// running and sharing carries on. Only End Journey, or the journey's window
+// running out, stops either.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBusSession } from '../../../shared/utils/busSession';
-import { TripJourneyRecord } from '../../../shared/utils/journeyLifecycle';
 import { fetchAssignedTrips } from '../api/assignedTripsApi';
-import { TripJourneyAction, TripJourneyError, updateTripJourney } from '../api/tripJourneyApi';
+import { TripJourneyAction, TripJourneyError, TripJourneyResult, updateTripJourney } from '../api/tripJourneyApi';
+import { JourneySharingSnapshot, journeySharing } from '../services/journeySharing';
 import { AssignedTrip } from '../utils/assignedTrips';
 import {
     ActiveJourney,
@@ -27,10 +26,12 @@ import {
     StartJourneyResult,
     createJourneyController,
     findActiveJourney,
-    withJourneyTrip,
 } from '../utils/journeyControl';
-import { LIVE_DEPENDENCIES } from '../utils/locationPublishCycle';
-import { PhoneLocationTracking, usePhoneLocationTracking } from './usePhoneLocationTracking';
+
+/** The sharing state the live card renders, plus its one recovery action. */
+export interface JourneySharingView extends JourneySharingSnapshot {
+    publishOnce: () => void;
+}
 
 export interface TripJourney {
     /** Every trip assigned to this bus, with its persisted journey record. */
@@ -39,34 +40,36 @@ export interface TripJourney {
     refreshing: boolean;
     error: string;
     reload: (mode: 'initial' | 'refresh') => void;
-    /** The running journey, or null. Independent of whether this device shares. */
+    /** The running journey, or null. Independent of the sign-in. */
     journey: ActiveJourney | null;
     /** A start or end is on its way to the server. */
     busy: boolean;
-    /** The existing location-sharing state, for the live card and map. */
-    tracking: PhoneLocationTracking;
+    /** The journey's location sharing, for the live card and map. */
+    sharing: JourneySharingView;
     startJourney: (trip: AssignedTrip) => Promise<StartJourneyResult>;
     endJourney: () => Promise<EndJourneyResult>;
-    resumeSharing: () => boolean;
 }
 
 /**
- * The running journey and bus as publishes and the controller read them.
+ * The running journey and bus as the controller reads them.
  *
- * Read synchronously, so a start is visible to the very first publish before
- * React has re-rendered. Only read when a button is pressed or a publish goes
- * out — never while rendering, which reads React state instead.
+ * Read synchronously when a button is pressed — never while rendering, which
+ * reads React state instead.
  */
 interface JourneyStore {
     getJourney: () => ActiveJourney | null;
     setJourney: (journey: ActiveJourney | null) => void;
     getBusId: () => string | null | undefined;
     setBusId: (busId: string | null | undefined) => void;
+    /** The journey this device last tried to attach sharing for. */
+    attemptedAttach: (tripId: string) => boolean;
+    resetAttach: () => void;
 }
 
 function createJourneyStore(): JourneyStore {
     let journey: ActiveJourney | null = null;
     let busId: string | null | undefined;
+    let attached: string | null = null;
 
     return {
         getJourney: () => journey,
@@ -77,11 +80,19 @@ function createJourneyStore(): JourneyStore {
         setBusId: (next) => {
             busId = next;
         },
+        attemptedAttach: (tripId) => {
+            if (attached === tripId) return true;
+            attached = tripId;
+            return false;
+        },
+        resetAttach: () => {
+            attached = null;
+        },
     };
 }
 
-/** Starts or ends a journey as the signed-in bus. */
-async function persistJourney(tripId: string, action: TripJourneyAction): Promise<TripJourneyRecord> {
+/** Starts, ends or shares a journey as the signed-in bus. */
+async function persistJourney(tripId: string, action: TripJourneyAction): Promise<TripJourneyResult> {
     const session = await getBusSession().catch(() => null);
 
     if (!session) {
@@ -99,6 +110,12 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
     const [busy, setBusy] = useState(false);
     const latestRequest = useRef(0);
     const [store] = useState(createJourneyStore);
+
+    const sharingSnapshot = useSyncExternalStore(
+        journeySharing.subscribe,
+        journeySharing.getSnapshot,
+        journeySharing.getSnapshot
+    );
 
     // The server's view, re-read on every render so an expired journey drops
     // out without anyone pressing anything.
@@ -142,20 +159,24 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
             if (mode === 'initial') setLoading(true);
             else setRefreshing(true);
             setError('');
+            store.resetAttach();
             request(busId);
         },
-        [busId, request]
+        [busId, request, store]
     );
 
-    // ---- Sharing ----
-    const dependencies = useMemo(() => withJourneyTrip(LIVE_DEPENDENCIES, store.getJourney), [store]);
-    const tracking = usePhoneLocationTracking({ dependencies });
-    const { startTracking, stopTracking, isTracking } = tracking;
+    // Signing in (or a different bus signing in) loads that bus's trips. It
+    // never touches location sharing.
+    useEffect(() => {
+        store.setBusId(busId);
+        if (busId) request(busId);
+    }, [store, busId, request]);
 
+    // ---- Journey actions ----
     const controller = useMemo(
         () =>
             createJourneyController({
-                tracking: { startTracking, stopTracking },
+                sharing: journeySharing,
                 getBusId: store.getBusId,
                 getActiveJourney: store.getJourney,
                 setActiveJourney: store.setJourney,
@@ -163,23 +184,20 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
                 onPersisted: (tripId, record) =>
                     setTrips((current) => current.map((t) => (t.tripId === tripId ? { ...t, journey: record } : t))),
             }),
-        [store, startTracking, stopTracking]
+        [store]
     );
 
-    // A different bus (or none — signing out) releases this device: sharing
-    // stops, the journey does not. Then the new bus's trips are loaded.
-    useEffect(() => {
-        store.setBusId(busId);
-        stopTracking();
+    // A running journey this device is not sharing — typically a different
+    // phone signing in as this bus — is attached once, with no action from the
+    // driver. After a logout and login on the same phone it is already sharing,
+    // and this does nothing.
+    const sharingTripId = sharingSnapshot.isTracking ? sharingSnapshot.tripId : null;
 
-        if (busId) request(busId);
-    }, [store, busId, stopTracking, request]);
-
-    // A journey whose window has run out is no longer running, so this device
-    // stops sharing for it.
     useEffect(() => {
-        if (!journeyTripId && isTracking) stopTracking();
-    }, [journeyTripId, isTracking, stopTracking]);
+        if (!journeyTripId || sharingTripId === journeyTripId) return;
+        if (store.attemptedAttach(journeyTripId)) return;
+        void controller.attachSharing();
+    }, [journeyTripId, sharingTripId, store, controller]);
 
     const startJourney = useCallback(
         async (trip: AssignedTrip) => {
@@ -202,6 +220,11 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
         }
     }, [controller]);
 
+    const sharing = useMemo(
+        () => ({ ...sharingSnapshot, publishOnce: journeySharing.publishOnce }),
+        [sharingSnapshot]
+    );
+
     return {
         trips,
         loading: loading && !!busId,
@@ -210,9 +233,8 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
         reload,
         journey,
         busy,
-        tracking,
+        sharing,
         startJourney,
         endJourney,
-        resumeSharing: controller.resumeSharing,
     };
 }
