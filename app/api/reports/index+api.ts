@@ -2,16 +2,17 @@ import {
     authenticateRequest,
     unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
-import {
-  isReportIssueCategory,
-  isReportStatus,
-} from '../../../src/entities/report/model/types';
+import { isReportStatus } from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import {
   ADMIN_ROLE,
   reviewErrorResponse,
   toAdminReviewReport,
 } from '../../../src/shared/server/reportAdminReview';
+import {
+  readReportContent,
+  readRequestedReportType,
+} from '../../../src/shared/server/reportContent';
 import { countCommentsByReport } from '../../../src/shared/server/reportFeedback';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
@@ -87,48 +88,49 @@ export async function POST(request: Request) {
 
     // --------------------------------
     // Read request body
+    //
+    // A body that is not JSON, or not an object, is a malformed request — a
+    // 400 — rather than a fault in this route.
     // --------------------------------
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return Response.json(
+        {
+          success: false,
+          message: 'Invalid request body.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
 
     // `photoUrls` are the Cloudinary URLs the app uploaded to before
     // submitting. No image data reaches this route, and no device uri reaches
     // Firestore — see normalizeReportPhotoUrls.
-    const {
-      issueCategory,
-      description,
-      busId,
-      routeId,
-      photoUrls,
-    } = body;
-
-    // --------------------------------
-    // Validate required fields
-    // --------------------------------
-    if (!issueCategory || !description) {
-      return Response.json(
-        {
-          success: false,
-          message: 'Issue category and description are required.',
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
-      );
-    }
-
-    // --------------------------------
-    // Validate issue category
     //
-    // Checked against the entity model's list, which is the same list the
-    // picker is built from — so a category can never be offered on screen and
-    // refused here, or the reverse.
+    // `status`, `passengerId`, `reportId` and every review field are
+    // deliberately never read: a new report is always PENDING, filed by the
+    // session's passenger, whatever the body claims.
+    const { busId, routeId, photoUrls } = body;
+
     // --------------------------------
-    if (!isReportIssueCategory(issueCategory)) {
+    // Validate the report type and what the report says (MOV-301)
+    //
+    // An ISSUE report (the default when no `type` is sent) needs an issue
+    // category; POSITIVE feedback needs a positive feedback category. Both
+    // need a description. The rules live in shared/server/reportContent so an
+    // edit through PUT /api/reports/[reportId] applies exactly the same ones.
+    // --------------------------------
+    const typeCheck = readRequestedReportType(body);
+
+    if (!typeCheck.ok) {
       return Response.json(
         {
           success: false,
-          message: 'Invalid issue category.',
+          message: typeCheck.message,
         },
         {
           status: 400,
@@ -137,17 +139,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // --------------------------------
-    // Validate description
-    // --------------------------------
-    if (
-      typeof description !== 'string' ||
-      !description.trim()
-    ) {
+    const reportType = typeCheck.value;
+
+    const contentCheck = readReportContent(body, reportType);
+
+    if (!contentCheck.ok) {
       return Response.json(
         {
           success: false,
-          message: 'Description cannot be empty.',
+          message: contentCheck.message,
         },
         {
           status: 400,
@@ -156,7 +156,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanDescription = description.trim();
+    // ISSUE: { issueCategory, description }, stored exactly as before.
+    // POSITIVE: { type: 'POSITIVE', category, description }.
+    const reportContent = contentCheck.value;
 
     // --------------------------------
     // Validate photo evidence
@@ -274,9 +276,8 @@ export async function POST(request: Request) {
       // It is NOT accepted from request body.
       passengerId: user.passengerId,
 
-      issueCategory,
-
-      description: cleanDescription,
+      // The type (POSITIVE only), the category and the trimmed description.
+      ...reportContent,
 
       // Present only when the passenger actually selected one, so a report
       // filed without a bus or route carries no empty keys at all — each
@@ -308,7 +309,10 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: true,
-        message: 'Accessibility report submitted successfully.',
+        message:
+          reportType === 'POSITIVE'
+            ? 'Positive accessibility feedback submitted successfully.'
+            : 'Accessibility report submitted successfully.',
         report,
       },
       {
