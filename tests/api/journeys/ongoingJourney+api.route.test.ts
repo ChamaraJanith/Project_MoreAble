@@ -93,7 +93,7 @@ function seed(overrides: Record<string, any[]> = {}) {
             booking('BK-B', PASSENGER_B, 'TRIP-00005', 'BUS-7777'),
         ],
         vehicleLocations: [
-            { id: 'BUS-8899', busId: 'BUS-8899', latitude: 6.9271, longitude: 79.8612, recordedAt: minutesAgo(1), tripId: 'TRIP-00004' },
+            { id: 'BUS-8899', busId: 'BUS-8899', latitude: 6.9271, longitude: 79.8612, recordedAt: minutesAgo(1), tripId: 'TRIP-00004', journeyStartedAt: STARTED_AT },
         ],
         buses: [{ busId: 'BUS-8899' }, { busId: 'BUS-7777' }],
         ...overrides,
@@ -381,7 +381,7 @@ describe('GET /api/journeys/ongoing — live location', () => {
         mockGetAdminDb.mockReturnValue(
             seed({
                 vehicleLocations: [
-                    { id: 'BUS-8899', busId: 'BUS-8899', latitude: 6.9, longitude: 79.9, recordedAt: minutesAgo(25), tripId: 'TRIP-00004' },
+                    { id: 'BUS-8899', busId: 'BUS-8899', latitude: 6.9, longitude: 79.9, recordedAt: minutesAgo(25), tripId: 'TRIP-00004', journeyStartedAt: STARTED_AT },
                 ],
             })
         );
@@ -421,7 +421,7 @@ describe('PUT /api/buses/:busId/location — trip stamping', () => {
 
         expect(response.status).toBe(200);
         // The signed claim wins; the body's tripId is never trusted.
-        expect(stored).toMatchObject({ busId: 'BUS-8899', tripId: 'TRIP-00004' });
+        expect(stored).toMatchObject({ busId: 'BUS-8899', tripId: 'TRIP-00004', journeyStartedAt: STARTED_AT });
     });
 
     it('stores no trip for a session that is not a journey-sharing credential', async () => {

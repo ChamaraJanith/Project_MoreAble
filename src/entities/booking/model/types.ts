@@ -186,8 +186,30 @@ export interface BookingActiveJourney {
  * scheduled times, vehicle) are the booking's own `journey` and `vehicle`
  * blocks rather than copies of them.
  */
+/**
+ * The part of a booking an ongoing journey needs (MOV-296). A fixed allow-list:
+ * no ticket QR, fare, assistance or free-text notes, and no stray fields from
+ * the stored document. The full booking stays available through the booking
+ * screens.
+ */
+export type OngoingJourneyBooking = Pick<
+  Booking,
+  | 'bookingId'
+  | 'userId'
+  | 'tripId'
+  | 'routeId'
+  | 'busId'
+  | 'seatNumber'
+  | 'pairedSeatNumber'
+  | 'status'
+  | 'boardingStatus'
+  | 'boardedAt'
+  | 'journey'
+  | 'vehicle'
+>;
+
 export interface PassengerOngoingJourney {
-  booking: Booking;
+  booking: OngoingJourneyBooking;
   /** The running Start Journey of booking.tripId. */
   activeJourney: BookingActiveJourney;
   /** The bus that started this trip's journey; null only if the record names none. */

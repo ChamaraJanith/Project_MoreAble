@@ -36,6 +36,11 @@ export interface VehicleLocation {
      * always names a trip the server started for this bus. Absent otherwise.
      */
     tripId?: string;
+    /**
+     * Which run of that trip (MOV-296): the server's startedAt of the journey
+     * that was running when the fix was stored. Set together with tripId.
+     */
+    journeyStartedAt?: string;
 }
 
 /**
