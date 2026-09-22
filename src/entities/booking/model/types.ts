@@ -156,6 +156,8 @@ export interface Booking {
   priorityAccessReason?: string | null;
   reminderSent?: boolean;
   reminderSentAt?: string;
+  destinationReminderSent?: boolean;
+  destinationReminderSentAt?: string;
   createdAt: string;
   /** Only present when requested from the booking history (MOV-294). */
   liveSharing?: BookingLiveSharing;

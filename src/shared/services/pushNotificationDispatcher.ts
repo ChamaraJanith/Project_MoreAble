@@ -291,6 +291,36 @@ export async function dispatchBoardingAlert(
 }
 
 /**
+ * Dispatch Destination Reminder Alert to Passenger
+ */
+export async function dispatchDestinationReminder(
+    userId: string,
+    data: {
+        bookingId: string;
+        destination: string;
+        remainingStops?: number;
+        estimatedArrivalTime?: string;
+    }
+): Promise<PushDeliveryResult> {
+    const stopsText = data.remainingStops ? `${data.remainingStops} stops remaining.` : '';
+    const etaText = data.estimatedArrivalTime ? ` ETA: ${data.estimatedArrivalTime}.` : '';
+
+    return sendPushNotificationToUser(userId, {
+        title: `Approaching Destination • ${data.destination} 📍`,
+        body: `You are approaching your destination: ${data.destination}. ${stopsText}${etaText}`,
+        priority: 'high',
+        channelId: 'vehicle-arrival',
+        sound: 'default',
+        data: {
+            type: 'DESTINATION_REMINDER',
+            bookingId: data.bookingId,
+            destination: data.destination,
+            route: '/(tabs)/ticket',
+        },
+    });
+}
+
+/**
  * [MOV-227 Integration] Dispatch Caregiver Journey Tracking Alert
  */
 export async function dispatchCaregiverJourneyAlert(
