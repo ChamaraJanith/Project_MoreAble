@@ -12,10 +12,10 @@ jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
 }));
 
 describe('Caregiver Live Tracking API (/api/caregiver/track)', () => {
-  const TRACKING_TOKEN = 'TRK-2026-BKG101-XYZ';
-  const BOOKING_ID = 'BKG-2026-00101';
-  const BUS_ID = 'BUS-101';
-  const PASSENGER_ID = 'PAS-2026-00001';
+  const TRACKING_TOKEN = 'test-tracking-token-101';
+  const BOOKING_ID = 'test-booking-101';
+  const BUS_ID = 'test-bus-101';
+  const PASSENGER_ID = 'test-passenger-001';
 
   beforeEach(() => {
     jest.clearAllMocks();
