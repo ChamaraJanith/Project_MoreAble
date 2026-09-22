@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
 import { withoutBusCredentials } from '../../../src/shared/server/busCredentials';
 import { validatePassword } from '../../../src/shared/utils/password';
 
@@ -560,6 +561,13 @@ export async function PUT(
     // Update Firestore
     // --------------------------------------------------
     await resolvedBus.busRef.update(updates);
+
+    // Facilities are the only bus field the accessibility score reads, so only
+    // a facilities change can add a history entry (MOV-113). Best effort: the
+    // update is already saved, and a history failure is only logged.
+    if (updates.accessibilityFacilities !== undefined) {
+      await recordAccessibilityScoreSafely(adminDb, resolvedBus.busRef.id);
+    }
 
     // --------------------------------------------------
     // Get updated bus

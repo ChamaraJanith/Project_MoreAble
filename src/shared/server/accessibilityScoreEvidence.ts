@@ -32,6 +32,15 @@ function usableBusId(value: unknown): value is string {
 }
 
 /**
+ * How a query is run. A plain read by default; the score history (MOV-113)
+ * passes `(query) => transaction.get(query)` so the evidence it records is read
+ * inside the same transaction that writes it.
+ */
+export type EvidenceQueryReader = (query: any) => Promise<any>;
+
+const readDirectly: EvidenceQueryReader = (query) => query.get();
+
+/**
  * The community and rating evidence for the bus stored at `buses/{busId}`.
  *
  * `busId` is the bus DOCUMENT id: the value a report's `busId` and a rating's
@@ -41,7 +50,8 @@ function usableBusId(value: unknown): value is string {
 export async function loadAccessibilityScoreEvidence(
     adminDb: any,
     busId: string,
-    cache?: Map<string, Promise<AccessibilityScoreEvidence>>
+    cache?: Map<string, Promise<AccessibilityScoreEvidence>>,
+    read: EvidenceQueryReader = readDirectly
 ): Promise<AccessibilityScoreEvidence> {
     if (!usableBusId(busId)) return {};
 
@@ -50,8 +60,8 @@ export async function loadAccessibilityScoreEvidence(
     if (cached) return cached;
 
     const pending = Promise.all([
-        adminDb.collection(REPORTS_COLLECTION).where('busId', '==', key).get(),
-        adminDb.collection(BUS_RATINGS_COLLECTION).where('busId', '==', key).get(),
+        read(adminDb.collection(REPORTS_COLLECTION).where('busId', '==', key)),
+        read(adminDb.collection(BUS_RATINGS_COLLECTION).where('busId', '==', key)),
     ]).then(([reportsSnap, ratingsSnap]: any[]) => ({
         community: tallyVerifiedCommunityReports(
             (reportsSnap?.docs ?? []).map((doc: any) => doc.data()),

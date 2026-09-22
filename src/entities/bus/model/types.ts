@@ -68,3 +68,46 @@ export interface Bus {
     createdAt?: unknown;
     updatedAt?: unknown;
 }
+
+/**
+ * The four values one accessibility score snapshot holds (MOV-113): the final
+ * score and the three components that produced it, exactly as MOV-111's
+ * functions returned them. The components are not rounded.
+ */
+export interface AccessibilityScoreValues {
+    accessibilityScore: number;
+    facilityScore: number;
+    communityScore: number;
+    ratingScore: number;
+}
+
+/**
+ * One entry of a bus's accessibility score history:
+ * `accessibilityScoreHistory/{busId}__{sequence, 6 digits}`.
+ *
+ * Append-only. Written only when a value differs from the bus's previous entry,
+ * so consecutive entries always differ.
+ */
+export interface AccessibilityScoreHistoryEntry extends AccessibilityScoreValues {
+    historyId: string;
+    /** The bus DOCUMENT id. */
+    busId: string;
+    /** Per bus, from 1. */
+    sequence: number;
+    /** ISO 8601 time the snapshot was calculated and stored. */
+    calculatedAt: string;
+}
+
+/**
+ * The newest history entry for one bus: `accessibilityScoreLatest/{busId}`.
+ *
+ * Exists only so the history can tell whether a new snapshot differs from the
+ * last one. It is never the current score: that is always calculated from the
+ * bus and its evidence (MOV-111).
+ */
+export interface AccessibilityScoreLatest extends AccessibilityScoreValues {
+    busId: string;
+    lastSequence: number;
+    historyId: string;
+    calculatedAt: string;
+}

@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
 import { withoutBusCredentials } from '../../../src/shared/server/busCredentials';
 import { validatePassword } from '../../../src/shared/utils/password';
 
@@ -355,6 +356,10 @@ export async function POST(request: Request) {
       .collection('buses')
       .doc(busId)
       .set(bus);
+
+    // The bus's first accessibility score history entry (MOV-113). Best
+    // effort: the bus is already saved, and a history failure is only logged.
+    await recordAccessibilityScoreSafely(adminDb, busId);
 
     // --------------------------------
     // Success response
