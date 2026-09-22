@@ -56,6 +56,35 @@ export interface BusRating {
 }
 
 /**
+ * How one bus stands with its passengers: the average of every valid stored
+ * rating of it, and how many there are (MOV-80).
+ *
+ * This is NOT the accessibility score, and the two must never be shown as one
+ * number. The score (MOV-79) blends facilities at 50%, verified community
+ * reports at 30% and ratings at 20%, and puts the rating part through a
+ * neutral-3 prior before remapping 1–5 onto 0–100 — so a bus with a single
+ * 5-star rating does not score 100, and reading its score backwards does not
+ * give 5.0. `average` here is the plain arithmetic mean, on the 1–5 scale the
+ * passenger actually chose from.
+ *
+ * `average` is null exactly when `count` is 0. There is no 0.0-star bus: a bus
+ * nobody has rated has no average, and saying "0.0" about it would be a verdict
+ * the ratings never gave.
+ *
+ * Produced server-side over `busRatings` filtered by `busId`, counting only what
+ * `readBusRating` accepts. MOV-116 owns that read; see busCommunityApi for the
+ * request the app makes for it.
+ */
+export interface BusRatingSummary {
+    /** The bus DOCUMENT id the ratings were counted for. */
+    busId: string;
+    /** Mean of the valid 1–5 ratings, unrounded; null when there are none. */
+    average: number | null;
+    /** How many valid ratings the average is over. */
+    count: number;
+}
+
+/**
  * What the Rate this bus screen shows, from GET /api/journeys/completed/rating.
  *
  * The bus is resolved on the server from the completed journey — the screen

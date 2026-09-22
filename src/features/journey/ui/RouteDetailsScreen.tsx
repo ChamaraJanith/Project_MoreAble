@@ -3,9 +3,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
+import { BusRatingSummary } from '../../../entities/rating/model/types';
+import { useAuthStore } from '../../../shared/store/authStore';
 import { setSelectedVehicle } from '../../booking/store/selectedVehicleStore';
 import { fetchSeats } from '../../booking/api/bookingApi';
-import { useSelectedJourney } from '../store/selectedRouteStore';
+import { getBusRatingSummary } from '../../reports/api/busCommunityApi';
+import { BusRatingSummaryCard } from '../../reports/ui/BusRatingSummaryView';
+import { SelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
+import {
+    goBackOrTo,
+    JOURNEY_COMMUNITY_FEEDBACK_PATH,
+    JOURNEY_PLANNER_PATH,
+    JOURNEY_RESULTS_PATH,
+} from '../utils/journeyNavigation';
 import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
 import { resolveJourneyTiming } from '../utils/journeyTiming';
@@ -53,7 +63,12 @@ export const RouteDetailsScreen = () => {
                     </Text>
                     <TouchableOpacity
                         style={styles.stateButton}
-                        onPress={() => router.back()}
+                        // Reached without a selection, which a deep link or a
+                        // reload can do — exactly the case where there may be
+                        // no results screen to pop back to. The planner is then
+                        // the only honest destination: a results screen with no
+                        // search parameters would show nothing either.
+                        onPress={() => goBackOrTo(JOURNEY_PLANNER_PATH)}
                         accessibilityRole="button"
                         accessibilityLabel="Back to results"
                     >
@@ -64,6 +79,20 @@ export const RouteDetailsScreen = () => {
         );
     }
 
+    return <RouteDetailsContent selection={selection} />;
+};
+
+/**
+ * The details themselves, for a selection that is known to exist.
+ *
+ * Split out so that every hook below runs unconditionally. The screen above
+ * returns early when there is nothing selected, and hooks placed after that
+ * return would be called on some renders and not others — the one thing React
+ * forbids, and a crash the moment the held selection is cleared while this
+ * screen is open. As its own component the empty state mounts nothing and this
+ * one always runs the same hooks in the same order.
+ */
+function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
     const { route, option, geo } = selection;
     const { trip, bus } = option;
 
@@ -103,6 +132,71 @@ export const RouteDetailsScreen = () => {
     const totalSeats = seatInfo?.totalSeats ?? bus?.seatCapacity ?? 40;
     const availableSeats = seatInfo?.availableSeats ?? bus?.seatCapacity ?? 40;
     const isFull = seatInfo?.isFull ?? (availableSeats <= 0);
+
+    // ------------------------------------------------------------------
+    // How passengers rated this bus (MOV-80).
+    //
+    // Read here rather than taken from the search response, because Route
+    // Details can also be opened with a selection made some time ago — and one
+    // bus, one request, unlike the results screen where a lookup per card would
+    // be a request per departure. `bus.passengerRating` is used as the starting
+    // value when the search already carried it, so the figure the passenger saw
+    // on the card does not blink away and come back.
+    //
+    // Failing is not an error state here: the rest of Route Details is worth
+    // reading without it, so the block says the ratings are unavailable and the
+    // screen carries on.
+    // ------------------------------------------------------------------
+    const token = useAuthStore((store) => store.token);
+    const [ratingSummary, setRatingSummary] = React.useState<BusRatingSummary | null>(
+        bus?.passengerRating ?? null
+    );
+
+    // Whether there is anything to read at all is known before the first render,
+    // so it is the initial state rather than something an effect corrects. The
+    // only state changes below happen once the request answers.
+    const canReadRatings = !!token && !!bus?.busId;
+    const [ratingState, setRatingState] = React.useState<'LOADING' | 'READY' | 'UNAVAILABLE'>(
+        canReadRatings ? 'LOADING' : 'UNAVAILABLE'
+    );
+
+    React.useEffect(() => {
+        if (!token || !bus?.busId) return;
+
+        let isMounted = true;
+
+        getBusRatingSummary(token, bus.busId).then((result) => {
+            if (!isMounted) return;
+
+            if (result.ok) {
+                setRatingSummary(result.value);
+                setRatingState('READY');
+                return;
+            }
+
+            setRatingState('UNAVAILABLE');
+        });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [token, bus?.busId]);
+
+    const handleViewCommunityFeedback = () => {
+        if (!bus?.busId) return;
+
+        // The plate and model travel as params so the feedback screen can name
+        // the bus without a second lookup. Small strings, unlike the journey
+        // object, which is why that one goes through the selection store.
+        router.push({
+            pathname: JOURNEY_COMMUNITY_FEEDBACK_PATH,
+            params: {
+                busId: bus.busId,
+                numberPlate: bus.numberPlate ?? '',
+                busModel: bus.busModel ?? '',
+            },
+        } as any);
+    };
 
     // The same passenger-journey timing the results card shows, from the same
     // function on the same data (MOV-88) — so the duration a passenger chose a
@@ -298,6 +392,20 @@ export const RouteDetailsScreen = () => {
                     )}
                 </View>
 
+                {/* ---------------- Passenger rating (MOV-80) ----------------
+                    Placed straight after the bus it is about, and kept to the
+                    average plus a way through to the full feedback — a list of
+                    reports here would bury the stops, the accessibility
+                    information and the booking action below it. */}
+                {bus ? (
+                    <BusRatingSummaryCard
+                        summary={ratingSummary}
+                        loading={ratingState === 'LOADING'}
+                        unavailable={ratingState === 'UNAVAILABLE' && !ratingSummary}
+                        onViewFeedback={handleViewCommunityFeedback}
+                    />
+                ) : null}
+
                 {/* ---------------- Stops ---------------- */}
                 <View style={styles.card}>
                     <SectionHeading icon="list-outline" title="Stops on your journey" />
@@ -365,7 +473,7 @@ export const RouteDetailsScreen = () => {
             </ScrollView>
         </View>
     );
-};
+}
 
 // ------------------------------------------------------------------
 function Header() {
@@ -373,7 +481,7 @@ function Header() {
         <View style={styles.headerRow}>
             <TouchableOpacity
                 style={styles.backButton}
-                onPress={() => router.back()}
+                onPress={() => goBackOrTo(JOURNEY_RESULTS_PATH)}
                 accessibilityRole="button"
                 accessibilityLabel="Go back"
             >

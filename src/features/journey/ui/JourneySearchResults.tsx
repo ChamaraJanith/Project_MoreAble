@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } from 'react-native';
@@ -24,6 +24,7 @@ import {
     toggleAccessibilityRequirement,
 } from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
+import { goBackOrTo, JOURNEY_PLANNER_PATH } from '../utils/journeyNavigation';
 import { toRecommendedJourneys } from '../utils/journeyRecommendations';
 import { AccessibilityFilterPanel } from './AccessibilityFilterPanel';
 import { JourneyOptionCard } from './JourneyOptionCard';
@@ -191,8 +192,15 @@ export const JourneySearchResults = () => {
 
     const handleClearRequirements = () => applyRequirements(NO_ACCESSIBILITY_REQUIREMENTS);
 
+    /**
+     * Edit search goes BACK to the planner rather than pushing a new copy of
+     * it, so the form the passenger returns to is the one they filled in — it
+     * is still mounted underneath this screen, with their origin, destination,
+     * date and time exactly as they left them. Pushing would mount a second,
+     * empty planner on top and lose the search being edited.
+     */
     const handleEditSearch = () => {
-        router.back();
+        goBackOrTo(JOURNEY_PLANNER_PATH);
     };
 
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
@@ -218,7 +226,7 @@ export const JourneySearchResults = () => {
                 <View style={styles.headerRow}>
                     <TouchableOpacity
                         style={styles.backButton}
-                        onPress={() => router.back()}
+                        onPress={() => goBackOrTo(JOURNEY_PLANNER_PATH)}
                         accessibilityRole="button"
                         accessibilityLabel="Go back"
                     >

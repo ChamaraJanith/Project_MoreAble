@@ -24,26 +24,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="journey/index"
+        // One tab, one nested stack (app/(tabs)/journey/_layout.tsx). The
+        // planner, the results, the route details and the community feedback
+        // screen used to be four sibling tab routes hidden with `href: null`,
+        // which left them with no push history — so Back fell through to the
+        // tab router and landed on Home. They are stack frames now, and only
+        // the tab entry is declared here.
+        name="journey"
         options={{
           title: 'Journey',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bus-outline" size={size} color={color} />
           ),
-        }}
-      />
-      <Tabs.Screen
-        name="journey/results"
-        options={{
-          // Reached via router.push from the Journey Planner search, not a standalone tab.
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="journey/route-details"
-        options={{
-          // Reached via "View details" on a recommended route, not a standalone tab.
-          href: null,
         }}
       />
       <Tabs.Screen
