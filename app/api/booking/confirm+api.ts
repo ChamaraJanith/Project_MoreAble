@@ -20,7 +20,7 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { tripId, seatNumber, isPrioritySeat, passengerId, origin, destination, assistanceRequested, specialRequests } = body;
+        const { tripId, seatNumber, isPrioritySeat, passengerId, origin, destination, assistanceRequested, specialRequests, receiverDetails } = body;
 
         if (!tripId || !seatNumber) {
             return Response.json(
@@ -341,6 +341,11 @@ export async function POST(request: Request) {
                 assistanceStatus,
                 assistanceUpdatedAt: now,
                 specialRequests: typeof specialRequests === 'string' ? specialRequests.trim() : '',
+                receiverDetails: receiverDetails ? {
+                    name: receiverDetails.name,
+                    phone: receiverDetails.phone,
+                    confirmed: false,
+                } : undefined,
                 reminderSent: false,
                 boardingStatus: 'NOT_BOARDED',
                 paymentStatus: 'COLLECT_CASH',

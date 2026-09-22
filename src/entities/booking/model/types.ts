@@ -167,6 +167,8 @@ export interface Booking {
   receiverDetails?: {
     name: string;
     phone: string;
+    confirmed?: boolean;
+    confirmedAt?: string;
   };
 }
 
@@ -373,6 +375,8 @@ export interface BoardingVerificationResult {
   receiverDetails?: {
     name: string;
     phone: string;
+    confirmed?: boolean;
+    confirmedAt?: string;
   };
   alreadyBoarded: boolean;
   boardedAt?: string;
