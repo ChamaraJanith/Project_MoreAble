@@ -13,7 +13,7 @@ import { RouteStopTimeline } from '../../journey/ui/RouteStopTimeline';
 import { formatLocationAge } from '../../journey/utils/liveStatus';
 import { endPassengerJourney, EndJourneyResult, OngoingJourneyRequestError } from '../api/ongoingJourneyApi';
 import { useOngoingJourneyTracking } from '../hooks/useOngoingJourneyTracking';
-import { completedJourneyDetailsHref, ongoingActivitiesHref } from '../utils/activityRoutes';
+import { busRatingHref, completedJourneyDetailsHref, ongoingActivitiesHref } from '../utils/activityRoutes';
 import { createEndJourneyAction } from '../utils/completedJourney';
 import { confirmEndJourney } from './confirmEndJourney';
 import {
@@ -82,9 +82,10 @@ export function OngoingJourneyScreen() {
 
         if (outcome.status === 'COMPLETED') {
             // Only this screen stops following the bus; the bus and everyone
-            // else on it carry on.
+            // else on it carry on. The journey is completed by now; rating the
+            // bus is an optional step after it, never part of it.
             stopTracking();
-            if (bookingId) router.replace(completedJourneyDetailsHref(bookingId));
+            if (bookingId) router.replace(busRatingHref(bookingId));
             return;
         }
 
