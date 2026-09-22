@@ -710,7 +710,7 @@ describe('QR Ticket Verification & Transit Boarding Manifest Engine (MOV-277 / M
             expect(result.fareAmount).toBe(200);
             expect(result.paymentStatus).toBe('COLLECT_CASH');
             expect(result.alreadyBoarded).toBe(false);
-            expect(result.assistanceRequested.wheelchairAssistance).toBe(true);
+            expect(result.assistanceRequested?.wheelchairAssistance).toBe(true);
         });
 
         it('should verify already-boarded passenger and flag previous boarding timestamp', () => {

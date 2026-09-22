@@ -47,22 +47,39 @@ function defined(data: DocData): DocData {
     return stored;
 }
 
-function buildQuery(docs: DocData[]): FakeQuery {
+function buildQuery(docs: DocData[], collectionDocs: DocData[] = docs): FakeQuery {
     const query: FakeQuery = {
         where: jest.fn((field: string, op: string, value: unknown) =>
-            buildQuery(docs.filter((doc) => matchesWhere(doc, field, op, value)))
+            buildQuery(docs.filter((doc) => matchesWhere(doc, field, op, value)), collectionDocs)
         ),
         orderBy: jest.fn(() => query),
         limit: jest.fn(() => query),
         select: jest.fn(() => query),
-        get: jest.fn(async () => ({
-            empty: docs.length === 0,
-            docs: docs.map((data) => ({
+        get: jest.fn(async () => {
+            const queryDocs = docs.map((data) => ({
                 id: data.id,
                 exists: true as const,
                 data: () => data,
-            })),
-        })),
+                ref: {
+                    id: data.id,
+                    set: jest.fn(async (updateData: DocData, opts?: { merge?: boolean }) => {
+                        Object.assign(data, defined(updateData));
+                    }),
+                    update: jest.fn(async (updateData: DocData) => {
+                        Object.assign(data, defined(updateData));
+                    }),
+                    delete: jest.fn(async () => {
+                        const idx = collectionDocs.findIndex((d) => d.id === data.id);
+                        if (idx !== -1) collectionDocs.splice(idx, 1);
+                    }),
+                },
+            }));
+            return {
+                empty: queryDocs.length === 0,
+                docs: queryDocs,
+                forEach: (cb: (doc: any) => void) => queryDocs.forEach(cb),
+            };
+        }),
     };
     return query;
 }
@@ -72,7 +89,7 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
         Object.entries(seed).map(([name, docs]) => [
             name,
             docs.map((doc) => ({
-                id: doc.id || doc.bookingId || doc.tripId || doc.busId || doc.routeId || doc.userId || doc.stopId,
+                id: doc.id || doc.bookingId || doc.tripId || doc.busId || doc.routeId || doc.userId || doc.passengerId || doc.stopId || doc.linkId || doc.guardianId || doc.logId,
                 ...doc,
             })),
         ])
@@ -87,12 +104,12 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
 
     const collectionFn = jest.fn((name: string) => {
         const docs = getCollectionDocs(name);
-        const query = buildQuery(docs);
+        const query = buildQuery(docs, docs);
 
         return {
             ...query,
             doc: jest.fn((id: string) => {
-                const found = docs.find((d) => d.id === id || d.bookingId === id);
+                const found = docs.find((d) => d.id === id || d.bookingId === id || d.passengerId === id || d.linkId === id || d.guardianId === id || d.busId === id);
 
                 return {
                     id,
@@ -106,7 +123,7 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
                             Object.assign(found, defined(data));
                         }
                     }),
-                    set: jest.fn(async (data: DocData) => {
+                    set: jest.fn(async (data: DocData, opts?: { merge?: boolean }) => {
                         if (found) {
                             Object.assign(found, defined(data));
                         } else {
@@ -114,7 +131,7 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
                         }
                     }),
                     delete: jest.fn(async () => {
-                        const index = docs.findIndex((d) => d.id === id);
+                        const index = docs.findIndex((d) => d.id === id || d.linkId === id);
                         if (index !== -1) docs.splice(index, 1);
                     }),
                 };
@@ -124,6 +141,18 @@ export function createFakeFirestore(seed: Record<string, DocData[]> = {}) {
 
     return {
         collection: collectionFn,
+        batch: jest.fn(() => ({
+            set: jest.fn((docRef: any, data: DocData, opts?: any) => {
+                if (docRef?.set) return docRef.set(data, opts);
+            }),
+            update: jest.fn((docRef: any, data: DocData) => {
+                if (docRef?.update) return docRef.update(data);
+            }),
+            delete: jest.fn((docRef: any) => {
+                if (docRef?.delete) return docRef.delete();
+            }),
+            commit: jest.fn(async () => {}),
+        })),
         runTransaction: jest.fn(async (callback: (transaction: any) => Promise<unknown>) => {
             const transaction = {
                 get: jest.fn((ref: any) => ref.get()),
