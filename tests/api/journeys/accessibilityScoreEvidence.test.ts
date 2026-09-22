@@ -14,6 +14,7 @@ import { POST as searchJourneys } from '../../../app/api/journeys/search+api';
 import { Bus, BusAccessibilityFacilities } from '../../../src/entities/bus/model/types';
 import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
+import { toRecommendedJourneys } from '../../../src/features/journey/utils/journeyRecommendations';
 import { geocodeLocation } from '../../../src/shared/api/locationService';
 import {
     getRouteBetweenCoordinates,
@@ -21,7 +22,11 @@ import {
 } from '../../../src/shared/api/routingService';
 import { busRatingDocumentId } from '../../../src/shared/server/busRating';
 import { loadAccessibilityScoreEvidence } from '../../../src/shared/server/accessibilityScoreEvidence';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import {
+    computeAccessibilityScore,
+    computeCommunityScore,
+    computeRatingScore,
+} from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 
 const mockGetAdminDb = jest.fn();
@@ -297,5 +302,45 @@ describe('booking', () => {
 
         expect(response.status).toBe(200);
         expect(json.accessibilityScore).toBe(73);
+    });
+});
+
+describe('recommendation', () => {
+    it('ranks by community and rating evidence when the facilities are the same', async () => {
+        // Same six facilities on both buses, so only the evidence can separate
+        // them. The poorly reviewed bus leaves first, so the departure-time
+        // tie-break would put it first if the evidence were ignored.
+        const db = createFakeFirestore({
+            routes: [route],
+            buses: [bus('BUS-GOOD', 'NB-3333', SIX_OF_EIGHT), bus('BUS-POOR', 'NB-4444', SIX_OF_EIGHT)],
+            trips: [trip('TRIP-POOR', 'BUS-POOR', '09:00'), trip('TRIP-GOOD', 'BUS-GOOD', '11:00')],
+            reports: [
+                ...repeat(5, () => report('BUS-GOOD', 'VERIFIED', true)),
+                ...repeat(5, () => report('BUS-POOR', 'VERIFIED', false)),
+            ],
+            busRatings: [
+                ...repeat(5, () => rating('BUS-GOOD', 5)),
+                ...repeat(5, () => rating('BUS-POOR', 1)),
+            ],
+        });
+
+        // BUS-GOOD: 5/10*100 + 5/10*50 = 75;  0.5*5 + 0.5*3 = 4 -> 75.
+        // BUS-POOR: 5/10*0   + 5/10*50 = 25;  0.5*1 + 0.5*3 = 2 -> 25.
+        expect(computeCommunityScore({ positiveCount: 5, issueCount: 0 })).toBe(75);
+        expect(computeRatingScore({ count: 5, total: 25 })).toBe(75);
+        expect(computeCommunityScore({ positiveCount: 0, issueCount: 5 })).toBe(25);
+        expect(computeRatingScore({ count: 5, total: 5 })).toBe(25);
+
+        const json = await search(db);
+
+        // 37.5 + 22.5 + 15 = 75, and 37.5 + 7.5 + 5 = 50 — as calculated by the
+        // search itself from the stored reports and ratings.
+        expect(searchScoreOf(json, 'TRIP-GOOD')).toBe(75);
+        expect(searchScoreOf(json, 'TRIP-POOR')).toBe(50);
+
+        const journeys = toRecommendedJourneys(json.routes);
+
+        expect(journeys.map((journey) => journey.option.trip.tripId)).toEqual(['TRIP-GOOD', 'TRIP-POOR']);
+        expect(journeys.map((journey) => journey.accessibilityScore)).toEqual([75, 50]);
     });
 });
