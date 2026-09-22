@@ -19,16 +19,21 @@ import {
     REPORT_REVIEW_ACTIONS,
 } from '../../../src/entities/report/model/types';
 import {
+    ADMIN_REPORT_TYPE_FILTERS,
+    ADMIN_REVIEW_FILTERS,
     AdminReviewReport,
     NEEDS_REVIEW_LABEL,
     REJECT_ACTION,
     REMARK_ACTION,
     REVIEW_FALLBACK_MESSAGE,
     VERIFY_ACTION,
+    adminReportTypeCounts,
+    adminReportTypeFilterLabel,
     adminReviewCardSummary,
     adminReviewCardVisibleText,
     adminReviewQueueSummary,
     adminReviewRequestPath,
+    filterReportsByType,
     canDecideReport,
     isDecidedReport,
     isSubmittableRemark,
@@ -41,6 +46,9 @@ import {
     reviewStatusOf,
     shouldReloadAfterFailure,
 } from '../../../src/features/reports/utils/reportReview';
+// The search the screen applies before the type filter — imported so the two
+// can be composed here exactly as the queue composes them.
+import { filterReportsBySearch } from '../../../src/features/reports/utils/reportSearch';
 
 const REPORT_ID = 'REP-00007';
 
@@ -311,12 +319,6 @@ describe('the review queue request', () => {
         expect(adminReviewRequestPath('ALL')).toBe('/api/reports?scope=review');
     });
 
-    it('asks the API for the flagged reports rather than filtering a wider list', () => {
-        expect(adminReviewRequestPath('FLAGGED')).toBe(
-            '/api/reports?scope=review&flagged=true'
-        );
-    });
-
     it('asks the API for the pending reports by status', () => {
         expect(adminReviewRequestPath('PENDING')).toBe(
             '/api/reports?scope=review&status=PENDING'
@@ -326,7 +328,7 @@ describe('the review queue request', () => {
     it('names one endpoint for every filter', () => {
         // Each narrowing is a parameter on the existing scope, not a second
         // listing endpoint.
-        (['ALL', 'FLAGGED', 'PENDING'] as const).forEach((filter) => {
+        (['ALL', 'PENDING'] as const).forEach((filter) => {
             expect(adminReviewRequestPath(filter).split('?')[0]).toBe('/api/reports');
             expect(adminReviewRequestPath(filter)).toContain('scope=review');
         });
@@ -480,5 +482,358 @@ describe('the test fixture', () => {
 
         expect(report.review).toBeNull();
         expect(report.requiresAdminReview).toBe(true);
+    });
+});
+
+// ==================================================================
+// The tabs
+// ==================================================================
+describe('the queue tabs', () => {
+    it('offers All, Pending and Verified, and nothing else', () => {
+        expect(ADMIN_REVIEW_FILTERS.map((tab) => tab.value)).toEqual([
+            'ALL',
+            'PENDING',
+            'VERIFIED',
+        ]);
+        expect(ADMIN_REVIEW_FILTERS.map((tab) => tab.label)).toEqual([
+            'All',
+            'Pending',
+            'Verified',
+        ]);
+    });
+
+    it('asks the API for the verified reports by status', () => {
+        // The same narrowing the Pending tab uses — a parameter on the review
+        // scope, not a second endpoint and not a filter applied afterwards.
+        expect(adminReviewRequestPath('VERIFIED')).toBe(
+            '/api/reports?scope=review&status=VERIFIED'
+        );
+    });
+
+    it('no longer offers a Needs Review tab', () => {
+        // The flag itself is untouched — it is still on the card that carries
+        // it and on the report screen. What went is the tab that narrowed the
+        // whole queue by it.
+        const values = ADMIN_REVIEW_FILTERS.map((tab) => String(tab.value));
+        const labels = ADMIN_REVIEW_FILTERS.map((tab) => tab.label);
+
+        expect(values).not.toContain('FLAGGED');
+        expect(labels).not.toContain(NEEDS_REVIEW_LABEL);
+    });
+
+    it('never asks the API for the flagged slice any more', () => {
+        // Worth asserting as code: the endpoint still accepts `flagged=true`,
+        // so nothing would break loudly if a path started sending it again.
+        ADMIN_REVIEW_FILTERS.forEach((tab) => {
+            expect(adminReviewRequestPath(tab.value)).not.toContain('flagged');
+        });
+    });
+});
+
+// ==================================================================
+// Positive feedback and issue reports
+//
+// Both come from the one reports collection, told apart by the `type` the
+// report already carries — 'POSITIVE' is feedback, anything else is an issue.
+// ==================================================================
+
+/** Positive feedback, as the review endpoint serialises it. */
+function positiveReport(overrides: Record<string, any> = {}) {
+    return apiReport({
+        type: 'POSITIVE',
+        category: 'HELPFUL_DRIVER',
+        issueCategory: undefined,
+        description: 'The driver waited while I boarded.',
+        ...overrides,
+    });
+}
+
+/** An issue report — stored with no `type` field at all, exactly as one is. */
+function issueReport(overrides: Record<string, any> = {}) {
+    return apiReport(overrides);
+}
+
+function queue(...raw: Record<string, any>[]): AdminReviewReport[] {
+    return mapAdminReviewReports(raw);
+}
+
+describe('the type filter', () => {
+    const reports = queue(
+        positiveReport({ documentId: 'POS-1', reportId: 'POS-1' }),
+        issueReport({ documentId: 'ISS-1', reportId: 'ISS-1' }),
+        positiveReport({ documentId: 'POS-2', reportId: 'POS-2' }),
+        issueReport({ documentId: 'ISS-2', reportId: 'ISS-2' })
+    );
+
+    it('offers All, Positive Feedback and Issue Reports', () => {
+        expect(ADMIN_REPORT_TYPE_FILTERS.map((option) => option.value)).toEqual([
+            'ALL',
+            'POSITIVE',
+            'ISSUE',
+        ]);
+        expect(adminReportTypeFilterLabel('POSITIVE')).toBe('Positive Feedback');
+        expect(adminReportTypeFilterLabel('ISSUE')).toBe('Issue Reports');
+        expect(adminReportTypeFilterLabel('ALL')).toBe('All');
+    });
+
+    it('shows only positive feedback when asked for it', () => {
+        expect(filterReportsByType(reports, 'POSITIVE').map((r) => r.documentId)).toEqual([
+            'POS-1',
+            'POS-2',
+        ]);
+    });
+
+    it('shows only issue reports when asked for them', () => {
+        expect(filterReportsByType(reports, 'ISSUE').map((r) => r.documentId)).toEqual([
+            'ISS-1',
+            'ISS-2',
+        ]);
+    });
+
+    it('shows both when asked for all', () => {
+        // Returns the list itself, so "All" is genuinely no narrowing.
+        expect(filterReportsByType(reports, 'ALL')).toBe(reports);
+    });
+
+    it('treats a report with no type as an issue', () => {
+        // Every report filed before positive feedback existed is stored without
+        // a `type`, and it is an accessibility issue rather than an unknown.
+        const untyped = queue(
+            apiReport({ documentId: 'OLD-1', reportId: 'OLD-1', type: undefined })
+        );
+
+        expect(filterReportsByType(untyped, 'ISSUE')).toHaveLength(1);
+        expect(filterReportsByType(untyped, 'POSITIVE')).toHaveLength(0);
+    });
+
+    it('keeps the fields the queue opens its rows by', () => {
+        // Narrowing must not widen an admin report back down to a passenger
+        // one on the way through — documentId is how a row is opened.
+        const [first] = filterReportsByType(reports, 'POSITIVE');
+
+        expect(first.documentId).toBe('POS-1');
+        expect(first.flagged).toBe(true);
+    });
+});
+
+describe('the counts above the queue', () => {
+    const reports = queue(
+        positiveReport({ documentId: 'POS-1', reportId: 'POS-1', status: 'VERIFIED' }),
+        positiveReport({ documentId: 'POS-2', reportId: 'POS-2', status: 'VERIFIED' }),
+        positiveReport({ documentId: 'POS-3', reportId: 'POS-3', status: 'PENDING' }),
+        issueReport({ documentId: 'ISS-1', reportId: 'ISS-1', status: 'VERIFIED' }),
+        issueReport({ documentId: 'ISS-2', reportId: 'ISS-2', status: 'PENDING' }),
+        issueReport({ documentId: 'ISS-3', reportId: 'ISS-3', status: 'REJECTED' }),
+        issueReport({ documentId: 'ISS-4', reportId: 'ISS-4', status: 'RESOLVED' })
+    );
+
+    it('counts the positive feedback', () => {
+        expect(adminReportTypeCounts(reports).positive).toBe(3);
+    });
+
+    it('counts the verified positive feedback', () => {
+        expect(adminReportTypeCounts(reports).verifiedPositive).toBe(2);
+    });
+
+    it('counts the issue reports', () => {
+        expect(adminReportTypeCounts(reports).issue).toBe(4);
+    });
+
+    it('counts the verified issue reports', () => {
+        expect(adminReportTypeCounts(reports).verifiedIssue).toBe(1);
+    });
+
+    it('counts only VERIFIED as verified', () => {
+        // PENDING is undecided, REJECTED was found not to hold, and REVIEWED
+        // and RESOLVED are later states rather than a finding that the report
+        // was true.
+        const counts = adminReportTypeCounts(
+            queue(
+                issueReport({ documentId: 'A', reportId: 'A', status: 'PENDING' }),
+                issueReport({ documentId: 'B', reportId: 'B', status: 'REJECTED' }),
+                issueReport({ documentId: 'C', reportId: 'C', status: 'RESOLVED' }),
+                issueReport({ documentId: 'D', reportId: 'D', status: 'REVIEWED' })
+            )
+        );
+
+        expect(counts.issue).toBe(4);
+        expect(counts.verifiedIssue).toBe(0);
+    });
+
+    it('counts a report with no stored status towards its total but not as verified', () => {
+        const counts = adminReportTypeCounts(
+            queue(positiveReport({ documentId: 'P', reportId: 'P', status: undefined }))
+        );
+
+        expect(counts.positive).toBe(1);
+        expect(counts.verifiedPositive).toBe(0);
+    });
+
+    it('accounts for every report exactly once', () => {
+        const counts = adminReportTypeCounts(reports);
+
+        expect(counts.positive + counts.issue).toBe(reports.length);
+        expect(counts.verifiedPositive).toBeLessThanOrEqual(counts.positive);
+        expect(counts.verifiedIssue).toBeLessThanOrEqual(counts.issue);
+    });
+
+    it('is all zeroes for an empty queue', () => {
+        expect(adminReportTypeCounts([])).toEqual({
+            positive: 0,
+            verifiedPositive: 0,
+            issue: 0,
+            verifiedIssue: 0,
+        });
+    });
+});
+
+// ==================================================================
+// Status tab + type filter + search, together
+//
+// The screen composes them in that order, and each has to narrow what the one
+// before it left rather than replacing it.
+// ==================================================================
+describe('narrowing the queue by more than one thing', () => {
+    const pendingPositive = positiveReport({
+        documentId: 'POS-P',
+        reportId: 'POS-P',
+        status: 'PENDING',
+        vehicle: { numberPlate: 'NB-5678' },
+    });
+    const verifiedPositive = positiveReport({
+        documentId: 'POS-V',
+        reportId: 'POS-V',
+        status: 'VERIFIED',
+        vehicle: { numberPlate: 'NA-1234' },
+    });
+    const pendingIssue = issueReport({
+        documentId: 'ISS-P',
+        reportId: 'ISS-P',
+        status: 'PENDING',
+        issueCategory: 'PRIORITY_SEAT_MISUSE',
+        description: 'Priority seat occupied for the whole trip.',
+        vehicle: { numberPlate: 'NB-5678' },
+    });
+
+    const verifiedIssue = issueReport({
+        documentId: 'ISS-V',
+        reportId: 'ISS-V',
+        status: 'VERIFIED',
+        vehicle: { numberPlate: 'NA-1234' },
+    });
+
+    const all = queue(pendingPositive, verifiedPositive, pendingIssue, verifiedIssue);
+
+    // What each status tab loads. The API answers the slice by status, so these
+    // stand in for the request the tab makes rather than re-filtering in the
+    // app — which is exactly the split the screen relies on.
+    const pendingTab = all.filter((report) => report.status === 'PENDING');
+    const verifiedTab = all.filter((report) => report.status === 'VERIFIED');
+
+    it('shows only pending positive feedback for Pending + Positive Feedback', () => {
+        expect(filterReportsByType(pendingTab, 'POSITIVE').map((r) => r.documentId)).toEqual([
+            'POS-P',
+        ]);
+    });
+
+    it('shows only pending issue reports for Pending + Issue Reports', () => {
+        expect(filterReportsByType(pendingTab, 'ISSUE').map((r) => r.documentId)).toEqual([
+            'ISS-P',
+        ]);
+    });
+
+    it('shows only verified positive feedback for Verified + Positive Feedback', () => {
+        expect(filterReportsByType(verifiedTab, 'POSITIVE').map((r) => r.documentId)).toEqual([
+            'POS-V',
+        ]);
+    });
+
+    it('shows only verified issue reports for Verified + Issue Reports', () => {
+        expect(filterReportsByType(verifiedTab, 'ISSUE').map((r) => r.documentId)).toEqual([
+            'ISS-V',
+        ]);
+    });
+
+    it('shows both kinds for Verified + All', () => {
+        expect(filterReportsByType(verifiedTab, 'ALL').map((r) => r.documentId)).toEqual([
+            'POS-V',
+            'ISS-V',
+        ]);
+    });
+
+    it('shows everything for All + All', () => {
+        expect(filterReportsByType(all, 'ALL')).toHaveLength(4);
+    });
+
+    it('never shows a pending report on the Verified tab, whatever the type filter', () => {
+        // The status narrowing is the API's, and the type filter must not widen
+        // it back — the two compose rather than replacing one another.
+        (['ALL', 'POSITIVE', 'ISSUE'] as const).forEach((type) => {
+            filterReportsByType(verifiedTab, type).forEach((report) => {
+                expect(report.status).toBe('VERIFIED');
+            });
+        });
+    });
+
+    it('combines a search with the type filter', () => {
+        // Two reports about NB-5678, narrowed to one kind at a time — the
+        // composition the screen performs: search first, then type.
+        const searched = filterReportsBySearch(all, 'NB-5678');
+
+        expect(searched).toHaveLength(2);
+        expect(filterReportsByType(searched, 'POSITIVE').map((r) => r.documentId)).toEqual([
+            'POS-P',
+        ]);
+        expect(filterReportsByType(searched, 'ISSUE').map((r) => r.documentId)).toEqual(['ISS-P']);
+    });
+
+    it('combines the tab, the search and the type filter', () => {
+        const visible = filterReportsByType(
+            filterReportsBySearch(pendingTab, 'priority seat'),
+            'ISSUE'
+        );
+
+        expect(visible.map((report) => report.documentId)).toEqual(['ISS-P']);
+    });
+
+    it('finds positive feedback by the words its own card shows', () => {
+        // The search already reads the positive category and its label, so the
+        // type filter is a narrowing rather than the only way to find feedback.
+        expect(filterReportsBySearch(all, 'helpful driver').map((r) => r.documentId)).toEqual([
+            'POS-P',
+            'POS-V',
+        ]);
+    });
+
+    it('leaves the counts describing the tab rather than the search', () => {
+        // The summary is the shape of the queue an admin narrows against, so it
+        // must not move as they type.
+        expect(adminReportTypeCounts(all).positive).toBe(2);
+        expect(adminReportTypeCounts(filterReportsBySearch(all, 'NB-5678')).positive).toBe(1);
+    });
+});
+
+// ==================================================================
+// The verification workflow, unchanged
+// ==================================================================
+describe('deciding a report after these changes', () => {
+    it('still offers Verify and Reject on a pending report of either kind', () => {
+        expect(canDecideReport(mapAdminReviewReport(issueReport({ status: 'PENDING' })))).toBe(true);
+        expect(canDecideReport(mapAdminReviewReport(positiveReport({ status: 'PENDING' })))).toBe(
+            true
+        );
+    });
+
+    it('still refuses to re-decide a report that was already decided', () => {
+        expect(canDecideReport(mapAdminReviewReport(issueReport({ status: 'VERIFIED' })))).toBe(
+            false
+        );
+        expect(isDecidedReport(mapAdminReviewReport(positiveReport({ status: 'REJECTED' })))).toBe(
+            true
+        );
+    });
+
+    it('still names the same three actions', () => {
+        expect(REPORT_REVIEW_ACTIONS).toEqual([VERIFY_ACTION, REJECT_ACTION, REMARK_ACTION]);
     });
 });

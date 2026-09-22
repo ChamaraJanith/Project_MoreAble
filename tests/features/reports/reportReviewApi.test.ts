@@ -96,12 +96,12 @@ describe('fetchReportsForReview', () => {
         expect(headers.Authorization).toBe(`Bearer ${TOKEN}`);
     });
 
-    it('asks the API for the flagged slice rather than filtering afterwards', async () => {
+    it('asks the API for the pending slice rather than filtering afterwards', async () => {
         respondWith(200, { success: true, reports: [], flaggedCount: 0 });
 
-        await fetchReportsForReview(TOKEN, 'FLAGGED');
+        await fetchReportsForReview(TOKEN, 'PENDING');
 
-        expect(sentRequest().url).toBe('/api/reports?scope=review&flagged=true');
+        expect(sentRequest().url).toBe('/api/reports?scope=review&status=PENDING');
     });
 
     it('maps every report the API returned', async () => {

@@ -26,10 +26,13 @@ import {
     ReportReviewAction,
     isReportDecided,
     reportDecisionStatus,
+    reportTypeOf,
 } from '../../../entities/report/model/types';
+import { VERIFIED_REPORT_STATUS } from '../../admin/utils/systemStatistics';
 import { formatCommentCount } from './reportFeedback';
 import { reportStatusLabel } from './reportFormat';
 import { adminReportsRequestPath } from './reportRoutes';
+import { ReportTypeFilter } from './reportSearch';
 import { ReportCardSummary, reportCardSummary } from './reportSummary';
 
 // Re-exported so a screen takes the cap from the module it reviews through
@@ -199,13 +202,21 @@ export { reportStatusLabel };
 /** Said on the card, and announced with it. One wording, in one place. */
 export const NEEDS_REVIEW_LABEL = 'Needs Review';
 
-/** Which slice of the review queue is on screen. */
-export type AdminReviewFilter = 'ALL' | 'FLAGGED' | 'PENDING';
+/**
+ * Which slice of the review queue is on screen.
+ *
+ * Two, deliberately. A third tab for the community-flagged reports used to sit
+ * between them and was removed: the flag is already on every card that carries
+ * it, and on the report itself, so a whole tab for it narrowed the queue by
+ * something an admin could already see — while hiding the reports they had
+ * actually come to decide. Nothing else changed about flagging; only the tab.
+ */
+export type AdminReviewFilter = 'ALL' | 'PENDING' | 'VERIFIED';
 
 export const ADMIN_REVIEW_FILTERS: { value: AdminReviewFilter; label: string }[] = [
     { value: 'ALL', label: 'All' },
-    { value: 'FLAGGED', label: NEEDS_REVIEW_LABEL },
     { value: 'PENDING', label: 'Pending' },
+    { value: 'VERIFIED', label: 'Verified' },
 ];
 
 /**
@@ -217,9 +228,15 @@ export const ADMIN_REVIEW_FILTERS: { value: AdminReviewFilter; label: string }[]
  * for what it means to show.
  */
 export function adminReviewRequestPath(filter: AdminReviewFilter): string {
-    if (filter === 'FLAGGED') return adminReportsRequestPath({ flaggedOnly: true });
     if (filter === 'PENDING') {
         return adminReportsRequestPath({ status: REPORT_REVIEW_REQUIRED_STATUS });
+    }
+
+    // The status a VERIFY decision produces — the same constant the summary
+    // counts verified reports by, so the tab and the tile above it can never
+    // disagree about what "verified" means.
+    if (filter === 'VERIFIED') {
+        return adminReportsRequestPath({ status: VERIFIED_REPORT_STATUS });
     }
 
     return adminReportsRequestPath();
@@ -300,6 +317,100 @@ export function adminReviewQueueSummary(
         flagged: reports.filter((report) => report.flagged).length,
         pending: reports.filter((report) => canDecideReport(report)).length,
     };
+}
+
+// ------------------------------------------------------------------
+// Telling positive feedback apart from issue reports
+//
+// Both have always come from the one `reports` collection, told apart by the
+// `type` field the entity model already defines: 'POSITIVE' is feedback, and
+// anything else — including a report written before the field existed — is an
+// issue. `reportTypeOf` is that rule, and it is imported rather than restated
+// so the admin queue splits reports exactly as the passenger list and the
+// cards' own type badges do.
+// ------------------------------------------------------------------
+
+/**
+ * The type choices the review queue offers, in the order it offers them.
+ *
+ * The values are the shared `ReportTypeFilter` the passenger filter sheet uses,
+ * so the two screens narrow by the same vocabulary. Only the wording differs:
+ * the sheet says "Issues" and "Positive" beside four other pickers, while this
+ * is the one type control on the page and can afford to say what it means.
+ */
+export const ADMIN_REPORT_TYPE_FILTERS: { value: ReportTypeFilter; label: string }[] = [
+    { value: 'ALL', label: 'All' },
+    { value: 'POSITIVE', label: 'Positive Feedback' },
+    { value: 'ISSUE', label: 'Issue Reports' },
+];
+
+/** What the filter button says it is showing. */
+export function adminReportTypeFilterLabel(type: ReportTypeFilter): string {
+    return ADMIN_REPORT_TYPE_FILTERS.find((option) => option.value === type)?.label ?? 'All';
+}
+
+/**
+ * The reports of one type, in the order they arrived.
+ *
+ * Generic for the reason `filterReportsBySearch` is: the queue's rows are
+ * opened by `documentId`, and narrowing must not widen them back down to a
+ * passenger report on the way through.
+ *
+ * 'ALL' returns the list untouched rather than a filtered copy, so choosing it
+ * is genuinely "no narrowing".
+ */
+export function filterReportsByType<T extends AccessibilityReport>(
+    reports: T[],
+    type: ReportTypeFilter
+): T[] {
+    if (type === 'ALL') return reports;
+
+    return reports.filter((report) => reportTypeOf(report) === type);
+}
+
+/**
+ * How the queue divides, for the summary above it.
+ *
+ * Four numbers: how much of each kind there is, and how much of each an admin
+ * has upheld. Derived from the reports already on the device — the review queue
+ * is one request that answers with every report and the status each carries, so
+ * none of this is worth asking the API a second time, and a second answer could
+ * disagree with the list underneath it.
+ *
+ * "Verified" is the one stored status an admin's VERIFY decision produces, read
+ * through the same constant the dashboard statistics use. A report with no
+ * stored status reads as PENDING everywhere in this project, so it counts
+ * towards its kind's total and never towards its verified count.
+ */
+export interface AdminReportTypeCounts {
+    positive: number;
+    verifiedPositive: number;
+    issue: number;
+    verifiedIssue: number;
+}
+
+export function adminReportTypeCounts(reports: AccessibilityReport[]): AdminReportTypeCounts {
+    const counts: AdminReportTypeCounts = {
+        positive: 0,
+        verifiedPositive: 0,
+        issue: 0,
+        verifiedIssue: 0,
+    };
+
+    for (const report of reports) {
+        const isPositive = reportTypeOf(report) === 'POSITIVE';
+        const isVerified = reportDecisionStatus(report) === VERIFIED_REPORT_STATUS;
+
+        if (isPositive) {
+            counts.positive += 1;
+            if (isVerified) counts.verifiedPositive += 1;
+        } else {
+            counts.issue += 1;
+            if (isVerified) counts.verifiedIssue += 1;
+        }
+    }
+
+    return counts;
 }
 
 // ------------------------------------------------------------------
