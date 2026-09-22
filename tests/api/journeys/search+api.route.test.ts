@@ -526,6 +526,11 @@ describe('POST /api/journeys/search', () => {
                 // Read from the shared function rather than written down, so
                 // this stays a check of the contract, not of the arithmetic.
                 accessibilityScore: computeAccessibilityScore(bus1.accessibilityFacilities),
+                // How passengers rated it (MOV-80). A separate figure from the
+                // score above, carried on the same response so a result card
+                // needs no lookup of its own. Nobody has rated this bus, which
+                // is no average rather than a zero.
+                passengerRating: { busId: 'BUS-00001', average: null, count: 0 },
             });
         });
 

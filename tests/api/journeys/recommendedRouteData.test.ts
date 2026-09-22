@@ -576,6 +576,9 @@ describe('what the journey response does not expose', () => {
             'busModel',
             'manufacturer',
             'numberPlate',
+            // Added by MOV-80: the passenger rating summary. The list stays
+            // exhaustive, so this had to be declared to be allowed through.
+            'passengerRating',
             'seatCapacity',
         ]);
     });

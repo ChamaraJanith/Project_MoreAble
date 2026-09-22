@@ -13,6 +13,7 @@ import {
 } from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { loadAccessibilityScoreEvidence } from '../../../src/shared/server/accessibilityScoreEvidence';
+import { busRatingSummaryFromTally } from '../../../src/shared/server/busRating';
 import { sumSegmentDistances } from '../../../src/shared/server/routeDistance';
 import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
 import {
@@ -564,6 +565,16 @@ async function attachUpcomingTrips(
               // with a different vehicle. The same function the booking flow
               // uses — one definition of how accessible a bus is (MOV-79).
               accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
+              // How passengers rated this bus (MOV-80), from the very evidence
+              // the score above was built from — already read, already cached
+              // per request, so the figure costs no extra query and cannot
+              // describe a different bus than the score beside it.
+              //
+              // A SEPARATE number from that score, not a part of it read back
+              // out: this is the plain 1–5 mean, while the score weighs the
+              // ratings at 20% through a neutral prior alongside facilities and
+              // community reports.
+              passengerRating: busRatingSummaryFromTally(evidence.ratings, bus.busId),
             }
           : null,
         liveStatus: buildLiveStatus(vehicleLocation, now),

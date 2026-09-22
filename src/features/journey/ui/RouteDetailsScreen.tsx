@@ -148,16 +148,25 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
     // screen carries on.
     // ------------------------------------------------------------------
     const token = useAuthStore((store) => store.token);
-    const [ratingSummary, setRatingSummary] = React.useState<BusRatingSummary | null>(
-        bus?.passengerRating ?? null
-    );
 
-    // Whether there is anything to read at all is known before the first render,
-    // so it is the initial state rather than something an effect corrects. The
-    // only state changes below happen once the request answers.
+    // What the search already told us about this bus (MOV-116 carries the
+    // summary on the search response). Present for a passenger who tapped
+    // through from the results; absent on a deep link or a restored selection.
+    const seededRating = bus?.passengerRating ?? null;
+
+    const [ratingSummary, setRatingSummary] = React.useState<BusRatingSummary | null>(seededRating);
+
+    // Both of these are known before the first render, so they are the initial
+    // state rather than something an effect corrects afterwards.
+    //
+    // A seeded summary starts READY, not LOADING: the passenger just read this
+    // very figure on the result card they tapped, and showing them "Loading
+    // passenger ratings…" over a number we already have would be a flash for no
+    // information. The refresh below still runs and still replaces it — quietly,
+    // because a figure on screen being confirmed is not something to announce.
     const canReadRatings = !!token && !!bus?.busId;
     const [ratingState, setRatingState] = React.useState<'LOADING' | 'READY' | 'UNAVAILABLE'>(
-        canReadRatings ? 'LOADING' : 'UNAVAILABLE'
+        seededRating ? 'READY' : canReadRatings ? 'LOADING' : 'UNAVAILABLE'
     );
 
     React.useEffect(() => {
