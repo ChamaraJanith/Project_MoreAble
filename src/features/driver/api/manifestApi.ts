@@ -64,3 +64,24 @@ export async function confirmPassengerBoarding(
 
     return data as BoardingConfirmationResult;
 }
+
+/**
+ * Confirms receiver details for a passenger's booking.
+ */
+export async function confirmReceiverDetails(bookingId: string): Promise<{ success: boolean; message: string; confirmedAt?: string }> {
+    const res = await fetch(`${API_BASE_URL}/api/booking/confirm-receiver`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+        throw new Error(
+            data?.message || `Failed to confirm receiver details (HTTP ${res.status}).`
+        );
+    }
+
+    return data;
+}

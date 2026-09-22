@@ -20,6 +20,7 @@ import { updateAssistanceStatus } from '../../booking/api/bookingApi';
 import {
     confirmPassengerBoarding,
     verifyTicketQr,
+    confirmReceiverDetails,
 } from '../api/manifestApi';
 import { ConductorBoardingCard } from './ConductorBoardingCard';
 import { QRManifestScannerModal } from './QRManifestScannerModal';
@@ -37,7 +38,7 @@ interface TripTurn {
     status?: string;
 }
 
-type FilterMode = 'ALL' | 'PENDING_ONLY' | 'BOARDED_ONLY' | 'ASSISTANCE_ONLY';
+type FilterMode = 'ALL' | 'PENDING_ONLY' | 'BOARDED_ONLY' | 'ASSISTANCE_ONLY' | 'RECEIVERS_ONLY';
 
 export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTabProps) {
     const [bookings, setBookings] = useState<Booking[]>([]);
@@ -198,6 +199,47 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
         }
     }
 
+    async function handleConfirmReceiverDetails(bookingId: string) {
+        try {
+            setUpdatingId(bookingId);
+            const result = await confirmReceiverDetails(bookingId);
+            
+            setBookings((prev) =>
+                prev.map((b) => {
+                    if (b.bookingId === bookingId && b.receiverDetails) {
+                        return {
+                            ...b,
+                            receiverDetails: {
+                                ...b.receiverDetails,
+                                confirmed: true,
+                                confirmedAt: result.confirmedAt,
+                            },
+                        };
+                    }
+                    return b;
+                })
+            );
+
+            const alertTitle = 'Receiver Confirmed';
+            const alertMsg = 'Receiver details have been successfully confirmed.';
+            setRecentAlert({ title: alertTitle, message: alertMsg });
+            setTimeout(() => setRecentAlert(null), 5000);
+
+            if (Platform.OS !== 'web') {
+                Alert.alert(alertTitle, alertMsg);
+            }
+        } catch (err: any) {
+            const msg = err.message || 'Failed to confirm receiver details.';
+            if (Platform.OS === 'web') {
+                window.alert(msg);
+            } else {
+                Alert.alert('Error', msg);
+            }
+        } finally {
+            setUpdatingId(null);
+        }
+    }
+
     // Filter bookings by selected trip turn (if any selected)
     const tripBookings = useMemo(() => {
         if (!selectedTripId || selectedTripId === 'ALL') return bookings;
@@ -218,6 +260,8 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
             b.assistanceRequested?.prioritySeatAssistance
     ).length;
 
+    const receiverCount = tripBookings.filter((b) => !!b.receiverDetails).length;
+
     // Filtered bookings by search and chip filter
     const filteredBookings = useMemo(() => {
         return tripBookings.filter((b) => {
@@ -232,6 +276,8 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
                 if (b.boardingStatus !== 'BOARDED') return false;
             } else if (filterMode === 'PENDING_ONLY') {
                 if (b.boardingStatus === 'BOARDED') return false;
+            } else if (filterMode === 'RECEIVERS_ONLY') {
+                if (!b.receiverDetails) return false;
             }
 
             if (searchQuery.trim()) {
@@ -380,6 +426,11 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
                             <Text style={[styles.metricValue, { color: '#6D28D9' }]}>{assistanceCount}</Text>
                             <Text style={styles.metricLabel}>Assistance</Text>
                         </View>
+                        <View style={styles.metricDivider} />
+                        <View style={styles.metricItem}>
+                            <Text style={[styles.metricValue, { color: '#0284C7' }]}>{receiverCount}</Text>
+                            <Text style={styles.metricLabel}>Receivers</Text>
+                        </View>
                     </View>
                 </View>
 
@@ -435,6 +486,15 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
                     >
                         <Text style={[styles.filterTabText, filterMode === 'ASSISTANCE_ONLY' && styles.filterTabTextActive]}>
                             Assist ({assistanceCount})
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.filterTab, filterMode === 'RECEIVERS_ONLY' && styles.filterTabActive]}
+                        onPress={() => setFilterMode('RECEIVERS_ONLY')}
+                    >
+                        <Text style={[styles.filterTabText, filterMode === 'RECEIVERS_ONLY' && styles.filterTabTextActive]}>
+                            Receivers ({receiverCount})
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -563,6 +623,35 @@ export function PassengerManifestTab({ busId, numberPlate }: PassengerManifestTa
                                             </View>
                                         )}
                                     </View>
+
+                                    {booking.receiverDetails && (
+                                        <View style={styles.receiverSection}>
+                                            <View style={styles.receiverInfo}>
+                                                <Ionicons name="person-outline" size={14} color="#64748B" />
+                                                <Text style={styles.receiverNameText}>{booking.receiverDetails.name}</Text>
+                                                <Text style={styles.receiverPhoneText}>({booking.receiverDetails.phone})</Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.confirmReceiverBtn,
+                                                    booking.receiverDetails.confirmed && styles.confirmReceiverBtnDone
+                                                ]}
+                                                onPress={() => !booking.receiverDetails?.confirmed && handleConfirmReceiverDetails(booking.bookingId)}
+                                                disabled={booking.receiverDetails.confirmed || updatingId === booking.bookingId}
+                                            >
+                                                {updatingId === booking.bookingId ? (
+                                                    <ActivityIndicator size="small" color={booking.receiverDetails.confirmed ? "#059669" : "#FFFFFF"} />
+                                                ) : booking.receiverDetails.confirmed ? (
+                                                    <>
+                                                        <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                                                        <Text style={styles.confirmReceiverBtnTextDone}>Confirmed</Text>
+                                                    </>
+                                                ) : (
+                                                    <Text style={styles.confirmReceiverBtnText}>Confirm Receiver</Text>
+                                                )}
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
                                 </View>
                             </TouchableOpacity>
                         );
@@ -732,6 +821,52 @@ const styles = StyleSheet.create({
     },
     metricItem: {
         alignItems: 'center',
+    },
+    receiverSection: {
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#F1F5F9',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    receiverInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    receiverNameText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#334155',
+        marginLeft: 6,
+        marginRight: 4,
+    },
+    receiverPhoneText: {
+        fontSize: 12,
+        color: '#64748B',
+    },
+    confirmReceiverBtn: {
+        backgroundColor: '#0066CC',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    confirmReceiverBtnDone: {
+        backgroundColor: '#D1FAE5',
+    },
+    confirmReceiverBtnText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    confirmReceiverBtnTextDone: {
+        color: '#059669',
+        fontSize: 12,
+        fontWeight: '600',
+        marginLeft: 4,
     },
     metricValue: {
         fontSize: 16,
