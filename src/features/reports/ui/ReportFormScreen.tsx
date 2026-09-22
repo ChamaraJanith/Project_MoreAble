@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Href, router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
@@ -30,11 +30,12 @@ import {
     uploadedPhotoUrls,
 } from '../utils/reportFormValidation';
 import { existingPhotoDrafts } from '../utils/reportPhotoDrafts';
-import { reportApiPath } from '../utils/reportRoutes';
+import { accessibilityReportsPath, reportApiPath } from '../utils/reportRoutes';
 import { PhotoEvidencePicker } from './PhotoEvidencePicker';
 import { REPORT_CATEGORY_OPTIONS } from './reportCategories';
 import { ReportSelectField, ReportTextArea } from './ReportFormFields';
 import { ReportJourneyFields } from './ReportJourneyFields';
+import { ReportSubmittedView } from './ReportSubmittedView';
 
 const DESCRIPTION_MAX_LENGTH = 600;
 
@@ -94,6 +95,20 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // The report the API stored, once a new one has been filed. While set,
+    // the confirmation is shown in place of the form.
+    const [submittedReport, setSubmittedReport] = useState<AccessibilityReport | null>(null);
+
+    const resetForm = () => {
+        setIssueCategory(null);
+        setDescription('');
+        setSelectedRouteId(null);
+        setSelectedBusId(null);
+        setPhotos([]);
+        setError(null);
+        setSubmittedReport(null);
+    };
 
     const selectedCategoryOption = REPORT_CATEGORY_OPTIONS.find(
         (option) => option.value === issueCategory
@@ -178,7 +193,10 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
 
             const result = await response.json().catch(() => ({}));
 
-            if (response.ok) {
+            if (response.ok && !isEditing && result?.report?.reportId) {
+                // A new report: confirm it with what the API actually stored.
+                setSubmittedReport(result.report as AccessibilityReport);
+            } else if (response.ok) {
                 Alert.alert(
                     isEditing ? 'Report Updated' : 'Report Submitted',
                     isEditing
@@ -225,12 +243,28 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
         }
     };
 
+    if (submittedReport) {
+        return (
+            <View style={styles.container}>
+                <AdminScreenHeader title="Report Issue" tone="brand" />
+                <ReportSubmittedView
+                    report={submittedReport}
+                    // Back to the list the form was opened from, on My Reports,
+                    // rather than stacking a second copy of it.
+                    onViewMyReports={() => router.dismissTo(accessibilityReportsPath('my') as Href)}
+                    onSubmitAnother={resetForm}
+                />
+            </View>
+        );
+    }
+
     return (
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
             <AdminScreenHeader
+                tone="brand"
                 title={isEditing ? 'Edit Report' : 'Report Issue'}
                 subtitle={
                     isEditing

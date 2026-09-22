@@ -20,6 +20,14 @@
  */
 const PASSENGER_GROUP = '/(passenger)';
 
+/**
+ * The Accessibility Reports list, optionally opened on a given tab:
+ * `/accessibility-reports?scope=my`.
+ */
+export function accessibilityReportsPath(scope?: 'all' | 'my'): string {
+    return scope ? `/accessibility-reports?scope=${scope}` : '/accessibility-reports';
+}
+
 /** The form for filing a new report: `/(passenger)/reports`. */
 export function reportFormPath(): string {
     return `${PASSENGER_GROUP}/reports`;

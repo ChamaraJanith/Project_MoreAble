@@ -10,26 +10,43 @@ interface AdminScreenHeaderProps {
     subtitle?: string;
     /** Optional trailing control, e.g. a primary "Add" action. */
     action?: React.ReactNode;
+    /**
+     * 'brand' draws the header on the MoveAble blue with white title,
+     * subtitle and back arrow — used by the passenger feature screens (e.g.
+     * Accessibility Reports). 'default' is the white header with dark text
+     * the admin screens use.
+     */
+    tone?: 'default' | 'brand';
 }
 
-export function AdminScreenHeader({ title, subtitle, action }: AdminScreenHeaderProps) {
+export function AdminScreenHeader({ title, subtitle, action, tone = 'default' }: AdminScreenHeaderProps) {
+    const isBrand = tone === 'brand';
+
     return (
-        <View style={styles.header}>
+        <View style={[styles.header, isBrand && styles.headerBrand]}>
             <TouchableOpacity
                 onPress={() => router.back()}
                 style={styles.backButton}
                 accessibilityRole="button"
                 accessibilityLabel="Go back"
             >
-                <Ionicons name="arrow-back" size={22} color={adminColors.textPrimary} />
+                <Ionicons
+                    name="arrow-back"
+                    size={22}
+                    color={isBrand ? '#FFFFFF' : adminColors.textPrimary}
+                />
             </TouchableOpacity>
 
             <View style={styles.textGroup}>
-                <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
+                <Text
+                    style={[styles.title, isBrand && styles.titleBrand]}
+                    accessibilityRole="header"
+                    numberOfLines={1}
+                >
                     {title}
                 </Text>
                 {!!subtitle && (
-                    <Text style={styles.subtitle} numberOfLines={2}>
+                    <Text style={[styles.subtitle, isBrand && styles.subtitleBrand]} numberOfLines={2}>
                         {subtitle}
                     </Text>
                 )}
@@ -65,6 +82,10 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: adminColors.textPrimary,
     },
+    // Text on the blue header is white; the subtitle slightly softer.
+    headerBrand: { backgroundColor: adminColors.primary },
+    titleBrand: { color: '#FFFFFF' },
+    subtitleBrand: { color: 'rgba(255, 255, 255, 0.88)' },
     subtitle: {
         marginTop: 3,
         fontSize: 13,

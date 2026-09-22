@@ -288,6 +288,7 @@ export const AdminReportReviewScreen = () => {
                 {/* ---------------- 1. Status and review flag ---------------- */}
                 <ReportHero
                     icon={summary.icon}
+                    reportType={summary.reportType}
                     title={summary.title}
                     status={status}
                     submittedLabel={summary.submittedLabel}
@@ -313,7 +314,9 @@ export const AdminReportReviewScreen = () => {
                 {state.loadError && <InlineMessage tone="error" message={state.loadError} />}
 
                 {/* ---------------- 2. Issue ---------------- */}
-                <ReportSectionTitle>Issue Description</ReportSectionTitle>
+                <ReportSectionTitle>
+                    {summary.reportType === 'POSITIVE' ? 'Feedback Description' : 'Issue Description'}
+                </ReportSectionTitle>
 
                 <View style={reportDetailStyles.card}>
                     <Text style={reportDetailStyles.descriptionText}>{report.description}</Text>

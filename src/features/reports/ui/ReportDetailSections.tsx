@@ -10,6 +10,7 @@ import {
     useWindowDimensions,
     View
 } from 'react-native';
+import { ReportType } from '../../../entities/report/model/types';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import {
@@ -17,6 +18,7 @@ import {
     ReportJourneyEntry,
     galleryColumnsForWidth,
 } from '../utils/reportSummary';
+import { REPORT_TYPE_TONES, ReportTypeBadge } from './ReportTypeBadge';
 
 /**
  * The pieces one report is drawn from, shared by everybody who draws one.
@@ -38,6 +40,8 @@ import {
 
 interface ReportHeroProps {
     icon: keyof typeof Ionicons.glyphMap;
+    /** ISSUE or POSITIVE — drawn as its own badge beside the status. */
+    reportType: ReportType;
     /** The issue category, in the wording the picker offered it in. */
     title: string;
     status: string;
@@ -46,18 +50,29 @@ interface ReportHeroProps {
     children?: React.ReactNode;
 }
 
-/** What this report is, at a glance: the issue, where it stands, and when. */
+/**
+ * What this report is, at a glance: the issue, what kind of report it is,
+ * where it stands, and when. The type and the status are two separate badges
+ * so "positive feedback" and "verified" never blur into one fact.
+ */
 export function ReportHero({
     icon,
+    reportType,
     title,
     status,
     submittedLabel,
     children,
 }: ReportHeroProps) {
+    const tone = REPORT_TYPE_TONES[reportType];
+
     return (
         <View style={reportDetailStyles.hero}>
-            <View style={reportDetailStyles.heroIconCircle}>
-                <Ionicons name={icon} size={30} color={adminColors.primary} />
+            <View
+                style={[reportDetailStyles.heroIconCircle, { backgroundColor: tone.background }]}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+            >
+                <Ionicons name={icon} size={30} color={tone.iconColor} />
             </View>
 
             <Text style={reportDetailStyles.heroTitle} accessibilityRole="header">
@@ -65,6 +80,7 @@ export function ReportHero({
             </Text>
 
             <View style={reportDetailStyles.heroBadge}>
+                <ReportTypeBadge type={reportType} size="medium" />
                 <StatusBadge status={status} />
             </View>
 
@@ -102,7 +118,8 @@ export function ReportJourneyRow({
     entry,
     isFirst,
 }: {
-    entry: ReportJourneyEntry;
+    /** A journey entry, or any other labelled fact drawn in the same shape. */
+    entry: Omit<ReportJourneyEntry, 'icon'> & { icon: keyof typeof Ionicons.glyphMap };
     isFirst: boolean;
 }) {
     const isMissing = !entry.primary;
@@ -358,7 +375,14 @@ export const reportDetailStyles = StyleSheet.create({
         textAlign: 'center',
         marginTop: 14,
     },
-    heroBadge: { marginTop: 12 },
+    heroBadge: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 12,
+    },
     heroDate: {
         fontSize: 13,
         fontWeight: '600',
@@ -398,7 +422,7 @@ export const reportDetailStyles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     journeyPrimary: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
         color: adminColors.textPrimary,
         marginTop: 4,

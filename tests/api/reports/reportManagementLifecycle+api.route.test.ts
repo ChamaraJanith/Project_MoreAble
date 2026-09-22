@@ -461,7 +461,7 @@ describe('a pending report is still its author‘s to change', () => {
 // submit -> PENDING -> verified -> readable, not editable
 // ==================================================================
 describe('the full lifecycle of a report that is verified', () => {
-    it('closes the report to its author the moment it is verified', async () => {
+    it('closes the report to editing the moment it is verified', async () => {
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
@@ -473,12 +473,19 @@ describe('the full lifecycle of a report that is verified', () => {
             adminRemark: 'Depot confirmed the ramp motor had failed.',
         });
 
-        // Closed once it is decided.
+        // Closed to editing once it is decided.
         const blockedEdit = await editReport(db, reportId);
-        const blockedDelete = await removeReport(db, reportId);
 
         expect(blockedEdit.response.status).toBe(409);
-        expect(blockedDelete.response.status).toBe(409);
+    });
+
+    it('still lets its author delete the verified report', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, { action: 'VERIFY' });
+
+        expect((await removeReport(db, reportId)).response.status).toBe(200);
     });
 
     it('leaves the verified report exactly as the admin found it', async () => {
@@ -604,17 +611,25 @@ describe('the full lifecycle of a report that is rejected', () => {
         );
     });
 
-    it('is closed to editing and deleting like any other decided report', async () => {
+    it('is closed to editing like any other decided report', async () => {
         // A rejection is the answer the author is owed. Editing it into
-        // something else, or deleting it, would erase that answer.
+        // something else would erase that answer.
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
         await review(db, reportId, { action: 'REJECT' });
 
         expect((await editReport(db, reportId)).response.status).toBe(409);
-        expect((await removeReport(db, reportId)).response.status).toBe(409);
         expect((await stored(db, reportId)).status).toBe('REJECTED');
+    });
+
+    it('can still be deleted by its author', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        await review(db, reportId, { action: 'REJECT' });
+
+        expect((await removeReport(db, reportId)).response.status).toBe(200);
     });
 });
 

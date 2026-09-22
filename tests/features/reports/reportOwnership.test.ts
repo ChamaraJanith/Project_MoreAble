@@ -12,6 +12,7 @@ import {
     isReportOpenToChange,
     isReportOwnedBy,
     reportActionsFor,
+    reportEditLockedMessage,
 } from '../../../src/features/reports/utils/reportOwnership';
 
 const OWNER = 'PSG-00001';
@@ -119,11 +120,16 @@ describe('deleting', () => {
         expect(canDeleteReport(someoneElsesReport, OWNER)).toBe(false);
     });
 
-    it('is not offered once the report has been decided', () => {
-        // Deleting a verified report would take the finding out of the record,
-        // and deleting a rejected one would erase the answer its author is owed.
-        expect(canDeleteReport(ownReportWith('VERIFIED'), OWNER)).toBe(false);
-        expect(canDeleteReport(ownReportWith('REJECTED'), OWNER)).toBe(false);
+    it('is still offered to the owner once the report has been decided', () => {
+        // A passenger may always withdraw their own report — pending, verified
+        // or rejected. Only editing closes with the review.
+        expect(canDeleteReport(ownReportWith('VERIFIED'), OWNER)).toBe(true);
+        expect(canDeleteReport(ownReportWith('REJECTED'), OWNER)).toBe(true);
+    });
+
+    it('is never offered on another passenger‘s decided report', () => {
+        expect(canDeleteReport({ ...someoneElsesReport, status: 'VERIFIED' }, OWNER)).toBe(false);
+        expect(canDeleteReport({ ...someoneElsesReport, status: 'REJECTED' }, OWNER)).toBe(false);
     });
 });
 
@@ -148,31 +154,64 @@ describe('the actions a card shows', () => {
         });
     });
 
-    it('leaves the author of a decided report with viewing alone', () => {
-        // Which is the whole of what a decision costs them: the report stays
-        // readable, with the outcome and the community's feedback on it.
-        expect(reportActionsFor(ownReportWith('VERIFIED'), OWNER)).toEqual(['view']);
-        expect(reportActionsFor(ownReportWith('REJECTED'), OWNER)).toEqual(['view']);
+    it('leaves the author of a decided report with viewing and deleting', () => {
+        // A decision costs them editing only: the report stays readable, with
+        // the outcome on it, and stays theirs to withdraw.
+        expect(reportActionsFor(ownReportWith('VERIFIED'), OWNER)).toEqual(['view', 'delete']);
+        expect(reportActionsFor(ownReportWith('REJECTED'), OWNER)).toEqual(['view', 'delete']);
     });
 });
 
 // ==================================================================
-// Positive feedback (the edit screen is the issue form)
+// Positive feedback (edited through the positive feedback form)
 // ==================================================================
 describe('positive feedback controls', () => {
     const ownFeedback = { passengerId: OWNER, status: 'PENDING', type: 'POSITIVE' };
 
-    it('does not offer Edit on positive feedback, which the issue form cannot save', () => {
-        expect(canEditReport(ownFeedback, OWNER)).toBe(false);
+    it('offers Edit and Delete on the author’s pending feedback', () => {
+        expect(canEditReport(ownFeedback, OWNER)).toBe(true);
+        expect(canDeleteReport(ownFeedback, OWNER)).toBe(true);
+        expect(reportActionsFor(ownFeedback, OWNER)).toEqual(['view', 'edit', 'delete']);
     });
 
-    it('still offers Delete on the author’s pending feedback', () => {
-        expect(canDeleteReport(ownFeedback, OWNER)).toBe(true);
-        expect(reportActionsFor(ownFeedback, OWNER)).toEqual(['view', 'delete']);
+    it('closes Edit, but not Delete, once the feedback is decided', () => {
+        const verified = { ...ownFeedback, status: 'VERIFIED' };
+
+        expect(canEditReport(verified, OWNER)).toBe(false);
+        expect(canDeleteReport(verified, OWNER)).toBe(true);
+    });
+
+    it('offers nothing on another passenger’s feedback', () => {
+        expect(reportActionsFor(ownFeedback, OTHER_PASSENGER)).toEqual(['view']);
     });
 
     it('still offers Edit on an issue report, typed or not', () => {
         expect(canEditReport({ ...ownFeedback, type: undefined }, OWNER)).toBe(true);
         expect(canEditReport({ ...ownFeedback, type: 'ISSUE' }, OWNER)).toBe(true);
+    });
+});
+
+// ==================================================================
+// Why Edit is gone (shown to the author on the details screen)
+// ==================================================================
+describe('reportEditLockedMessage', () => {
+    it('says nothing while the report is still pending', () => {
+        expect(reportEditLockedMessage(ownReport)).toBeNull();
+        expect(reportEditLockedMessage(null)).toBeNull();
+    });
+
+    it('names the decision that closed it', () => {
+        expect(reportEditLockedMessage(ownReportWith('VERIFIED'))).toBe(
+            'Verified reports can no longer be edited.'
+        );
+        expect(reportEditLockedMessage(ownReportWith('REJECTED'))).toBe(
+            'Rejected reports can no longer be edited.'
+        );
+    });
+
+    it('falls back to a general wording for any other decided state', () => {
+        expect(reportEditLockedMessage(ownReportWith('RESOLVED'))).toBe(
+            'Reviewed reports can no longer be edited.'
+        );
     });
 });

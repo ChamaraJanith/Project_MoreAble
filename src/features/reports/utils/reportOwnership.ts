@@ -3,13 +3,13 @@
  *
  * The app asks this to decide which controls to draw. It is not the rule — the
  * rule is enforced by PUT and DELETE /api/reports/[reportId], which compare the
- * report's passengerId against the verified token and its status against the
- * review it has already had, answering 403 or 409 regardless of what the app
- * chose to render. What this file does is make sure the app never offers an
+ * report's passengerId against the verified token (403 for anybody else), and
+ * PUT additionally its status against the review it has already had (409 once
+ * decided), regardless of what the app chose to render. What this file does is make sure the app never offers an
  * action the API is going to refuse.
  */
 
-import { isReportDecided, reportTypeOf } from '../../../entities/report/model/types';
+import { isReportDecided } from '../../../entities/report/model/types';
 
 /** Just enough of a report to decide who owns it and whether it is still open. */
 export interface OwnableReport {
@@ -41,17 +41,17 @@ export function isReportOwnedBy(
 }
 
 /**
- * Whether a report can still be changed at all, by anybody.
+ * Whether a report's content can still be changed at all, by anybody.
  *
  * Only while it is waiting to be decided. Once an admin has verified or
  * rejected it the report is the thing that was decided: editing the account
  * afterwards would leave a remark answering a description that no longer says
- * what it answered, and deleting it would take a verified finding — and the
- * rejection its author is owed — out of the record.
+ * what it answered.
  *
- * Ownership is a separate question, asked alongside this one rather than
- * folded into it, so the details screen can tell the author of a verified
- * report why the buttons are gone from somebody else's report having none.
+ * Deleting is a different question — see canDeleteReport. Ownership is also a
+ * separate question, asked alongside this one rather than folded into it, so
+ * the details screen can tell the author of a verified report why Edit is gone
+ * rather than showing the same nothing as somebody else's report.
  */
 export function isReportOpenToChange(report: OwnableReport | null | undefined): boolean {
     return !!report && !isReportDecided(report);
@@ -62,29 +62,44 @@ export function isReportOpenToChange(report: OwnableReport | null | undefined): 
  *
  * Editing is the author's alone, and only before their report is decided. A
  * report still under review is editable — correcting a description is exactly
- * what a passenger asked for more detail has to do — but a verified one is not.
+ * what a passenger asked for more detail has to do — but a verified or rejected
+ * one is not. Issue reports open the issue form and positive feedback opens
+ * the feedback form, so both kinds are editable while pending.
  */
 export function canEditReport(
     report: OwnableReport | null | undefined,
     passengerId: string | null | undefined
 ): boolean {
-    // The edit screen is the issue form. Positive feedback cannot be saved
-    // through it — the API refuses an issue category on a POSITIVE report — so
-    // Edit is only offered on issue reports until a positive edit form exists.
-    // Delete is unaffected.
-    return (
-        isReportOwnedBy(report, passengerId) &&
-        isReportOpenToChange(report) &&
-        reportTypeOf(report) === 'ISSUE'
-    );
+    return isReportOwnedBy(report, passengerId) && isReportOpenToChange(report);
 }
 
-/** Whether the Delete control belongs on screen. The same two conditions. */
+/**
+ * Whether the Delete control belongs on screen.
+ *
+ * The author's alone, in any state: a passenger may always withdraw what they
+ * filed — pending, verified or rejected. Nobody else's report is ever theirs to
+ * delete. DELETE /api/reports/[reportId] enforces the same rule.
+ */
 export function canDeleteReport(
     report: OwnableReport | null | undefined,
     passengerId: string | null | undefined
 ): boolean {
-    return isReportOwnedBy(report, passengerId) && isReportOpenToChange(report);
+    return isReportOwnedBy(report, passengerId);
+}
+
+/**
+ * Why a decided report can no longer be edited, in words — or null while it
+ * still can be. Shown to the author on the details screen in place of Edit.
+ */
+export function reportEditLockedMessage(report: OwnableReport | null | undefined): string | null {
+    if (!report || isReportOpenToChange(report)) return null;
+
+    const status = typeof report.status === 'string' ? report.status : '';
+
+    if (status === 'VERIFIED') return 'Verified reports can no longer be edited.';
+    if (status === 'REJECTED') return 'Rejected reports can no longer be edited.';
+
+    return 'Reviewed reports can no longer be edited.';
 }
 
 /** What a report offers this session, in the order the controls are shown. */

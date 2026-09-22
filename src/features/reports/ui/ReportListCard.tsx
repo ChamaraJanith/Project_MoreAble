@@ -1,21 +1,13 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
+import { reportStatusLabel } from '../utils/reportFormat';
 import { ReportCardSummary, ReportChip } from '../utils/reportSummary';
 import { ReportFeedbackStats } from './ReportFeedbackStats';
-
-/**
- * Red for an issue, green for positive feedback — as a soft tile behind the
- * category icon only, so the semantic colour marks the kind of report without
- * competing with the app's blue.
- */
-const TYPE_ACCENT = {
-    ISSUE: { background: adminColors.dangerSoft, icon: adminColors.danger },
-    POSITIVE: { background: adminColors.successSoft, icon: adminColors.success },
-} as const;
+import { REPORT_TYPE_TONES, ReportTypeBadge } from './ReportTypeBadge';
 
 interface ReportListCardProps {
     summary: ReportCardSummary;
@@ -37,6 +29,16 @@ interface ReportListCardProps {
  * sides of the app. What stays screen-specific is passed in: the admin queue's
  * review banner and its accessibility wording.
  *
+ * Layout, top to bottom beside the thumbnail:
+ *   Title                               [STATUS]
+ *   [ISSUE / POSITIVE]  [Your Report]
+ *   🚌 Bus   🛣 Route
+ *   Short description…
+ *   💬 0  👍 2  👎 0              🕒 2h ago
+ *
+ * The thumbnail is the report's first photo when it has one, and the category
+ * icon on a soft circle when it does not — never both.
+ *
  * The whole card is the control: there is exactly one thing to do with a report
  * from a list — open it — so nothing inside it is a separate touch target, and
  * it carries a single accessibility label rather than readable fragments.
@@ -50,12 +52,25 @@ export function ReportListCard({
     banner,
     flagged = false,
 }: ReportListCardProps) {
-    const accent = TYPE_ACCENT[summary.reportType];
+    const tone = REPORT_TYPE_TONES[summary.reportType];
 
-    // Bus, route and "Your report" identify the report; the photo count is
-    // evidence, so it sits with the other tallies in the footer.
-    const metaChips = summary.chips.filter((chip) => chip.icon !== 'images-outline');
+    // A photo that fails to load falls back to the category icon rather than
+    // leaving an empty grey square on the card.
+    const [photoFailed, setPhotoFailed] = useState(false);
+    const showPhoto = !!summary.thumbnailUrl && !photoFailed;
+
+    // Bus and route identify the report. "Your report" is drawn beside the
+    // type badge instead, and the photo count sits with the other tallies.
+    const metaChips = summary.chips.filter(
+        (chip) => chip.icon === 'bus-outline' || chip.icon === 'git-branch-outline'
+    );
     const photoChip = summary.chips.find((chip) => chip.icon === 'images-outline');
+
+    const defaultLabel = [
+        summary.accessibilityLabel,
+        `Status: ${reportStatusLabel(status)}`,
+        ...(summary.isOwnReport ? ['Your report'] : []),
+    ].join(', ');
 
     return (
         <TouchableOpacity
@@ -63,19 +78,30 @@ export function ReportListCard({
             onPress={onOpen}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel={accessibilityLabel ?? summary.accessibilityLabel}
+            accessibilityLabel={accessibilityLabel ?? defaultLabel}
             accessibilityHint={accessibilityHint}
         >
             {banner}
 
             <View style={styles.row}>
-                {/* Decorative: the category it stands for is the title. */}
+                {/* Decorative: the category it stands for is the title, and the
+                    photos themselves are on the details screen. */}
                 <View
-                    style={[styles.iconTile, { backgroundColor: accent.background }]}
                     accessibilityElementsHidden
                     importantForAccessibility="no-hide-descendants"
                 >
-                    <Ionicons name={summary.icon} size={22} color={accent.icon} />
+                    {showPhoto ? (
+                        <Image
+                            source={{ uri: summary.thumbnailUrl }}
+                            style={styles.thumbnail}
+                            resizeMode="cover"
+                            onError={() => setPhotoFailed(true)}
+                        />
+                    ) : (
+                        <View style={[styles.iconCircle, { backgroundColor: tone.background }]}>
+                            <Ionicons name={summary.icon} size={24} color={tone.iconColor} />
+                        </View>
+                    )}
                 </View>
 
                 <View style={styles.body}>
@@ -85,6 +111,21 @@ export function ReportListCard({
                         </Text>
 
                         <StatusBadge status={status} size="small" />
+                    </View>
+
+                    <View style={styles.badgeRow}>
+                        <ReportTypeBadge type={summary.reportType} />
+
+                        {summary.isOwnReport && (
+                            <View style={styles.ownChip}>
+                                <Ionicons
+                                    name="person-circle-outline"
+                                    size={12}
+                                    color={adminColors.primary}
+                                />
+                                <Text style={styles.ownChipText}>Your Report</Text>
+                            </View>
+                        )}
                     </View>
 
                     {metaChips.length > 0 && (
@@ -122,7 +163,7 @@ export function ReportListCard({
                         <View style={styles.dateGroup}>
                             <Ionicons name="time-outline" size={13} color={adminColors.textMuted} />
                             <Text style={styles.footerText} numberOfLines={1}>
-                                {summary.dateLabel}
+                                {summary.relativeDateLabel}
                             </Text>
                         </View>
                     </View>
@@ -142,28 +183,28 @@ export function ReportListCard({
 }
 
 function MetaChip({ chip }: { chip: ReportChip }) {
-    const color = chip.highlighted ? adminColors.primary : adminColors.textSecondary;
-
     return (
-        <View style={[styles.metaChip, chip.highlighted && styles.metaChipHighlighted]}>
-            <Ionicons name={chip.icon} size={12} color={color} />
-            <Text style={[styles.metaChipText, { color }]} numberOfLines={1}>
+        <View style={styles.metaChip}>
+            <Ionicons name={chip.icon} size={13} color={adminColors.primary} />
+            <Text style={styles.metaChipText} numberOfLines={1}>
                 {chip.label}
             </Text>
         </View>
     );
 }
 
+const THUMBNAIL_SIZE = 72;
+
 const styles = StyleSheet.create({
     card: {
         backgroundColor: adminColors.surface,
-        borderRadius: 14,
+        borderRadius: 16,
         paddingVertical: 14,
         paddingLeft: 14,
-        paddingRight: 10,
+        paddingRight: 8,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: adminColors.borderSubtle,
+        borderColor: adminColors.border,
         ...adminShadow.card,
     },
     cardFlagged: {
@@ -172,13 +213,23 @@ const styles = StyleSheet.create({
     },
 
     row: { flexDirection: 'row', alignItems: 'flex-start' },
-    iconTile: {
-        width: 44,
-        height: 44,
+
+    // Square and cropped to fill: the photo keeps its proportions (it is
+    // never stretched), whether it was taken portrait or landscape.
+    thumbnail: {
+        width: THUMBNAIL_SIZE,
+        height: THUMBNAIL_SIZE,
         borderRadius: 12,
+        backgroundColor: adminColors.borderSubtle,
+    },
+    iconCircle: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
         justifyContent: 'center',
         alignItems: 'center',
     },
+
     body: { flex: 1, minWidth: 0, marginLeft: 12 },
     titleRow: {
         flexDirection: 'row',
@@ -187,30 +238,43 @@ const styles = StyleSheet.create({
     },
     title: {
         flex: 1,
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '800',
         color: adminColors.textPrimary,
-        lineHeight: 20,
+        lineHeight: 21,
     },
+
+    badgeRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 6,
+    },
+    ownChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: adminColors.primarySoft,
+        borderRadius: 6,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        gap: 4,
+    },
+    ownChipText: { fontSize: 11, fontWeight: '700', color: adminColors.primary },
 
     metaRow: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         alignItems: 'center',
         rowGap: 4,
-        columnGap: 10,
-        marginTop: 5,
+        columnGap: 12,
+        marginTop: 8,
     },
     metaChip: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
-    metaChipHighlighted: {
-        backgroundColor: adminColors.primarySoft,
-        borderRadius: 6,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-    },
     metaChipText: {
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: '600',
+        color: adminColors.textPrimary,
         marginLeft: 4,
         flexShrink: 1,
     },
@@ -218,7 +282,7 @@ const styles = StyleSheet.create({
     description: {
         fontSize: 13,
         color: adminColors.textSecondary,
-        lineHeight: 18,
+        lineHeight: 19,
         marginTop: 6,
     },
 
@@ -232,6 +296,9 @@ const styles = StyleSheet.create({
         rowGap: 6,
         columnGap: 10,
         marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: adminColors.borderSubtle,
     },
     footerStats: { flexDirection: 'row', alignItems: 'center', gap: 14 },
     photoIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -246,7 +313,7 @@ const styles = StyleSheet.create({
 
     chevron: {
         width: 22,
-        paddingTop: 12,
+        alignSelf: 'center',
         alignItems: 'flex-end',
     },
 });

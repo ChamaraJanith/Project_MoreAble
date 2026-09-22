@@ -8,7 +8,10 @@ import {
     POSITIVE_FEEDBACK_CATEGORIES,
     REPORT_ISSUE_CATEGORIES,
 } from '../../../src/entities/report/model/types';
-import { submitPositiveFeedback } from '../../../src/features/reports/api/positiveFeedbackApi';
+import {
+    submitPositiveFeedback,
+    updatePositiveFeedback,
+} from '../../../src/features/reports/api/positiveFeedbackApi';
 import {
     POSITIVE_FEEDBACK_CATEGORY_OPTIONS,
     positiveFeedbackCategoryLabel,
@@ -291,5 +294,76 @@ describe('submitPositiveFeedback', () => {
         expect(result.ok).toBe(false);
         expect(result).toMatchObject({ message: expect.stringMatching(/unable to connect/i) });
         errorSpy.mockRestore();
+    });
+});
+
+// ==================================================================
+// Update client — PUT /api/reports/:reportId with type POSITIVE
+// ==================================================================
+describe('updatePositiveFeedback', () => {
+    const payload = buildPositiveFeedbackPayload(completeForm())!;
+    const TOKEN = 'session-token-value';
+
+    const mockFetch = jest.fn();
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+        mockFetch.mockReset();
+        global.fetch = mockFetch as unknown as typeof fetch;
+    });
+    afterAll(() => {
+        global.fetch = originalFetch;
+    });
+
+    function respondWith(status: number, body: unknown) {
+        mockFetch.mockResolvedValue({
+            ok: status >= 200 && status < 300,
+            status,
+            json: async () => body,
+        });
+    }
+
+    it('puts the payload to the report’s own route', async () => {
+        respondWith(200, { success: true, report: { reportId: 'REP-00012', type: 'POSITIVE' } });
+
+        const result = await updatePositiveFeedback('REP-00012', payload, TOKEN);
+        const [url, init] = mockFetch.mock.calls[0];
+
+        expect(String(url)).toMatch(/\/api\/reports\/REP-00012$/);
+        expect(init.method).toBe('PUT');
+        expect(init.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+        expect(JSON.parse(init.body)).toEqual(payload);
+        expect(result.ok).toBe(true);
+    });
+
+    it('explains a 409 with the API’s own wording', async () => {
+        respondWith(409, {
+            success: false,
+            message: 'This report has already been reviewed (VERIFIED) and can no longer be edited.',
+        });
+
+        const result = await updatePositiveFeedback('REP-00012', payload, TOKEN);
+
+        expect(result).toEqual({
+            ok: false,
+            status: 409,
+            message: 'This report has already been reviewed (VERIFIED) and can no longer be edited.',
+        });
+    });
+
+    it('refuses another passenger’s feedback in words', async () => {
+        respondWith(403, { success: false });
+
+        const result = await updatePositiveFeedback('REP-00012', payload, TOKEN);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.message).toBe('You can only edit your own feedback.');
+    });
+
+    it('sends nothing without a session', async () => {
+        const result = await updatePositiveFeedback('REP-00012', payload, '');
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(result.ok).toBe(false);
     });
 });

@@ -25,6 +25,7 @@ import {
     canDeleteReport,
     canEditReport,
     isReportOwnedBy,
+    reportEditLockedMessage,
 } from '../utils/reportOwnership';
 import { reportApiPath, reportEditPath } from '../utils/reportRoutes';
 import {
@@ -35,9 +36,9 @@ import {
     reportReviewOutcome,
     reportTimelineRows,
 } from '../utils/reportSummary';
+import { reportTypeLabel } from '../utils/reportFormat';
 import { CommunityFeedback } from './CommunityFeedback';
 import {
-    ReportEmptySection,
     ReportHero,
     ReportJourneyRow,
     ReportPhotoGallery,
@@ -58,12 +59,13 @@ import {
  * review page (MOV-160) draws the same report and has to be looking at the same
  * thing the passenger filed rather than at a second rendering of it.
  *
- * Edit and Delete are drawn only for the passenger who filed it, only while it
- * is still waiting to be reviewed, and only here: they are decisions worth a
- * screen of context rather than a control on a list row. That is still a
- * courtesy, not the rule — PUT and DELETE /api/reports/[reportId] compare the
- * report against the verified token and against the review it has already had,
- * refusing anybody else with 403 and a decided report with 409 regardless.
+ * Edit and Delete are drawn only for the passenger who filed it, and only here:
+ * they are decisions worth a screen of context rather than a control on a list
+ * row. Edit is offered only while the report is pending; Delete in any status.
+ * That is still a courtesy, not the rule — PUT and DELETE
+ * /api/reports/[reportId] compare the report against the verified token
+ * (403 for anybody else), and PUT against the review it has already had
+ * (409 once decided), regardless of what is drawn here.
  */
 export const ReportDetailsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
@@ -152,7 +154,7 @@ export const ReportDetailsScreen = () => {
                 // Back to the list, which reloads the visible tab on focus —
                 // so the deleted report is gone by the time it is seen again.
                 router.back();
-                Alert.alert('Report Deleted', 'Your accessibility report has been deleted.');
+                Alert.alert('Report Deleted', 'Your report has been deleted.');
             } else {
                 Alert.alert(
                     'Unable to delete report',
@@ -194,21 +196,23 @@ export const ReportDetailsScreen = () => {
         const summary = reportCardSummary(report);
         const journey = reportJourneyEntries(report);
         const photos = reportGalleryPhotos(report);
+        const isPositive = summary.reportType === 'POSITIVE';
 
         // Owning the report and being able to change it are two questions, and
         // the answers diverge the moment an admin decides it. Kept apart so the
-        // author of a verified report is told why the buttons are gone rather
-        // than shown the same nothing as a passenger reading somebody else's.
+        // author of a verified report is told why Edit is gone rather than
+        // shown the same nothing as a passenger reading somebody else's.
         const isOwner = isReportOwnedBy(report, user?.passengerId);
         const canEdit = canEditReport(report, user?.passengerId);
         const canDelete = canDeleteReport(report, user?.passengerId);
+        const editLockedMessage = reportEditLockedMessage(report);
 
         // What an admin decided, if one has. Null on a report still waiting to
         // be looked at, where the hero's "Pending" badge is the whole story.
         const review = reportReviewOutcome(report);
 
         // Only once there is more than one moment to show: on an untouched
-        // report the hero's submitted date is the whole timeline already.
+        // report the information card's submitted date is the timeline already.
         const timelineRows = hasBeenEdited(report) ? reportTimelineRows(report) : [];
 
         return (
@@ -216,43 +220,60 @@ export const ReportDetailsScreen = () => {
                 {/* ---------------- Hero ---------------- */}
                 <ReportHero
                     icon={summary.icon}
+                    reportType={summary.reportType}
                     title={summary.title}
                     status={report.status}
                     submittedLabel={summary.submittedLabel}
                 />
 
-                {/* ---------------- Issue ---------------- */}
-                <ReportSectionTitle>Issue Description</ReportSectionTitle>
+                {/* ---------------- Photo evidence ----------------
+                    Only when there is some: a report filed without photos
+                    simply has no evidence section. */}
+                {photos.length > 0 && (
+                    <>
+                        <ReportSectionTitle>Photo Evidence</ReportSectionTitle>
+
+                        <View style={reportDetailStyles.card}>
+                            <ReportPhotoGallery photos={photos} onOpen={setViewerIndex} />
+                        </View>
+                    </>
+                )}
+
+                {/* ---------------- Report information ---------------- */}
+                <ReportSectionTitle>Report Information</ReportSectionTitle>
+
+                <View style={reportDetailStyles.card}>
+                    <ReportJourneyRow
+                        entry={{
+                            icon: summary.icon,
+                            label: 'Category',
+                            primary: summary.title,
+                            secondary: reportTypeLabel(summary.reportType),
+                        }}
+                        isFirst
+                    />
+
+                    {journey.map((entry) => (
+                        <ReportJourneyRow key={entry.label} entry={entry} isFirst={false} />
+                    ))}
+
+                    <ReportJourneyRow
+                        entry={{
+                            icon: 'calendar-outline',
+                            label: 'Submitted',
+                            primary: summary.dateLabel,
+                        }}
+                        isFirst={false}
+                    />
+                </View>
+
+                {/* ---------------- Description ---------------- */}
+                <ReportSectionTitle>
+                    {isPositive ? 'Your Experience' : 'Issue Description'}
+                </ReportSectionTitle>
 
                 <View style={reportDetailStyles.card}>
                     <Text style={reportDetailStyles.descriptionText}>{report.description}</Text>
-                </View>
-
-                {/* ---------------- Journey ---------------- */}
-                <ReportSectionTitle>Journey Details</ReportSectionTitle>
-
-                <View style={reportDetailStyles.card}>
-                    {journey.map((entry, index) => (
-                        <ReportJourneyRow
-                            key={entry.label}
-                            entry={entry}
-                            isFirst={index === 0}
-                        />
-                    ))}
-                </View>
-
-                {/* ---------------- Photo evidence ---------------- */}
-                <ReportSectionTitle>Photo Evidence</ReportSectionTitle>
-
-                <View style={reportDetailStyles.card}>
-                    {photos.length > 0 ? (
-                        <ReportPhotoGallery photos={photos} onOpen={setViewerIndex} />
-                    ) : (
-                        <ReportEmptySection
-                            icon="images-outline"
-                            message="No photos attached to this report."
-                        />
-                    )}
                 </View>
 
                 {/* ---------------- Timeline ---------------- */}
@@ -353,55 +374,56 @@ export const ReportDetailsScreen = () => {
                     report id is all this screen has to hand over. */}
                 <CommunityFeedback reportId={report.reportId} token={token} />
 
-                {/* ---------------- Owner actions ---------------- */}
+                {/* ---------------- Owner actions ----------------
+                    Pending: Edit and Delete. Verified or rejected: a note that
+                    it can no longer be edited, and Delete. Another passenger's
+                    report: nothing at all. */}
                 {isOwner && (
                     <View style={styles.actions}>
-                        {canEdit && (
-                            <TouchableOpacity
-                                style={styles.primaryButton}
-                                onPress={() =>
-                                    router.push(reportEditPath(report.reportId) as Href)
-                                }
-                                accessibilityRole="button"
-                                accessibilityLabel="Edit Report"
-                            >
-                                <Ionicons name="create-outline" size={18} color="#FFFFFF" />
-                                <Text style={styles.primaryButtonText}>Edit Report</Text>
-                            </TouchableOpacity>
-                        )}
+                        <ReportSectionTitle>Manage Your Report</ReportSectionTitle>
 
-                        {canDelete && (
-                            <TouchableOpacity
-                                style={styles.dangerButton}
-                                onPress={() => setIsConfirmingDelete(true)}
-                                accessibilityRole="button"
-                                accessibilityLabel="Delete Report"
-                            >
-                                <Ionicons
-                                    name="trash-outline"
-                                    size={18}
-                                    color={adminColors.danger}
-                                />
-                                <Text style={styles.dangerButtonText}>Delete Report</Text>
-                            </TouchableOpacity>
-                        )}
-
-                        {/* Said rather than merely enacted: an author whose
-                            report has been decided would otherwise find the
-                            controls simply missing, which reads as a fault. */}
-                        {!canEdit && !canDelete && (
+                        {!!editLockedMessage && (
                             <View style={styles.lockedNotice}>
                                 <Ionicons
                                     name="lock-closed-outline"
                                     size={16}
                                     color={adminColors.textSecondary}
                                 />
-                                <Text style={styles.lockedNoticeText}>
-                                    This report has been reviewed, so it can no longer be
-                                    edited or deleted.
-                                </Text>
+                                <Text style={styles.lockedNoticeText}>{editLockedMessage}</Text>
                             </View>
                         )}
+
+                        <View style={styles.actionRow}>
+                            {canEdit && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.primaryButton]}
+                                    onPress={() =>
+                                        router.push(reportEditPath(report.reportId) as Href)
+                                    }
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Edit Report"
+                                >
+                                    <Ionicons name="create-outline" size={18} color="#FFFFFF" />
+                                    <Text style={styles.primaryButtonText}>Edit Report</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {canDelete && (
+                                <TouchableOpacity
+                                    style={[styles.actionButton, styles.dangerButton]}
+                                    onPress={() => setIsConfirmingDelete(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Delete Report"
+                                >
+                                    <Ionicons
+                                        name="trash-outline"
+                                        size={18}
+                                        color={adminColors.danger}
+                                    />
+                                    <Text style={styles.dangerButtonText}>Delete Report</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </View>
                 )}
             </>
@@ -412,7 +434,7 @@ export const ReportDetailsScreen = () => {
 
     return (
         <View style={styles.container}>
-            <AdminScreenHeader title="Report Details" />
+            <AdminScreenHeader title="Report Details" tone="brand" />
 
             <ScrollView
                 contentContainerStyle={styles.content}
@@ -457,14 +479,21 @@ const styles = StyleSheet.create({
     },
 
     // ---- Owner actions ----
-    actions: { marginTop: 28 },
-    primaryButton: {
+    actions: { marginTop: 4 },
+    // Side by side when both are offered, each taking half; a lone Delete
+    // takes the full width.
+    actionRow: { flexDirection: 'row', gap: 10 },
+    actionButton: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: adminColors.primary,
         minHeight: 52,
         borderRadius: 12,
+        paddingHorizontal: 12,
+    },
+    primaryButton: {
+        backgroundColor: adminColors.primary,
         ...adminShadow.card,
     },
     primaryButtonText: {
@@ -475,12 +504,9 @@ const styles = StyleSheet.create({
         letterSpacing: 0.3,
     },
     dangerButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 52,
-        borderRadius: 12,
-        marginTop: 10,
+        backgroundColor: adminColors.surface,
+        borderWidth: 1,
+        borderColor: adminColors.dangerBorder,
     },
     dangerButtonText: {
         color: adminColors.danger,
@@ -497,11 +523,12 @@ const styles = StyleSheet.create({
         borderColor: adminColors.border,
         borderRadius: 12,
         padding: 14,
+        marginBottom: 12,
     },
     lockedNoticeText: {
         flex: 1,
-        fontSize: 13,
-        lineHeight: 19,
+        fontSize: 14,
+        lineHeight: 20,
         color: adminColors.textSecondary,
         marginLeft: 10,
     },
