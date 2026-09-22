@@ -2,7 +2,7 @@ import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet,  TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Notification } from '../../../entities/notification/model/types';
 import { markNotificationAsRead } from '../api/notificationApi';
 
@@ -18,6 +18,7 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
     const router = useRouter();
     const isUnread = notification.status === 'UNREAD';
     const isBoardingReminder = notification.type === 'BOARDING_REMINDER';
+    const isVehicleArrival = notification.type === 'VEHICLE_ARRIVAL';
     const { details } = notification;
 
     const handlePress = async () => {
@@ -75,7 +76,9 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
             style={[
                 styles.card,
                 isUnread
-                    ? isBoardingReminder
+                    ? isVehicleArrival
+                        ? styles.cardArrivalUnread
+                        : isBoardingReminder
                         ? styles.cardReminderUnread
                         : styles.cardUnread
                     : styles.cardRead,
@@ -91,17 +94,29 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                         style={[
                             styles.iconBadge,
                             isUnread
-                                ? isBoardingReminder
+                                ? isVehicleArrival
+                                    ? styles.iconBadgeArrivalUnread
+                                    : isBoardingReminder
                                     ? styles.iconBadgeReminderUnread
                                     : styles.iconBadgeUnread
                                 : styles.iconBadgeRead,
                         ]}
                     >
                         <Ionicons
-                            name={isBoardingReminder ? 'alarm-outline' : 'checkmark-circle-outline'}
+                            name={
+                                isVehicleArrival
+                                    ? 'bus'
+                                    : isBoardingReminder
+                                    ? 'alarm-outline'
+                                    : 'checkmark-circle-outline'
+                            }
                             size={20}
                             color={
-                                isBoardingReminder
+                                isVehicleArrival
+                                    ? isUnread
+                                        ? '#059669'
+                                        : '#065F46'
+                                    : isBoardingReminder
                                     ? isUnread
                                         ? '#D97706'
                                         : '#92400E'
@@ -115,7 +130,12 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                         <Text
                             style={[
                                 styles.title,
-                                isUnread && (isBoardingReminder ? styles.textReminderBold : styles.textBold),
+                                isUnread &&
+                                    (isVehicleArrival
+                                        ? styles.textArrivalBold
+                                        : isBoardingReminder
+                                        ? styles.textReminderBold
+                                        : styles.textBold),
                             ]}
                         >
                             {notification.title}
@@ -128,7 +148,9 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                     <View
                         style={[
                             styles.unreadIndicatorContainer,
-                            isBoardingReminder && styles.unreadIndicatorReminder,
+                            isVehicleArrival
+                                ? styles.unreadIndicatorArrival
+                                : isBoardingReminder && styles.unreadIndicatorReminder,
                         ]}
                     >
                         <View style={styles.unreadDot} />
@@ -144,62 +166,107 @@ export const NotificationCard: React.FC<NotificationCardProps> = ({
                 <View style={styles.snapshotContainer}>
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="ticket-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Ionicons
+                                name="ticket-outline"
+                                size={13}
+                                color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                            />
                             <Text style={styles.chipLabel}>ID:</Text>
                             <Text style={styles.chipValue}>{details.bookingId || notification.bookingId}</Text>
                         </View>
 
                         <View style={styles.chip}>
-                            <Ionicons name="bus-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Ionicons
+                                name="bus-outline"
+                                size={13}
+                                color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                            />
                             <Text style={styles.chipLabel}>Vehicle:</Text>
                             <Text style={styles.chipValue}>{details.vehicleNumber}</Text>
                         </View>
+
+                        {details.etaMinutes !== undefined && (
+                            <View style={[styles.chip, styles.chipEta]}>
+                                <Ionicons name="time" size={13} color="#059669" />
+                                <Text style={styles.chipLabel}>ETA:</Text>
+                                <Text style={[styles.chipValue, { color: '#059669', fontWeight: '700' }]}>
+                                    {details.etaMinutes <= 1 ? 'Arriving Now' : `~${details.etaMinutes} mins`}
+                                </Text>
+                            </View>
+                        )}
                     </View>
 
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="navigate-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Ionicons
+                                name="navigate-outline"
+                                size={13}
+                                color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                            />
                             <Text style={styles.chipLabel}>Route:</Text>
                             <Text style={styles.chipValue}>
-                                {details.routeNumber} ({details.routeName})
+                                {details.routeNumber} ({details.routeName || 'Direct Route'})
                             </Text>
                         </View>
                     </View>
 
                     <View style={styles.chipRow}>
                         <View style={styles.chip}>
-                            <Ionicons name="location-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
+                            <Ionicons
+                                name="location-outline"
+                                size={13}
+                                color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                            />
                             <Text style={styles.chipLabel}>Boarding:</Text>
                             <Text style={styles.chipValue}>{details.startLocation}</Text>
                         </View>
 
-                        <View style={styles.chip}>
-                            <Ionicons name="accessibility-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
-                            <Text style={styles.chipLabel}>Seat:</Text>
-                            <Text style={styles.chipValue}>{details.seatNumber}</Text>
-                        </View>
+                        {details.seatNumber && (
+                            <View style={styles.chip}>
+                                <Ionicons
+                                    name="accessibility-outline"
+                                    size={13}
+                                    color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                                />
+                                <Text style={styles.chipLabel}>Seat:</Text>
+                                <Text style={styles.chipValue}>{details.seatNumber}</Text>
+                            </View>
+                        )}
                     </View>
 
-                    <View style={styles.chipRow}>
-                        <View style={styles.chip}>
-                            <Ionicons name="time-outline" size={13} color={isBoardingReminder ? '#D97706' : '#0066CC'} />
-                            <Text style={styles.chipLabel}>Departure Time:</Text>
-                            <Text style={styles.chipValue}>
-                                {details.journeyDate} ({formatCleanTime(details.journeyTime)})
-                            </Text>
+                    {(details.journeyDate || details.journeyTime) && (
+                        <View style={styles.chipRow}>
+                            <View style={styles.chip}>
+                                <Ionicons
+                                    name="time-outline"
+                                    size={13}
+                                    color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
+                                />
+                                <Text style={styles.chipLabel}>Departure Time:</Text>
+                                <Text style={styles.chipValue}>
+                                    {details.journeyDate} ({formatCleanTime(details.journeyTime)})
+                                </Text>
+                            </View>
                         </View>
-                    </View>
+                    )}
                 </View>
             )}
 
             <View style={styles.footerRow}>
-                <Text style={[styles.tapPrompt, isBoardingReminder && styles.tapPromptReminder]}>
-                    Tap to view reservation ticket
+                <Text
+                    style={[
+                        styles.tapPrompt,
+                        isVehicleArrival
+                            ? styles.tapPromptArrival
+                            : isBoardingReminder && styles.tapPromptReminder,
+                    ]}
+                >
+                    {isVehicleArrival ? 'Tap to view live bus tracking & ticket' : 'Tap to view reservation ticket'}
                 </Text>
                 <Ionicons
                     name="chevron-forward"
                     size={16}
-                    color={isBoardingReminder ? '#D97706' : '#0066CC'}
+                    color={isVehicleArrival ? '#059669' : isBoardingReminder ? '#D97706' : '#0066CC'}
                 />
             </View>
         </TouchableOpacity>
@@ -226,6 +293,10 @@ const styles = StyleSheet.create({
     cardReminderUnread: {
         backgroundColor: '#FFFBEB',
         borderColor: '#FDE68A',
+    },
+    cardArrivalUnread: {
+        backgroundColor: '#F0FDF4',
+        borderColor: '#A7F3D0',
     },
     cardRead: {
         backgroundColor: '#FFFFFF',
@@ -256,6 +327,9 @@ const styles = StyleSheet.create({
     iconBadgeReminderUnread: {
         backgroundColor: '#FEF3C7',
     },
+    iconBadgeArrivalUnread: {
+        backgroundColor: '#D1FAE5',
+    },
     iconBadgeRead: {
         backgroundColor: '#F1F5F9',
     },
@@ -275,6 +349,10 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#B45309',
     },
+    textArrivalBold: {
+        fontWeight: '700',
+        color: '#047857',
+    },
     timestamp: {
         fontSize: 12,
         color: '#64748B',
@@ -290,6 +368,9 @@ const styles = StyleSheet.create({
     },
     unreadIndicatorReminder: {
         backgroundColor: '#D97706',
+    },
+    unreadIndicatorArrival: {
+        backgroundColor: '#059669',
     },
     unreadDot: {
         width: 6,
@@ -334,6 +415,10 @@ const styles = StyleSheet.create({
         borderColor: '#CBD5E1',
         marginRight: 4,
     },
+    chipEta: {
+        backgroundColor: '#ECFDF5',
+        borderColor: '#A7F3D0',
+    },
     chipLabel: {
         fontSize: 11,
         color: '#64748B',
@@ -358,5 +443,8 @@ const styles = StyleSheet.create({
     },
     tapPromptReminder: {
         color: '#D97706',
+    },
+    tapPromptArrival: {
+        color: '#059669',
     },
 });
