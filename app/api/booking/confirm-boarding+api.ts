@@ -3,6 +3,7 @@ import {
     dispatchBoardingAlert,
     dispatchCaregiverJourneyAlert,
 } from '../../../src/shared/services/pushNotificationDispatcher';
+import { dispatchCaregiverSafetyAlert } from '../../../src/features/caregiver/services/caregiverAlertService';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -209,6 +210,23 @@ export async function POST(request: Request) {
                     locationName: startHalt,
                     bookingId,
                 }).catch((cErr) => console.warn('Push dispatch error for caregiver:', cErr));
+            }
+
+            // Multi-channel Caregiver Safety Alert (SMS, Email, Live GPS Tracking Link) - MOV-227 / MOV-230
+            if (bookingData.userId && bookingData.userId !== 'GUEST') {
+                dispatchCaregiverSafetyAlert('BOARDING_CONFIRMED', {
+                    bookingId,
+                    passengerId: bookingData.userId,
+                    passengerName,
+                    tripId: bookingData.tripId || bookingData.journey?.tripId || '',
+                    busId: busId || bookingData.busId || '',
+                    busRegistrationNumber: numberPlate,
+                    routeNumber,
+                    routeName,
+                    boardingStopName: startHalt,
+                    destinationStopName: dropOffHalt,
+                    trackingToken: bookingData.trackingToken,
+                }, adminDb).catch((err) => console.warn('Caregiver multi-channel boarding dispatch error:', err));
             }
         } catch (cErr) {
             console.warn('Failed creating caregiver boarding notification:', cErr);

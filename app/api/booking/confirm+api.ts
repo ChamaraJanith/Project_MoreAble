@@ -5,6 +5,8 @@ import { generateBookingId } from '../../../src/shared/utils/bookingId';
 import { calculateFare } from '../../../src/shared/utils/fare';
 import { normalizeLocation } from '../../../src/shared/utils/location';
 import { buildSeatLayout, findSeat } from '../../../src/shared/utils/seatLayout';
+import { dispatchCaregiverSafetyAlert } from '../../../src/features/caregiver/services/caregiverAlertService';
+import { generateTrackingToken } from '../../../src/features/caregiver/model/caregiverUtils';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -386,6 +388,36 @@ export async function POST(request: Request) {
             transaction.set(notificationsRef.doc(notificationId), newNotification);
             return newBooking;
         });
+
+        // Trigger Caregiver Journey Alert & attach live tracking token (MOV-227 / MOV-230)
+        try {
+            const trackingToken = generateTrackingToken(booking.bookingId);
+            adminDb.collection('bookings').doc(booking.bookingId).set({ trackingToken }, { merge: true }).catch(() => {});
+
+            if (passengerId && passengerId !== 'GUEST') {
+                const userDoc = await adminDb.collection('users').doc(passengerId).get();
+                const actualPassengerName = userDoc.exists ? (userDoc.data()?.userName || userDoc.data()?.fullName || 'Passenger') : 'Passenger';
+                const busPlate = bus?.numberPlate || bus?.registrationNumber || bus?.plateNumber || 'Transit Bus';
+
+                dispatchCaregiverSafetyAlert('BOOKING_CONFIRMED', {
+                    bookingId: booking.bookingId,
+                    passengerId,
+                    passengerName: actualPassengerName,
+                    tripId: booking.tripId,
+                    busId: booking.busId,
+                    busRegistrationNumber: busPlate,
+                    routeNumber: booking.journey?.routeNumber,
+                    routeName: booking.journey?.routeName,
+                    boardingStopName: booking.journey?.startLocation,
+                    destinationStopName: booking.journey?.endLocation,
+                    scheduledDepartureTime: booking.journey?.departureTime,
+                    scheduledArrivalTime: booking.journey?.arrivalTime,
+                    trackingToken,
+                }, adminDb).catch((cErr) => console.warn('Caregiver booking alert error:', cErr));
+            }
+        } catch (caregiverErr) {
+            console.warn('Caregiver dispatch initialization error:', caregiverErr);
+        }
 
         return Response.json(
             { success: true, message: 'Booking confirmed successfully.', booking },
