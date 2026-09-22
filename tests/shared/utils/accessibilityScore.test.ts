@@ -132,6 +132,21 @@ describe('facility score', () => {
         expect(computeFacilityScore(facilities)).toBe(0);
     });
 
+    it('counts a counted facility marked available even when its count is 0', () => {
+        // The other direction of the rule above: availability governs, so a
+        // zero count must not take a facility away. PUT /api/buses stores
+        // exactly this shape when an admin marks a facility available without
+        // a count. 2 of 8 -> 25.
+        const facilities: BusAccessibilityFacilities = {
+            ...NONE,
+            wheelchairSpace: { available: true, count: 0 },
+            guardianSeats: { available: true, count: 0 },
+        };
+        expect(isFacilityConfigured(facilities, 'wheelchairSpace')).toBe(true);
+        expect(isFacilityConfigured(facilities, 'guardianSeats')).toBe(true);
+        expect(computeFacilityScore(facilities)).toBe(25);
+    });
+
     describe('effective availability', () => {
         it('takes out a configured facility that has an active verified issue', () => {
             expect(isFacilityEffectivelyAvailable(ALL, 'wheelchairRamp', ['wheelchairRamp'])).toBe(false);
