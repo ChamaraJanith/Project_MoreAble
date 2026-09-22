@@ -95,6 +95,10 @@ export const RegistrationForm = () => {
 
             const gNicCheck = parseSriLankanNic(guardianData.nicNo);
             if (!gNicCheck.isValid) newErrors.gNicNo = 'Invalid Guardian NIC Number';
+
+            if (guardianData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guardianData.email)) {
+                newErrors.gEmail = 'Invalid Guardian Email Address';
+            }
         }
 
         setErrors(newErrors);
@@ -744,6 +748,29 @@ export const RegistrationForm = () => {
                                             <View style={styles.errorContainer}>
                                                 <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
                                                 <Text style={styles.errorText}>{errors.gFullName}</Text>
+                                            </View>
+                                        )}
+                                    </View>
+
+                                    <View style={styles.inputGroup}>
+                                        <Text style={styles.label}>{t('auth.guardianEmail', 'Guardian Email')}</Text>
+                                        <View style={[styles.inputWrapper, errors.gEmail ? styles.inputErrorBorder : null]}>
+                                            <Ionicons name="mail-outline" size={24} color="#0066CC" style={styles.inputIcon} />
+                                            <TextInput
+                                                style={styles.input}
+                                                placeholder="e.g. guardian@example.com"
+                                                placeholderTextColor="#777"
+                                                keyboardType="email-address"
+                                                autoCapitalize="none"
+                                                value={guardianData.email}
+                                                onChangeText={(text) => setGuardianData({ ...guardianData, email: text })}
+                                                accessibilityLabel="Guardian Email"
+                                            />
+                                        </View>
+                                        {!!errors.gEmail && (
+                                            <View style={styles.errorContainer}>
+                                                <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
+                                                <Text style={styles.errorText}>{errors.gEmail}</Text>
                                             </View>
                                         )}
                                     </View>

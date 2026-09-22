@@ -46,6 +46,7 @@ export default function ProfileScreen() {
 
   // Form States for Guardian
   const [gName, setGName] = useState('');
+  const [gEmail, setGEmail] = useState('');
   const [gNic, setGNic] = useState('');
   const [gMobile, setGMobile] = useState('');
   const [gRelationship, setGRelationship] = useState('Son / Daughter');
@@ -333,11 +334,13 @@ export default function ProfileScreen() {
   const openGuardianModal = () => {
     if (currentGuardian) {
       setGName(currentGuardian.fullName || '');
+      setGEmail(currentGuardian.email || '');
       setGNic(currentGuardian.nicNo || '');
       setGMobile(currentGuardian.mobileNo || '');
       setGRelationship(currentGuardian.relationship || 'Son / Daughter');
     } else {
       setGName('');
+      setGEmail('');
       setGNic('');
       setGMobile('');
       setGRelationship('Son / Daughter');
@@ -366,6 +369,10 @@ export default function ProfileScreen() {
       errors.gNic = 'Guardian NIC Number is required';
     }
 
+    if (gEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gEmail)) {
+      errors.gEmail = 'Invalid Email Address';
+    }
+
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
       return;
@@ -375,6 +382,7 @@ export default function ProfileScreen() {
 
     const guardianPayload = {
       fullName: gName.trim(),
+      email: gEmail.trim(),
       nicNo: gNic.trim(),
       mobileNo: gMobile.trim(),
       relationship: gRelationship.trim(),
@@ -855,6 +863,24 @@ export default function ProfileScreen() {
                 />
               </View>
               {formErrors.gName && <Text style={styles.modalErrorText}>{formErrors.gName}</Text>}
+            </View>
+
+            {/* Guardian Email Input */}
+            <View style={styles.modalInputGroup}>
+              <Text style={styles.modalInputLabel}>{t('profile.guardianEmail', 'Guardian Email')}</Text>
+              <View style={[styles.modalInputWrapper, formErrors.gEmail ? styles.modalInputError : null]}>
+                <Ionicons name="mail-outline" size={20} color="#0066CC" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modalTextInput}
+                  placeholder="e.g. guardian@example.com"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={gEmail}
+                  onChangeText={setGEmail}
+                />
+              </View>
+              {formErrors.gEmail && <Text style={styles.modalErrorText}>{formErrors.gEmail}</Text>}
             </View>
 
             {/* Guardian NIC Input */}
