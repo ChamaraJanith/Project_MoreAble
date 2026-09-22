@@ -12,10 +12,12 @@ import {
   RoadRoute,
 } from '../../../src/shared/api/routingService';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { loadAccessibilityScoreEvidence } from '../../../src/shared/server/accessibilityScoreEvidence';
 import { sumSegmentDistances } from '../../../src/shared/server/routeDistance';
 import { buildLiveStatus, loadVehicleLocation } from '../../../src/shared/server/vehicleLocations';
 import {
   AccessibilityRequirementKey,
+  AccessibilityScoreEvidence,
   computeAccessibilityScore,
   meetsAccessibilityRequirements,
   parseAccessibilityRequirements,
@@ -520,6 +522,7 @@ async function attachUpcomingTrips(
   travelTime: string,
   busCache: Map<string, Promise<Bus | null>>,
   locationCache: Map<string, Promise<VehicleLocation | null>>,
+  evidenceCache: Map<string, Promise<AccessibilityScoreEvidence>>,
   now: Date
 ): Promise<JourneySearchMatch> {
   // A route document with no usable id owns no trips that can be resolved, and
@@ -534,9 +537,10 @@ async function attachUpcomingTrips(
     upcomingTrips.map(async (trip) => {
       // Both reads are keyed on this trip's own busId, so the vehicle shown and
       // the position shown are always the same vehicle. MOV-120.
-      const [bus, vehicleLocation] = await Promise.all([
+      const [bus, vehicleLocation, evidence] = await Promise.all([
         loadBus(adminDb, trip.busId, busCache),
         loadVehicleLocation(adminDb, trip.busId, locationCache),
+        loadAccessibilityScoreEvidence(adminDb, trip.busId, evidenceCache),
       ]);
 
       return {
@@ -555,12 +559,11 @@ async function attachUpcomingTrips(
               manufacturer: bus.manufacturer,
               seatCapacity: bus.seatCapacity,
               accessibilityFacilities: bus.accessibilityFacilities,
-              // Derived from this bus's own facilities, inside the same block
-              // that resolved them, so a score can never be paired with a
-              // different vehicle. The same function the booking flow uses —
-              // one definition of how accessible a bus is (MOV-89). What the
-              // score should weigh is MOV-79's to widen.
-              accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
+              // Derived from this bus's own facilities and its own evidence,
+              // both keyed on this trip's busId, so a score can never be paired
+              // with a different vehicle. The same function the booking flow
+              // uses — one definition of how accessible a bus is (MOV-79).
+              accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
             }
           : null,
         liveStatus: buildLiveStatus(vehicleLocation, now),
@@ -817,13 +820,14 @@ export async function POST(request: Request) {
     // road path along that route's own stops.
     const busCache = new Map<string, Promise<Bus | null>>();
     const locationCache = new Map<string, Promise<VehicleLocation | null>>();
+    const evidenceCache = new Map<string, Promise<AccessibilityScoreEvidence>>();
     // One instant for the whole response, so every reported location age is
     // measured against the same clock.
     const now = new Date();
 
     const routesWithDepartures = await Promise.all(
       matchedRoutes.map((match) =>
-        attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, now)
+        attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, evidenceCache, now)
       )
     );
 

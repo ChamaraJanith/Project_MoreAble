@@ -29,7 +29,7 @@ import {
     getRouteBetweenCoordinates,
     getRouteThroughCoordinates,
 } from '../../../src/shared/api/routingService';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import { computeAccessibilityScore, computeFacilityScore } from '../../../src/shared/utils/accessibility';
 import { rankJourneyOptions } from '../../../src/shared/utils/journeyRanking';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { nextUniqueValue } from '../../testUtils/uniqueValue';
@@ -408,7 +408,13 @@ describe('a departure whose accessibility data is incomplete', () => {
 
         const { bus: vehicle } = optionFor(await search(db), 'TRIP-00001');
 
-        expect(vehicle.accessibilityScore).toBe(0);
+        // Missing facilities count as absent (MOV-79): the vehicle scores exactly
+        // what a bus with every facility recorded as unavailable scores, and no
+        // more. The total is not zero only because the community and rating
+        // factors sit at their neutral baseline when there is no evidence.
+        expect(computeFacilityScore(undefined)).toBe(0);
+        expect(vehicle.accessibilityScore).toBe(computeAccessibilityScore(NOT_EQUIPPED));
+        expect(vehicle.accessibilityScore).toBeLessThan(computeAccessibilityScore(PARTLY_EQUIPPED));
     });
 });
 

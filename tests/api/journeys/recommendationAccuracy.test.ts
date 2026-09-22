@@ -42,7 +42,15 @@ import {
     getRouteBetweenCoordinates,
     getRouteThroughCoordinates,
 } from '../../../src/shared/api/routingService';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import {
+    COMMUNITY_WEIGHT,
+    computeAccessibilityScore,
+    computeCommunityScore,
+    computeFacilityScore,
+    computeRatingScore,
+    FACILITY_WEIGHT,
+    RATING_WEIGHT,
+} from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import {
     FULLY_EQUIPPED,
@@ -220,10 +228,30 @@ describe('the fixtures used to rank', () => {
         expect(scoreOf(PARTLY_EQUIPPED)).toBeGreaterThan(scoreOf(NOT_EQUIPPED));
     });
 
-    it('treats a bus with nothing recorded as a measured zero', () => {
-        // Zero is a measurement: the vehicle was assessed and has no facilities.
-        // It is not the same as a score nobody could establish.
-        expect(scoreOf(NOT_EQUIPPED)).toBe(0);
+    it('treats a bus with nothing recorded as measured, with no facility credit', () => {
+        // A measurement: the vehicle was assessed and has no facilities, so its
+        // facility factor is zero. It is not the same as a score nobody could
+        // establish. Since MOV-79 the total is not zero — absent community and
+        // rating evidence sit at their neutral baseline — but nothing about the
+        // vehicle is credited, and missing facilities score no better.
+        // The agreed MOV-79 neutral value of a factor with no evidence.
+        const NEUTRAL_FACTOR_SCORE = 50;
+
+        expect(computeFacilityScore(NOT_EQUIPPED)).toBe(0);
+        expect(computeCommunityScore(null)).toBe(NEUTRAL_FACTOR_SCORE);
+        expect(computeRatingScore(null)).toBe(NEUTRAL_FACTOR_SCORE);
+
+        // Exactly 0 * 0.50 + 50 * 0.30 + 50 * 0.20: no facility credit, and
+        // nothing but the neutral baseline for the evidence that is absent.
+        expect(scoreOf(NOT_EQUIPPED)).toBe(
+            Math.round(
+                0 * FACILITY_WEIGHT +
+                    NEUTRAL_FACTOR_SCORE * COMMUNITY_WEIGHT +
+                    NEUTRAL_FACTOR_SCORE * RATING_WEIGHT
+            )
+        );
+        // A record with no facility block at all scores no better.
+        expect(scoreOf(undefined)).toBe(scoreOf(NOT_EQUIPPED));
     });
 });
 
@@ -341,7 +369,7 @@ describe('A. the order a passenger is given', () => {
         });
 
         expect(orderOf(journeys)).toEqual(['T-ZERO', 'T-UNKNOWN']);
-        expect(journeys[0].accessibilityScore).toBe(0);
+        expect(journeys[0].accessibilityScore).toBe(scoreOf(NOT_EQUIPPED));
         expect(journeys[1].accessibilityScore).toBeNull();
     });
 
