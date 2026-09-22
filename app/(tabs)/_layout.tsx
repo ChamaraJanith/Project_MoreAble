@@ -76,6 +76,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="activities/rate/[bookingId]"
+        options={{
+          // Reached only after the passenger confirms End Journey, not a standalone tab.
+          href: null,
+        }}
+      />
+      <Tabs.Screen
           name="booking/index"
           options={{
               title: 'Bookings',
