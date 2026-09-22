@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     ScrollView,
     StyleSheet,
     TextInput,
@@ -82,6 +83,14 @@ export default function BookingConfirmScreen() {
     const [specialRequests, setSpecialRequests] =
         useState('');
 
+    const requiresReceiverDetails = isSeatWheelchair || isUserWheelchair || prioritySeatAssistance;
+
+    const [receiverName, setReceiverName] = useState('');
+    const [receiverPhone, setReceiverPhone] = useState('');
+    const [verificationCode, setVerificationCode] = useState('');
+    const [isCodeSent, setIsCodeSent] = useState(false);
+    const [isVerified, setIsVerified] = useState(false);
+
     const [hasConfirmedDetails, setHasConfirmedDetails] =
         useState(false);
 
@@ -142,6 +151,11 @@ export default function BookingConfirmScreen() {
             return;
         }
 
+        if (requiresReceiverDetails && (!isVerified || !receiverName || !receiverPhone)) {
+            setSubmitError('Please verify receiver details before confirming.');
+            return;
+        }
+
         setIsSubmitting(true);
         setSubmitError('');
 
@@ -166,6 +180,9 @@ export default function BookingConfirmScreen() {
                 },
                 specialRequests:
                     specialRequests.trim() || undefined,
+                receiverDetails: requiresReceiverDetails
+                    ? { name: receiverName, phone: receiverPhone }
+                    : undefined,
             });
 
             setSelectedVehicle(null);
@@ -266,6 +283,80 @@ export default function BookingConfirmScreen() {
                     accessibilityLabel="Mobility assistance or special requests"
                 />
             </View>
+
+            {/* Receiver Details (Conditional) */}
+            {requiresReceiverDetails && (
+                <>
+                    <Text style={styles.sectionLabel}>
+                        Receiver Details (Required for Special Seats)
+                    </Text>
+
+                    <View style={styles.card}>
+                        <TextInput
+                            style={styles.receiverInput}
+                            placeholder="Receiver Name"
+                            placeholderTextColor="#94A3B8"
+                            value={receiverName}
+                            onChangeText={setReceiverName}
+                            editable={!isVerified}
+                        />
+                        <TextInput
+                            style={[styles.receiverInput, { marginTop: 12 }]}
+                            placeholder="Receiver Phone Number"
+                            placeholderTextColor="#94A3B8"
+                            value={receiverPhone}
+                            onChangeText={setReceiverPhone}
+                            keyboardType="phone-pad"
+                            editable={!isVerified}
+                        />
+
+                        {!isCodeSent ? (
+                            <TouchableOpacity
+                                style={styles.verifyButton}
+                                onPress={() => {
+                                    if (!receiverName || !receiverPhone) {
+                                        Alert.alert('Error', 'Please enter name and phone number.');
+                                        return;
+                                    }
+                                    setIsCodeSent(true);
+                                    Alert.alert('Code Sent', 'A verification code has been sent to the receiver. (Use 1234)');
+                                }}
+                            >
+                                <Text style={styles.verifyButtonText}>Send Code</Text>
+                            </TouchableOpacity>
+                        ) : !isVerified ? (
+                            <View style={styles.verificationContainer}>
+                                <TextInput
+                                    style={styles.codeInput}
+                                    placeholder="Enter Code (e.g. 1234)"
+                                    placeholderTextColor="#94A3B8"
+                                    value={verificationCode}
+                                    onChangeText={setVerificationCode}
+                                    keyboardType="number-pad"
+                                />
+                                <TouchableOpacity
+                                    style={styles.verifyConfirmButton}
+                                    onPress={() => {
+                                        if (verificationCode === '1234') {
+                                            setIsVerified(true);
+                                            Alert.alert('Verified', 'Receiver details verified successfully.');
+                                        } else {
+                                            Alert.alert('Error', 'Invalid verification code.');
+                                        }
+                                    }}
+                                >
+                                    <Text style={styles.verifyButtonText}>Verify</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View style={styles.verifiedBadge}>
+                                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                                <Text style={styles.verifiedText}>Receiver Verified</Text>
+                            </View>
+                        )}
+                    </View>
+                </>
+            )}
 
             {/* Trip Details */}
             <Text style={styles.sectionLabel}>
@@ -636,20 +727,23 @@ export default function BookingConfirmScreen() {
                 style={[
                     styles.confirmButton,
                     (!hasConfirmedDetails ||
-                        isSubmitting) &&
+                        isSubmitting ||
+                        (requiresReceiverDetails && !isVerified)) &&
                         styles.confirmButtonDisabled,
                 ]}
                 onPress={handleConfirm}
                 disabled={
                     !hasConfirmedDetails ||
-                    isSubmitting
+                    isSubmitting ||
+                    (requiresReceiverDetails && !isVerified)
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Confirm booking"
                 accessibilityState={{
                     disabled:
                         !hasConfirmedDetails ||
-                        isSubmitting,
+                        isSubmitting ||
+                        (requiresReceiverDetails && !isVerified),
                 }}
             >
                 {isSubmitting ? (
@@ -853,6 +947,72 @@ const styles = StyleSheet.create({
         color: '#0F172A',
         textAlignVertical: 'top',
         backgroundColor: '#FAFAFA',
+    },
+
+    receiverInput: {
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        borderRadius: 10,
+        padding: 12,
+        fontSize: 14,
+        color: '#0F172A',
+        backgroundColor: '#FAFAFA',
+    },
+
+    verifyButton: {
+        backgroundColor: '#0066CC',
+        borderRadius: 8,
+        padding: 12,
+        alignItems: 'center',
+        marginTop: 12,
+    },
+
+    verifyButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+
+    verificationContainer: {
+        flexDirection: 'row',
+        marginTop: 12,
+        gap: 8,
+    },
+
+    codeInput: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        borderRadius: 10,
+        padding: 12,
+        fontSize: 14,
+        color: '#0F172A',
+        backgroundColor: '#FAFAFA',
+    },
+
+    verifyConfirmButton: {
+        backgroundColor: '#059669',
+        borderRadius: 8,
+        padding: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    verifiedBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#D1FAE5',
+        padding: 8,
+        borderRadius: 8,
+        marginTop: 12,
+        justifyContent: 'center',
+        gap: 6,
+    },
+
+    verifiedText: {
+        color: '#047857',
+        fontWeight: '600',
+        fontSize: 13,
     },
 
     busRow: {

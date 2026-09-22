@@ -163,6 +163,11 @@ export interface Booking {
   activeJourney?: BookingActiveJourney;
   /** Set once the passenger's journey on this booking has finished (MOV-297). */
   passengerJourney?: PassengerJourneyCompletion;
+  /** Receiver details for special seating (elderly/wheelchair) (MOV-XXX) */
+  receiverDetails?: {
+    name: string;
+    phone: string;
+  };
 }
 
 /**
@@ -363,8 +368,12 @@ export interface BoardingVerificationResult {
   fareAmount: number;
   fareCurrency: string;
   paymentStatus: PaymentStatus;
-  assistanceRequested: AssistanceRequested;
+  assistanceRequested?: AssistanceRequested;
   specialRequests?: string;
+  receiverDetails?: {
+    name: string;
+    phone: string;
+  };
   alreadyBoarded: boolean;
   boardedAt?: string;
   guardianInfo?: {

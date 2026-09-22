@@ -50,8 +50,11 @@ export interface ConfirmBookingPayload {
     destination?: string;
     assistanceRequested?: AssistanceRequested;
     specialRequests?: string;
+    receiverDetails?: {
+        name: string;
+        phone: string;
+    };
 }
-
 import { scheduleLocalBoardingReminder, sendLocalBookingNotification } from '../../../shared/utils/localNotifications';
 
 /** The server re-derives seat category, pairing (wheelchair↔guardian) and any age restriction itself. */
