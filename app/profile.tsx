@@ -992,6 +992,21 @@ export default function ProfileScreen() {
 
                 <View style={styles.divider} />
 
+                {currentGuardian.email ? (
+                  <>
+                    <View style={styles.viewDetailRow}>
+                      <View style={styles.iconCircle}>
+                        <Ionicons name="mail-outline" size={20} color="#0066CC" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.infoLabel}>{t('profile.guardianEmail', 'Guardian Email')}</Text>
+                        <Text style={styles.infoValue}>{currentGuardian.email}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.divider} />
+                  </>
+                ) : null}
+
                 <View style={styles.viewDetailRow}>
                   <View style={styles.iconCircle}>
                     <Ionicons name="card-outline" size={20} color="#0066CC" />
