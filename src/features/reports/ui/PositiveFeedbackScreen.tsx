@@ -12,22 +12,27 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { PositiveFeedbackCategory } from '../../../entities/report/model/types';
+import {
+    AccessibilityReport,
+    PositiveFeedbackCategory,
+    isPositiveFeedbackCategory,
+} from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSelectModal, AdminSelectOption } from '../../admin/ui/AdminSelectModal';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { submitPositiveFeedback } from '../api/positiveFeedbackApi';
+import { submitPositiveFeedback, updatePositiveFeedback } from '../api/positiveFeedbackApi';
 import {
     buildPositiveFeedbackPayload,
     POSITIVE_FEEDBACK_DESCRIPTION_MAX_LENGTH,
     PositiveFeedbackFormState,
     positiveFeedbackFieldErrors,
 } from '../utils/positiveFeedbackValidation';
-import { reportFormPath } from '../utils/reportRoutes';
+import { accessibilityReportsPath, reportFormPath } from '../utils/reportRoutes';
 import { POSITIVE_FEEDBACK_CATEGORY_OPTIONS } from './positiveFeedbackCategories';
 import { ReportSelectField, ReportTextArea } from './ReportFormFields';
 import { ReportJourneyFields } from './ReportJourneyFields';
+import { ReportSubmittedView } from './ReportSubmittedView';
 
 /** Dark enough on successSoft to pass WCAG AA for body text. */
 const SUCCESS_TEXT = '#1B5E20';
@@ -39,14 +44,34 @@ const SUCCESS_TEXT = '#1B5E20';
  * picker sheet and the shared route/bus selector — so it reads as part of the
  * same flow. It differs in what is required (only the category and the
  * description) and in where it is sent: see positiveFeedbackApi.
+ *
+ * Like the issue form it backs both filing and editing: an edit opens
+ * pre-filled from the stored feedback and saves with a PUT to that report.
  */
-export const PositiveFeedbackScreen = () => {
+export interface PositiveFeedbackScreenProps {
+    /** Sharing new feedback, or changing feedback that already exists. */
+    mode?: 'create' | 'edit';
+    /** The feedback being edited. Required by 'edit', ignored by 'create'. */
+    report?: AccessibilityReport;
+}
+
+export const PositiveFeedbackScreen = ({ mode = 'create', report }: PositiveFeedbackScreenProps) => {
     const { token, isAuthenticated } = useAuthStore();
 
-    const [category, setCategory] = useState<PositiveFeedbackCategory | null>(null);
-    const [description, setDescription] = useState('');
-    const [routeId, setRouteId] = useState<string | null>(null);
-    const [busId, setBusId] = useState<string | null>(null);
+    const isEditing = mode === 'edit' && !!report;
+
+    const [category, setCategory] = useState<PositiveFeedbackCategory | null>(
+        isEditing && isPositiveFeedbackCategory(report.category) ? report.category : null
+    );
+    const [description, setDescription] = useState(isEditing ? report.description : '');
+    const [routeId, setRouteId] = useState<string | null>(
+        isEditing ? (report.routeId ?? null) : null
+    );
+    const [busId, setBusId] = useState<string | null>(isEditing ? (report.busId ?? null) : null);
+
+    // The feedback the API stored, once new feedback has been shared. While
+    // set, the confirmation is shown in place of the form.
+    const [submittedReport, setSubmittedReport] = useState<AccessibilityReport | null>(null);
 
     const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -93,14 +118,16 @@ export const PositiveFeedbackScreen = () => {
         setIsSubmitting(true);
 
         try {
-            const result = await submitPositiveFeedback(payload, token);
+            const result = isEditing
+                ? await updatePositiveFeedback(report.reportId, payload, token)
+                : await submitPositiveFeedback(payload, token);
 
-            if (result.ok) {
-                Alert.alert(
-                    'Thank You!',
-                    'Your positive feedback has been submitted. It helps us recognise what is working well for passengers.',
-                    [{ text: 'Done', onPress: () => router.back() }]
-                );
+            if (result.ok && isEditing) {
+                Alert.alert('Feedback Updated', 'Your changes have been saved.', [
+                    { text: 'Done', onPress: () => router.back() },
+                ]);
+            } else if (result.ok) {
+                setSubmittedReport(result.report);
             } else {
                 setError(result.message);
             }
@@ -112,14 +139,42 @@ export const PositiveFeedbackScreen = () => {
         }
     };
 
+    const resetForm = () => {
+        setCategory(null);
+        setDescription('');
+        setRouteId(null);
+        setBusId(null);
+        setError(null);
+        setHasAttemptedSubmit(false);
+        setSubmittedReport(null);
+    };
+
+    if (submittedReport) {
+        return (
+            <View style={styles.container}>
+                <AdminScreenHeader title="Positive Feedback" tone="brand" />
+                <ReportSubmittedView
+                    report={submittedReport}
+                    onViewMyReports={() => router.dismissTo(accessibilityReportsPath('my') as Href)}
+                    onSubmitAnother={resetForm}
+                />
+            </View>
+        );
+    }
+
     return (
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
             <AdminScreenHeader
-                title="Positive Feedback"
-                subtitle="Tell us what went well on your journey"
+                tone="brand"
+                title={isEditing ? 'Edit Feedback' : 'Positive Feedback'}
+                subtitle={
+                    isEditing
+                        ? 'Update the details of your positive feedback'
+                        : 'Tell us what went well on your journey'
+                }
             />
 
             <ScrollView
@@ -146,16 +201,22 @@ export const PositiveFeedbackScreen = () => {
                             recognise and keep what works.
                         </Text>
 
-                        <TouchableOpacity
-                            style={styles.introLink}
-                            onPress={() => router.replace(reportFormPath() as Href)}
-                            disabled={isSubmitting}
-                            accessibilityRole="link"
-                            accessibilityLabel="Report an accessibility issue instead"
-                        >
-                            <Text style={styles.introLinkText}>Had a problem? Report an issue instead</Text>
-                            <Ionicons name="chevron-forward" size={14} color={SUCCESS_TEXT} />
-                        </TouchableOpacity>
+                        {/* Offered only when sharing new feedback: an edit
+                            cannot turn praise into an issue report. */}
+                        {!isEditing && (
+                            <TouchableOpacity
+                                style={styles.introLink}
+                                onPress={() => router.replace(reportFormPath() as Href)}
+                                disabled={isSubmitting}
+                                accessibilityRole="link"
+                                accessibilityLabel="Report an accessibility issue instead"
+                            >
+                                <Text style={styles.introLinkText}>
+                                    Had a problem? Report an issue instead
+                                </Text>
+                                <Ionicons name="chevron-forward" size={14} color={SUCCESS_TEXT} />
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 
@@ -218,17 +279,27 @@ export const PositiveFeedbackScreen = () => {
                     onPress={handleSubmit}
                     disabled={isSubmitting}
                     accessibilityRole="button"
-                    accessibilityLabel="Submit Feedback"
+                    accessibilityLabel={isEditing ? 'Save Changes' : 'Submit Feedback'}
                     accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
                 >
                     <View style={styles.buttonRow}>
                         {isSubmitting ? (
                             <ActivityIndicator color="#FFFFFF" size="small" />
                         ) : (
-                            <Ionicons name="paper-plane-outline" size={18} color="#FFFFFF" />
+                            <Ionicons
+                                name={isEditing ? 'save-outline' : 'paper-plane-outline'}
+                                size={18}
+                                color="#FFFFFF"
+                            />
                         )}
                         <Text style={styles.primaryButtonText}>
-                            {isSubmitting ? 'Submitting…' : 'Submit Feedback'}
+                            {isSubmitting
+                                ? isEditing
+                                    ? 'Saving…'
+                                    : 'Submitting…'
+                                : isEditing
+                                  ? 'Save Changes'
+                                  : 'Submit Feedback'}
                         </Text>
                     </View>
                 </TouchableOpacity>

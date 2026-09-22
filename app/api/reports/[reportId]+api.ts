@@ -95,28 +95,26 @@ function isReportOwner(report: Record<string, any>, passengerId: string): boolea
 }
 
 /**
- * Whether the report is still the author's to change, or why it is not.
+ * Whether the report is still the author's to edit, or why it is not.
  *
- * A report leaves its author's hands the moment an admin decides it. Editing a
- * verified report would change the account behind a finding somebody stands
- * behind, and deleting one would remove that finding outright; a rejection is
- * the record its author is owed and must not be edited into something else
- * either. So both are refused once the report is off PENDING.
+ * A report's content leaves its author's hands the moment an admin decides it.
+ * Editing a verified report would change the account behind a finding somebody
+ * stands behind, and a rejection is the record its author is owed and must not
+ * be edited into something else either. So edits are refused once the report
+ * is off PENDING. Deleting is not: the author may always withdraw their own
+ * report, whatever state it reached.
  *
  * 409 rather than 403: the caller IS the owner and the request IS well formed
  * — what stopped it is the state the report has reached, which is exactly what
  * the review route already answers 409 for. The status is named in the message
  * so the app can say what happened rather than that something did.
  */
-function checkReportIsOpenToChange(
-  report: Record<string, any>,
-  verb: 'edited' | 'deleted'
-): Response | null {
+function checkReportIsOpenToEdit(report: Record<string, any>): Response | null {
   if (!isReportDecided(report)) return null;
 
   return errorResponse(
     409,
-    `This report has already been reviewed (${reportDecisionStatus(report)}) and can no longer be ${verb}.`
+    `This report has already been reviewed (${reportDecisionStatus(report)}) and can no longer be edited.`
   );
 }
 
@@ -228,7 +226,7 @@ export async function PUT(request: Request, context: any) {
     // Checked before the body is read, so an edit to a decided report costs a
     // 409 and no validation of fields that were never going to be stored.
     // --------------------------------
-    const closed = checkReportIsOpenToChange(existing, 'edited');
+    const closed = checkReportIsOpenToEdit(existing);
 
     if (closed) return closed;
 
@@ -378,6 +376,9 @@ export async function PUT(request: Request, context: any) {
 
 // DELETE /api/reports/[reportId]
 //
+// Owner only (403 for anybody else), in any status: a passenger may delete
+// their own pending, verified or rejected report.
+//
 // The Firestore document only. The photos stay in Cloudinary: this project
 // uploads them from the app with an unsigned preset, which grants upload and
 // nothing else, and there is no server-side Cloudinary credential to delete
@@ -388,10 +389,6 @@ export async function DELETE(request: Request, context: any) {
     const loaded = await loadReport(request, context, { requireOwner: true });
 
     if (!loaded.ok) return loaded.response;
-
-    const closed = checkReportIsOpenToChange(loaded.report, 'deleted');
-
-    if (closed) return closed;
 
     await loaded.docRef.delete();
 

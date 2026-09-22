@@ -16,6 +16,7 @@ import {
     PositiveFeedbackPayload,
 } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
+import { reportApiPath } from '../utils/reportRoutes';
 
 /** What a submission produced, or why it did not — the shape reviewApi uses. */
 export type PositiveFeedbackResult =
@@ -31,17 +32,28 @@ const AUTH_REQUIRED_MESSAGE = 'Authentication required. Please log in again.';
  * knows whether the category or the bus was the problem — and the rest map to
  * the same messages the issue form shows for the same statuses.
  */
-function failureMessage(status: number, payload: any): string {
+function failureMessage(status: number, payload: any, action: 'submit' | 'update' = 'submit'): string {
     const apiMessage =
         typeof payload?.message === 'string' && payload.message ? payload.message : null;
 
     if (status === 401) return AUTH_REQUIRED_MESSAGE;
-    if (status === 403) return 'Only passengers can submit accessibility feedback.';
+    if (status === 403) {
+        return action === 'update'
+            ? 'You can only edit your own feedback.'
+            : 'Only passengers can submit accessibility feedback.';
+    }
     if (status === 400 || status === 404) {
         return apiMessage ?? 'Invalid request. Please check your inputs.';
     }
+    // The feedback was reviewed while the form was open. The API names the
+    // status it reached, which says more than a generic retry prompt.
+    if (status === 409) {
+        return apiMessage ?? 'This feedback has already been reviewed and can no longer be edited.';
+    }
 
-    return 'Unable to submit your feedback right now. Please try again.';
+    return action === 'update'
+        ? 'Unable to save your changes right now. Please try again.'
+        : 'Unable to submit your feedback right now. Please try again.';
 }
 
 /** POST /api/reports with `type: 'POSITIVE'`. */
@@ -77,6 +89,49 @@ export async function submitPositiveFeedback(
         return { ok: false, status, message: failureMessage(status, result) };
     } catch (error) {
         console.error('Positive Feedback Submission Error:', error);
+
+        return {
+            ok: false,
+            message: 'Unable to connect to the server. Please check your connection and try again.',
+        };
+    }
+}
+
+/**
+ * PUT /api/reports/:reportId with `type: 'POSITIVE'` — editing the author's own
+ * pending feedback. The route checks the token against the author (403) and
+ * refuses a report that has already been reviewed (409), whatever the app drew.
+ */
+export async function updatePositiveFeedback(
+    reportId: string,
+    payload: PositiveFeedbackPayload,
+    token: string
+): Promise<PositiveFeedbackResult> {
+    if (!token) {
+        return { ok: false, status: 401, message: AUTH_REQUIRED_MESSAGE };
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}${reportApiPath(reportId)}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok && result?.success && result?.report?.reportId) {
+            return { ok: true, report: result.report as AccessibilityReport };
+        }
+
+        const status = response.ok ? 500 : response.status;
+
+        return { ok: false, status, message: failureMessage(status, result, 'update') };
+    } catch (error) {
+        console.error('Positive Feedback Update Error:', error);
 
         return {
             ok: false,

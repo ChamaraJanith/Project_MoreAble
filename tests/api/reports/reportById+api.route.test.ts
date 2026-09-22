@@ -605,9 +605,12 @@ describe('PUT /api/reports/[reportId] - a report that has been decided', () => {
     });
 });
 
+// A passenger may always withdraw their own report: deleting stays open to the
+// author after the review, and only editing closes with it.
 describe('DELETE /api/reports/[reportId] - a report that has been decided', () => {
-    it('refuses to delete a verified report', async () => {
-        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
+    it('lets the author delete a verified report', async () => {
+        const firestore = firestoreWith(storedReport({ status: 'VERIFIED' }));
+        mockGetAdminDb.mockReturnValue(firestore);
 
         const response = await deleteReport(
             request('DELETE', { token: OWNER_SESSION }),
@@ -615,27 +618,34 @@ describe('DELETE /api/reports/[reportId] - a report that has been decided', () =
         );
         const json = await response.json();
 
-        expect(response.status).toBe(409);
-        expect(json.success).toBe(false);
-        expect(json.message).toContain('VERIFIED');
+        expect(response.status).toBe(200);
+        expect(json.success).toBe(true);
+        expect((await firestore.collection('reports').doc(REPORT_ID).get()).exists).toBe(false);
     });
 
-    it('refuses to delete a rejected report', async () => {
-        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'REJECTED' })));
+    it('lets the author delete a rejected report', async () => {
+        const firestore = firestoreWith(storedReport({ status: 'REJECTED' }));
+        mockGetAdminDb.mockReturnValue(firestore);
 
         const response = await deleteReport(
             request('DELETE', { token: OWNER_SESSION }),
             params()
         );
 
-        expect(response.status).toBe(409);
+        expect(response.status).toBe(200);
+        expect((await firestore.collection('reports').doc(REPORT_ID).get()).exists).toBe(false);
     });
 
-    it('leaves the document in place', async () => {
+    it('still refuses another passenger, and leaves the document in place', async () => {
         const firestore = firestoreWith(storedReport({ status: 'VERIFIED' }));
         mockGetAdminDb.mockReturnValue(firestore);
 
-        await deleteReport(request('DELETE', { token: OWNER_SESSION }), params());
+        const response = await deleteReport(
+            request('DELETE', { token: OTHER_SESSION }),
+            params()
+        );
+
+        expect(response.status).toBe(403);
 
         const doc = await firestore.collection('reports').doc(REPORT_ID).get();
 

@@ -54,7 +54,11 @@ export function reportSearchFields(report: AccessibilityReport): string[] {
                   report.category,
                   'Positive feedback',
               ]
-            : [reportCategoryLabel(report.issueCategory), report.issueCategory]),
+            : [
+                  reportCategoryLabel(report.issueCategory),
+                  report.issueCategory,
+                  'Accessibility issue',
+              ]),
         report.description,
         // Prefer the snapshot taken when the report was filed, exactly as the
         // card does, and fall back to the raw id so a report whose snapshot is
@@ -155,7 +159,7 @@ export interface ReportFilterOption<T extends string = string> {
 export const REPORT_TYPE_FILTERS: ReportFilterOption<ReportTypeFilter>[] = [
     { value: 'ALL', label: 'All' },
     { value: 'ISSUE', label: 'Issues' },
-    { value: 'POSITIVE', label: 'Feedback' },
+    { value: 'POSITIVE', label: 'Positive' },
 ];
 
 export const REPORT_STATUS_FILTERS: ReportFilterOption<ReportStatusFilter>[] = [

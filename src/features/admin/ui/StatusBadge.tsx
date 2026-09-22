@@ -75,7 +75,7 @@ const BADGE_CONFIG: Record<
         label: 'Verified',
         color: adminColors.success,
         background: adminColors.successSoft,
-        icon: 'shield-checkmark',
+        icon: 'checkmark-circle',
     },
     REVIEWED: {
         label: 'Reviewed',

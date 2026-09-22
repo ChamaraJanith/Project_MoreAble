@@ -1,14 +1,19 @@
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { AccessibilityReport } from '../../../entities/report/model/types';
+import { AccessibilityReport, reportTypeOf } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { adminColors } from '../../admin/ui/adminTheme';
-import { canEditReport, isReportOwnedBy } from '../utils/reportOwnership';
+import {
+    canEditReport,
+    isReportOwnedBy,
+    reportEditLockedMessage,
+} from '../utils/reportOwnership';
 import { reportApiPath } from '../utils/reportRoutes';
+import { PositiveFeedbackScreen } from './PositiveFeedbackScreen';
 import { ReportFormScreen } from './ReportFormScreen';
 
 /**
@@ -83,14 +88,21 @@ export const ReportEditScreen = () => {
     }, [loadReport]);
 
     if (report && canEditReport(report, user?.passengerId)) {
-        return <ReportFormScreen mode="edit" report={report} />;
+        // Each kind opens the form it was filed with, so positive feedback is
+        // never pushed through the issue form (which the API would refuse).
+        return reportTypeOf(report) === 'POSITIVE' ? (
+            <PositiveFeedbackScreen mode="edit" report={report} />
+        ) : (
+            <ReportFormScreen mode="edit" report={report} />
+        );
     }
 
     return (
         <View style={styles.container}>
             <AdminScreenHeader
+                tone="brand"
                 title="Edit Report"
-                subtitle="Update the details of your accessibility report"
+                subtitle="Update the details of your report"
             />
 
             <ScrollView
@@ -118,8 +130,11 @@ export const ReportEditScreen = () => {
                     <AdminEmptyState
                         icon="shield-checkmark-outline"
                         title="This report has been reviewed"
-                        description="An administrator has already decided this report, so its details can no longer be changed."
-                        secondaryDescription="You can still open the report to read the decision and the community's feedback."
+                        description={
+                            reportEditLockedMessage(report) ??
+                            'An administrator has already decided this report, so its details can no longer be changed.'
+                        }
+                        secondaryDescription="You can still open the report to read the decision, or delete it from the report details screen."
                     />
                 ) : (
                     <AdminEmptyState

@@ -26,8 +26,10 @@ import { reportCategoryIcon, reportCategoryLabel } from '../ui/reportCategories'
 import { formatCommentCount } from './reportFeedback';
 import {
     formatPhotoCount,
+    formatRelativeReportTime,
     formatReportDateTime,
     reportStatusLabel,
+    reportTypeLabel,
 } from './reportFormat';
 
 /** The icons the card's chips use. A closed set, so the UI can pass them on. */
@@ -78,6 +80,15 @@ export interface ReportCardSummary {
     submittedLabel: string;
     /** Just the date and time, for the compact card footer. */
     dateLabel: string;
+    /** "2h ago" — how the card footer states the date at a glance. */
+    relativeDateLabel: string;
+    /**
+     * The first attached photo, drawn as the card's thumbnail. Absent when the
+     * report has no photos, in which case the card shows the category icon.
+     */
+    thumbnailUrl?: string;
+    /** Whether the card is the viewing passenger's own report. */
+    isOwnReport: boolean;
     /**
      * Community feedback on the report, as the list response carried it.
      * Never fetched per card — see reportCardFeedbackCounts.
@@ -101,7 +112,7 @@ export interface ReportCardSummary {
  */
 export function reportCardSummary(
     report: AccessibilityReport,
-    options: { isOwnReport?: boolean } = {}
+    options: { isOwnReport?: boolean; now?: Date } = {}
 ): ReportCardSummary {
     const chips: ReportChip[] = [];
 
@@ -141,6 +152,10 @@ export function reportCardSummary(
     // row would make it as many requests as there are reports.
     const feedbackCounts = reportCardFeedbackCounts(report);
 
+    const thumbnailUrl = report.photoUrls?.find(
+        (url) => typeof url === 'string' && url.trim() !== ''
+    );
+
     const feedbackLabel =
         `, ${formatCommentCount(feedbackCounts.commentCount)}` +
         `, ${feedbackCounts.agreeCount} agree` +
@@ -156,6 +171,9 @@ export function reportCardSummary(
         chips,
         submittedLabel: `Submitted ${formatReportDateTime(report.createdAt)}`,
         dateLabel: formatReportDateTime(report.createdAt),
+        relativeDateLabel: formatRelativeReportTime(report.createdAt, options.now),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        isOwnReport: !!options.isOwnReport,
         feedbackCounts,
         accessibilityLabel: `${
             isPositive ? 'View positive feedback' : 'View accessibility report'
@@ -206,6 +224,42 @@ export function reportCardVisibleText(summary: ReportCardSummary): string[] {
         summary.accessibilityLabel,
         ...summary.chips.map((chip) => chip.label),
     ];
+}
+
+// ------------------------------------------------------------------
+// Submission receipt
+// ------------------------------------------------------------------
+
+/** What the "Report Submitted!" screen lists about the report just filed. */
+export interface ReportSubmissionReceipt {
+    /**
+     * The reference the passenger can quote. Shown only here, on the receipt
+     * of their own submission — cards and search still never expose it.
+     */
+    reportId: string;
+    submittedLabel: string;
+    /** The stored status; a fresh report is PENDING. */
+    status: string;
+    reportType: ReportType;
+    typeLabel: string;
+    /** The category, in the wording its picker offered it in. */
+    categoryLabel: string;
+}
+
+export function reportSubmissionReceipt(report: AccessibilityReport): ReportSubmissionReceipt {
+    const reportType = reportTypeOf(report);
+
+    return {
+        reportId: report.reportId,
+        submittedLabel: formatReportDateTime(report.createdAt),
+        status: typeof report.status === 'string' && report.status ? report.status : 'PENDING',
+        reportType,
+        typeLabel: reportTypeLabel(reportType),
+        categoryLabel:
+            reportType === 'POSITIVE'
+                ? positiveFeedbackCategoryLabel(report.category ?? '')
+                : reportCategoryLabel(report.issueCategory),
+    };
 }
 
 // ------------------------------------------------------------------

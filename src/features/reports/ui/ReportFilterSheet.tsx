@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom: 4,
     },
-    title: { fontSize: 18, fontWeight: '800', color: adminColors.textPrimary },
+    title: { fontSize: 20, fontWeight: '800', color: adminColors.textPrimary },
     closeButton: {
         minWidth: 44,
         minHeight: 44,
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
     sectionLabel: {
         fontSize: 12,
         fontWeight: '800',
-        color: adminColors.textMuted,
+        color: adminColors.textSecondary,
         letterSpacing: 0.8,
         marginTop: 16,
         marginBottom: 8,

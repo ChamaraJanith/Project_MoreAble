@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { Href, router, useFocusEffect } from 'expo-router';
+import { Href, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     RefreshControl,
@@ -95,15 +95,38 @@ const INITIAL_FEED: ReportFeed = {
     error: null,
 };
 
+/** A `?scope=` search param, when it names one of the two tabs. */
+function scopeFromParam(value: string | string[] | undefined): ReportScope | null {
+    const scope = Array.isArray(value) ? value[0] : value;
+
+    return scope === 'all' || scope === 'my' ? scope : null;
+}
+
 export const AccessibilityReportsScreen = () => {
     const { token, user, isAuthenticated } = useAuthStore();
+
+    // "View My Reports" on the submission screen returns here with
+    // `?scope=my`, so the passenger lands on the tab holding what they filed.
+    const params = useLocalSearchParams<{ scope?: string | string[] }>();
+    const requestedScope = scopeFromParam(params.scope);
 
     const [feeds, setFeeds] = useState<Record<ReportScope, ReportFeed>>({
         all: INITIAL_FEED,
         my: INITIAL_FEED,
         verified: INITIAL_FEED,
     });
-    const [scope, setScope] = useState<ReportScope>('all');
+    const [scope, setScope] = useState<ReportScope>(requestedScope ?? 'all');
+
+    // Follow the param when it changes while this screen stays mounted —
+    // dismissing back to it updates the param rather than remounting it. The
+    // state is adjusted during render (React's "storing information from
+    // previous renders" pattern) rather than in an effect.
+    const [lastRequestedScope, setLastRequestedScope] = useState(requestedScope);
+
+    if (requestedScope !== lastRequestedScope) {
+        setLastRequestedScope(requestedScope);
+        if (requestedScope) setScope(requestedScope);
+    }
 
     // The search and the filters are kept for the screen rather than per tab:
     // a passenger looking for one route wants the same narrowing applied as
@@ -311,11 +334,9 @@ export const AccessibilityReportsScreen = () => {
                     <ReportListCard
                         key={report.reportId}
                         summary={reportCardSummary(report, {
-                            // Only worth pointing out among other people's
-                            // reports. On My Reports every card would carry
-                            // the chip, which tells the passenger nothing.
-                            isOwnReport:
-                                scope !== 'my' && isReportOwnedBy(report, user?.passengerId),
+                            // Marks the passenger's own reports on both tabs,
+                            // so a card reads the same wherever it appears.
+                            isOwnReport: isReportOwnedBy(report, user?.passengerId),
                         })}
                         status={typeof report.status === 'string' ? report.status : 'PENDING'}
                         // The id travels in the path and nowhere else — it is
@@ -333,6 +354,7 @@ export const AccessibilityReportsScreen = () => {
     return (
         <View style={styles.container}>
             <AdminScreenHeader
+                tone="brand"
                 title="Accessibility Reports"
                 subtitle="Share and track accessibility experiences"
             />
@@ -355,15 +377,26 @@ export const AccessibilityReportsScreen = () => {
                     read as equal choices. Red and green only mark which is
                     which; the card itself stays in the app's palette. */}
                 <View style={styles.helpCard}>
-                    <Text style={styles.helpTitle} accessibilityRole="header">
-                        Help Improve Accessibility
-                    </Text>
-                    <Text style={styles.helpDescription}>
-                        Report an issue or share a positive experience to make public transport
-                        more inclusive for everyone.
-                    </Text>
+                    <View style={styles.helpHeader}>
+                        <View
+                            style={styles.helpIcon}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                        >
+                            <Ionicons name="accessibility" size={22} color={adminColors.primary} />
+                        </View>
+                        <View style={styles.helpHeaderText}>
+                            <Text style={styles.helpTitle} accessibilityRole="header">
+                                Help Improve Accessibility
+                            </Text>
+                            <Text style={styles.helpDescription}>
+                                Report an issue or share a positive experience to make public
+                                transport more inclusive for everyone.
+                            </Text>
+                        </View>
+                    </View>
 
-                    <View style={styles.actionRow}>
+                    <View style={styles.actionList}>
                         <ActionTile
                             tone="issue"
                             icon="warning-outline"
@@ -390,7 +423,12 @@ export const AccessibilityReportsScreen = () => {
                             <TouchableOpacity
                                 key={tab.value}
                                 style={[styles.segment, isSelected && styles.segmentSelected]}
-                                onPress={() => setScope(tab.value)}
+                                onPress={() => {
+                                    setScope(tab.value);
+                                    // Kept in step with the tab, so a later
+                                    // return with ?scope=my is always a change.
+                                    router.setParams({ scope: tab.value });
+                                }}
                                 accessibilityRole="tab"
                                 accessibilityState={{ selected: isSelected }}
                                 accessibilityLabel={`View ${tab.label}`}
@@ -480,7 +518,13 @@ const TONES = {
     },
 } as const;
 
-/** One of the two actions in the help card. */
+/**
+ * One of the two actions in the help card.
+ *
+ * Both share one shape — a full-width row with an icon, a title, a line of
+ * explanation and a chevron — so they read as two choices of the same feature.
+ * Only the soft accent tells them apart, and the wording says it too.
+ */
 function ActionTile({
     tone,
     icon,
@@ -506,22 +550,24 @@ function ActionTile({
             accessibilityHint={description}
         >
             <View
-                style={styles.actionIconCircle}
+                style={[styles.actionIconCircle, { borderColor: colors.border }]}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
             >
-                <Ionicons name={icon} size={20} color={colors.icon} />
+                <Ionicons name={icon} size={22} color={colors.icon} />
             </View>
 
-            <Text style={styles.actionTitle}>{title}</Text>
-            <Text style={styles.actionDescription}>{description}</Text>
+            <View style={styles.actionText}>
+                <Text style={styles.actionTitle}>{title}</Text>
+                <Text style={styles.actionDescription}>{description}</Text>
+            </View>
 
             <View
                 style={styles.actionArrow}
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
             >
-                <Ionicons name="arrow-forward" size={16} color={colors.icon} />
+                <Ionicons name="chevron-forward" size={20} color={colors.icon} />
             </View>
         </TouchableOpacity>
     );
@@ -533,57 +579,72 @@ const styles = StyleSheet.create({
 
     helpCard: {
         backgroundColor: adminColors.surface,
-        borderRadius: 16,
+        borderRadius: 18,
         padding: 16,
         marginBottom: 16,
         borderWidth: 1,
         borderColor: adminColors.border,
+        borderTopWidth: 4,
+        borderTopColor: adminColors.primary,
         ...adminShadow.card,
     },
+    helpHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+    helpIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: adminColors.primarySoft,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    helpHeaderText: { flex: 1, minWidth: 0 },
     helpTitle: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: '800',
         color: adminColors.textPrimary,
     },
     helpDescription: {
         marginTop: 4,
+        fontSize: 14,
+        color: adminColors.textSecondary,
+        lineHeight: 20,
+    },
+    // Stacked full-width rows: each has room for its whole title on a narrow
+    // phone, and a row with a chevron reads unmistakably as tappable.
+    actionList: { gap: 10, marginTop: 16 },
+    actionTile: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: 72,
+        borderRadius: 14,
+        borderWidth: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+    },
+    actionIconCircle: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        borderWidth: 1,
+        backgroundColor: adminColors.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    actionText: { flex: 1, minWidth: 0, marginLeft: 12 },
+    actionTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: adminColors.textPrimary,
+        lineHeight: 21,
+    },
+    actionDescription: {
+        marginTop: 2,
         fontSize: 13,
         color: adminColors.textSecondary,
         lineHeight: 18,
     },
-    // Two tiles that share the width equally; each wraps its own text, so a
-    // narrow phone makes them taller rather than overflowing.
-    actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-    actionTile: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 120,
-        borderRadius: 14,
-        borderWidth: 1,
-        padding: 12,
-    },
-    actionIconCircle: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: adminColors.surface,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    actionTitle: {
-        fontSize: 14,
-        fontWeight: '800',
-        color: adminColors.textPrimary,
-        lineHeight: 18,
-    },
-    actionDescription: {
-        marginTop: 3,
-        fontSize: 12,
-        color: adminColors.textSecondary,
-        lineHeight: 16,
-    },
-    actionArrow: { marginTop: 'auto', paddingTop: 8, alignItems: 'flex-end' },
+    actionArrow: { marginLeft: 8 },
 
     segmentedControl: {
         flexDirection: 'row',
