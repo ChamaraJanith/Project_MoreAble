@@ -19,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { CaregiverSafetyCenterModal } from '../src/features/caregiver/ui/CaregiverSafetyCenterModal';
 import { API_BASE_URL } from '../src/shared/api/config';
 import { useAuthStore } from '../src/shared/store/authStore';
 import { parseSriLankanNic } from '../src/shared/utils/nicUtils';
@@ -36,6 +37,7 @@ export default function ProfileScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCaregiverSafetyModalOpen, setIsCaregiverSafetyModalOpen] = useState(false);
 
   // Modal State for Manage Accessibility Profile
   const [isAccModalOpen, setIsAccModalOpen] = useState(false);
@@ -657,6 +659,43 @@ export default function ProfileScreen() {
             )}
           </View>
         )}
+
+        {/* Caregiver & Safety Sharing Center (MOV-227 / MOV-228 / MOV-229 / MOV-230) */}
+        <View style={[styles.sectionCard, { backgroundColor: theme.isHighContrast ? theme.colors.surfaceCard : '#FFFFFF' }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ backgroundColor: '#E0F2FE', padding: 8, borderRadius: 10 }}>
+                <Ionicons name="shield-checkmark" size={22} color="#0284C7" />
+              </View>
+              <View>
+                <Text style={[styles.sectionTitle, { marginBottom: 2 }]}>Caregiver Safety Sharing</Text>
+                <Text style={{ fontSize: 12, color: '#64748B' }}>Real-time SMS, Email & Live GPS Alerts</Text>
+              </View>
+            </View>
+          </View>
+          <Text style={{ fontSize: 13, color: '#475569', lineHeight: 18, marginBottom: 14 }}>
+            Share your live bus location, boarding confirmation, and destination safe arrival updates automatically with your trusted caregivers and loved ones.
+          </Text>
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#0284C7',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 12,
+              borderRadius: 10,
+            }}
+            onPress={() => setIsCaregiverSafetyModalOpen(true)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Open Caregiver Safety Sharing Center"
+          >
+            <Ionicons name="settings-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>
+              Open Safety Sharing Center
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Details Section */}
         <View style={[styles.sectionCard, { backgroundColor: theme.isHighContrast ? theme.colors.surfaceCard : '#FFFFFF' }]}>
@@ -1343,6 +1382,15 @@ export default function ProfileScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Caregiver Safety Sharing Center Modal (MOV-227 / MOV-228 / MOV-229 / MOV-230) */}
+      <CaregiverSafetyCenterModal
+        visible={isCaregiverSafetyModalOpen}
+        onClose={() => setIsCaregiverSafetyModalOpen(false)}
+        passengerId={displayUser.passengerId || displayUser.uid || ''}
+        passengerName={displayUser.userName || 'Passenger'}
+        theme={theme}
+      />
     </SafeAreaView>
   );
 }
