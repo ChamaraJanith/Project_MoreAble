@@ -97,6 +97,30 @@ request. Its callers are:
 - `GET /api/booking/options`
 - `GET /api/booking/seats/:tripId`
 
+## When the score is recalculated (MOV-129)
+
+There is no stored current score. Every endpoint above recalculates from the
+evidence on each request, so a report reaching `VERIFIED` changes the next
+response with nothing to invalidate or refresh.
+
+What the write paths do in addition is record a history snapshot (MOV-113), by
+calling `recordAccessibilityScoreSafely` after their own write has succeeded. A
+call that changes nothing stores nothing, so these are safe to repeat:
+
+| Event | Snapshot? | Where |
+|---|---|---|
+| Report verified (`VERIFY`) | yes | `app/api/reports/[reportId]/review+api.ts` |
+| Report rejected or remarked | no — neither ever counted | same route, guarded on `VERIFIED` |
+| Report created / edited | no — a report is `PENDING` when filed, and a decided one is closed to edits (409) | `app/api/reports/index+api.ts`, `[reportId]+api.ts` |
+| Verified report deleted | yes | `app/api/reports/[reportId]+api.ts` |
+| Passenger rating stored | yes | `app/api/journeys/completed/rating+api.ts` |
+| Bus facilities changed | yes | `app/api/buses/[busId]+api.ts` |
+| Bus created | yes, the baseline entry | `app/api/buses/index+api.ts` |
+
+Only `VERIFIED` counts. A report that names no bus, or names a bus that no
+longer exists, is verified normally and records nothing. `accessibilityScoreLatest`
+exists for change detection only and is never read to answer a score.
+
 ## Not yet supplied
 
 Community Reporting does not yet record which facility an issue concerns, or
