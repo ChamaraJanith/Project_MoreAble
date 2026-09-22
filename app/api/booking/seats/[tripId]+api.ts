@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { loadAccessibilityScoreEvidence } from '../../../../src/shared/server/accessibilityScoreEvidence';
 import { computeAccessibilityScore } from '../../../../src/shared/utils/accessibility';
 import { buildBookedSeatMap } from '../../../../src/shared/utils/bookedSeats';
 import { applyBookedSeats, buildSeatLayout, flattenSeats } from '../../../../src/shared/utils/seatLayout';
@@ -50,11 +51,10 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
 
-        const bookingsSnapshot = await adminDb
-            .collection('bookings')
-            .where('tripId', '==', tripId)
-            .where('status', '==', 'CONFIRMED')
-            .get();
+        const [bookingsSnapshot, evidence] = await Promise.all([
+            adminDb.collection('bookings').where('tripId', '==', tripId).where('status', '==', 'CONFIRMED').get(),
+            loadAccessibilityScoreEvidence(adminDb, trip.busId),
+        ]);
 
         const bookedMap = buildBookedSeatMap(bookingsSnapshot.docs);
         const layout = applyBookedSeats(buildSeatLayout(bus), bookedMap);
@@ -70,7 +70,7 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
                 busModel: bus.busModel,
                 departureTime: trip.departureTime,
                 estimatedArrivalTime: trip.estimatedArrivalTime,
-                accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
+                accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
                 totalSeats: seats.length,
                 layout,
                 seats,

@@ -1,5 +1,6 @@
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import { loadAccessibilityScoreEvidence } from '../../../src/shared/server/accessibilityScoreEvidence';
+import { AccessibilityScoreEvidence, computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
 import { buildBookedSeatMap } from '../../../src/shared/utils/bookedSeats';
 import { applyBookedSeats, buildSeatLayout, flattenSeats } from '../../../src/shared/utils/seatLayout';
 
@@ -45,6 +46,8 @@ export async function GET(request: Request) {
         }
 
         const options = [];
+        // One evidence read per bus for the whole request, however many trips it runs.
+        const evidenceCache = new Map<string, Promise<AccessibilityScoreEvidence>>();
 
         for (const tripDoc of tripsSnapshot.docs) {
             const trip = tripDoc.data();
@@ -54,6 +57,8 @@ export async function GET(request: Request) {
             const bus = busDoc.data();
 
             if (bus.status !== 'ACTIVE') continue;
+
+            const evidence = await loadAccessibilityScoreEvidence(adminDb, trip.busId, evidenceCache);
 
             const bookingsSnapshot = await adminDb
                 .collection('bookings')
@@ -80,7 +85,7 @@ export async function GET(request: Request) {
                 manufacturer: bus.manufacturer,
                 departureTime: trip.departureTime,
                 estimatedArrivalTime: trip.estimatedArrivalTime,
-                accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities),
+                accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
                 totalSeats,
                 availableSeats,
                 availablePrioritySeats,

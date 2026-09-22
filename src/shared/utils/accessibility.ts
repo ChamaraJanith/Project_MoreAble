@@ -1,22 +1,236 @@
 import { BusAccessibilityFacilities } from '../../entities/bus/model/types';
+import { BusRating, isBusRatingValue } from '../../entities/rating/model/types';
+import { AccessibilityReport, reportTypeOf } from '../../entities/report/model/types';
 
-/** Percentage of the bus's 8 accessibility facility flags that are available. */
-export function computeAccessibilityScore(facilities?: BusAccessibilityFacilities | null): number {
-    if (!facilities) return 0;
+// ==================================================================
+// Accessibility score (MOV-79 / MOV-111)
+//
+// The single definition of how accessible a bus is, as one number from 0 to
+// 100. Every API that reports `accessibilityScore` calls this; nothing else
+// holds a weight or a formula. See docs/accessibility-score.md.
+//
+//     score = round(clamp(facility * 0.50 + community * 0.30 + rating * 0.20))
+//
+// Pure and deterministic: the caller loads the evidence (see
+// shared/server/accessibilityScoreEvidence) and this only does the arithmetic.
+// ==================================================================
 
-    const checks = [
-        facilities.wheelchairRamp,
-        facilities.audioAnnouncement,
-        facilities.lowFloorVehicle,
-        facilities.walkingAssistance,
-        facilities.wheelchairSpace?.available,
-        facilities.guardianSeats?.available,
-        facilities.prioritySeats?.available,
-        facilities.elderlySeats?.available,
-    ];
+export const FACILITY_WEIGHT = 0.5;
+export const COMMUNITY_WEIGHT = 0.3;
+export const RATING_WEIGHT = 0.2;
 
-    const available = checks.filter(Boolean).length;
-    return Math.round((available / checks.length) * 100);
+export const MIN_ACCESSIBILITY_SCORE = 0;
+export const MAX_ACCESSIBILITY_SCORE = 100;
+
+/** Community score for a bus with no verified reports: no evidence, not bad evidence. */
+export const COMMUNITY_NEUTRAL_SCORE = 50;
+/** How many reports' worth of weight the neutral prior carries. */
+export const COMMUNITY_PRIOR_WEIGHT = 5;
+
+/** The neutral prior rating, in stars. */
+export const RATING_NEUTRAL_VALUE = 3;
+/** How many ratings' worth of weight the neutral prior carries. */
+export const RATING_PRIOR_WEIGHT = 5;
+const RATING_SCALE_MIN = 1;
+const RATING_SCALE_MAX = 5;
+
+/** Every facility the bus record stores, under its own field name. */
+export type AccessibilityFacilityKey = keyof BusAccessibilityFacilities;
+
+/** The 8 canonical facilities, each worth an equal share of the facility score. */
+export const ACCESSIBILITY_FACILITY_KEYS: readonly AccessibilityFacilityKey[] = [
+    'wheelchairRamp',
+    'audioAnnouncement',
+    'lowFloorVehicle',
+    'walkingAssistance',
+    'wheelchairSpace',
+    'guardianSeats',
+    'prioritySeats',
+    'elderlySeats',
+];
+
+const COUNTED_FACILITY_KEYS: ReadonlySet<AccessibilityFacilityKey> = new Set<AccessibilityFacilityKey>([
+    'wheelchairSpace',
+    'guardianSeats',
+    'prioritySeats',
+    'elderlySeats',
+]);
+
+/**
+ * Whether the bus record says it has this facility.
+ *
+ * Strictly `true` — the convention `meetsAccessibilityRequirement` and
+ * `listAccessibilityFacilities` follow. A counted facility is read through its
+ * `available` flag, never its count. Missing, null, `'true'`, `1` all mean no.
+ */
+export function isFacilityConfigured(
+    facilities: BusAccessibilityFacilities | null | undefined,
+    key: AccessibilityFacilityKey
+): boolean {
+    if (!facilities) return false;
+
+    if (COUNTED_FACILITY_KEYS.has(key)) {
+        const group = facilities[key];
+        return typeof group === 'object' && (group as { available?: unknown } | null)?.available === true;
+    }
+
+    return facilities[key] === true;
+}
+
+/** Verified positive and issue reports about one bus. */
+export interface CommunityReportTally {
+    positiveCount: number;
+    issueCount: number;
+}
+
+/** Valid passenger ratings of one bus. */
+export interface PassengerRatingTally {
+    count: number;
+    /** Sum of the stars, so the average is exact rather than a rounded input. */
+    total: number;
+}
+
+/**
+ * Everything beyond the bus record that the score weighs.
+ *
+ * Every field is optional, and absent means "no evidence": the neutral score
+ * for that factor, never zero.
+ */
+export interface AccessibilityScoreEvidence {
+    community?: CommunityReportTally | null;
+    ratings?: PassengerRatingTally | null;
+    /**
+     * Facilities the bus is configured with but that are unavailable right now
+     * because of an ACTIVE verified issue. Integration boundary only: Community
+     * Reporting does not yet record which facility an issue concerns, nor when
+     * one is resolved, so no caller supplies this today.
+     *
+     * It can only take a facility away. A resolved issue is simply no longer
+     * listed, and the configured state applies again. The bus record itself is
+     * never changed.
+     */
+    unavailableFacilities?: readonly AccessibilityFacilityKey[] | null;
+}
+
+/** A count that can be used as evidence: a finite number above zero, else zero. */
+function usableCount(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** Whether a facility is available now: configured, and not taken out by an active verified issue. */
+export function isFacilityEffectivelyAvailable(
+    facilities: BusAccessibilityFacilities | null | undefined,
+    key: AccessibilityFacilityKey,
+    unavailableFacilities?: readonly AccessibilityFacilityKey[] | null
+): boolean {
+    return isFacilityConfigured(facilities, key) && !(unavailableFacilities ?? []).includes(key);
+}
+
+/** Factor 1: share of the 8 facilities effectively available, 0–100. */
+export function computeFacilityScore(
+    facilities: BusAccessibilityFacilities | null | undefined,
+    unavailableFacilities?: readonly AccessibilityFacilityKey[] | null
+): number {
+    const available = ACCESSIBILITY_FACILITY_KEYS.filter((key) =>
+        isFacilityEffectivelyAvailable(facilities, key, unavailableFacilities)
+    ).length;
+
+    return (available / ACCESSIBILITY_FACILITY_KEYS.length) * MAX_ACCESSIBILITY_SCORE;
+}
+
+/**
+ * Factor 2: share of verified reports that are positive, 0–100, pulled toward
+ * the neutral 50 in proportion to how few reports there are:
+ *
+ *     (n / (n + M)) * raw + (M / (n + M)) * 50
+ */
+export function computeCommunityScore(tally?: CommunityReportTally | null): number {
+    const positive = usableCount(tally?.positiveCount);
+    const n = positive + usableCount(tally?.issueCount);
+
+    if (n === 0) return COMMUNITY_NEUTRAL_SCORE;
+
+    const raw = (positive / n) * MAX_ACCESSIBILITY_SCORE;
+    const M = COMMUNITY_PRIOR_WEIGHT;
+
+    return (n / (n + M)) * raw + (M / (n + M)) * COMMUNITY_NEUTRAL_SCORE;
+}
+
+/**
+ * Factor 3: the average star rating, pulled toward the neutral 3 in proportion
+ * to how few ratings there are, then mapped from 1–5 stars onto 0–100.
+ */
+export function computeRatingScore(tally?: PassengerRatingTally | null): number {
+    const n = usableCount(tally?.count);
+    const M = RATING_PRIOR_WEIGHT;
+
+    const adjusted =
+        n === 0
+            ? RATING_NEUTRAL_VALUE
+            : (n / (n + M)) * (usableCount(tally?.total) / n) + (M / (n + M)) * RATING_NEUTRAL_VALUE;
+
+    return ((adjusted - RATING_SCALE_MIN) / (RATING_SCALE_MAX - RATING_SCALE_MIN)) * MAX_ACCESSIBILITY_SCORE;
+}
+
+/**
+ * The accessibility score of one bus: a whole number from 0 to 100, higher is
+ * better.
+ *
+ * Called with the facilities alone, community and rating evidence are absent
+ * and both sit at their neutral 50.
+ */
+export function computeAccessibilityScore(
+    facilities?: BusAccessibilityFacilities | null,
+    evidence?: AccessibilityScoreEvidence | null
+): number {
+    const weighted =
+        computeFacilityScore(facilities, evidence?.unavailableFacilities) * FACILITY_WEIGHT +
+        computeCommunityScore(evidence?.community) * COMMUNITY_WEIGHT +
+        computeRatingScore(evidence?.ratings) * RATING_WEIGHT;
+
+    const clamped = Math.min(MAX_ACCESSIBILITY_SCORE, Math.max(MIN_ACCESSIBILITY_SCORE, weighted));
+    return Math.round(clamped);
+}
+
+/**
+ * Verified community reports about `busId`, split by the report system's own
+ * reading of type: an explicit POSITIVE is positive, anything else is an issue
+ * (`reportTypeOf`). PENDING, REJECTED and every other status are ignored, as is
+ * a report naming another bus or none.
+ */
+export function tallyVerifiedCommunityReports(
+    reports: readonly (Partial<Pick<AccessibilityReport, 'busId' | 'status' | 'type'>> | null | undefined)[],
+    busId: string
+): CommunityReportTally {
+    const tally: CommunityReportTally = { positiveCount: 0, issueCount: 0 };
+    if (typeof busId !== 'string' || !busId) return tally;
+
+    for (const report of reports) {
+        if (!report || report.status !== 'VERIFIED' || report.busId !== busId) continue;
+
+        if (reportTypeOf(report) === 'POSITIVE') tally.positiveCount += 1;
+        else tally.issueCount += 1;
+    }
+
+    return tally;
+}
+
+/** Valid 1–5 star ratings of `busId`. A rating of another bus, or not a whole 1–5, is ignored. */
+export function tallyPassengerRatings(
+    ratings: readonly (Partial<Pick<BusRating, 'busId' | 'rating'>> | null | undefined)[],
+    busId: string
+): PassengerRatingTally {
+    const tally: PassengerRatingTally = { count: 0, total: 0 };
+    if (typeof busId !== 'string' || !busId) return tally;
+
+    for (const entry of ratings) {
+        if (!entry || entry.busId !== busId || !isBusRatingValue(entry.rating)) continue;
+
+        tally.count += 1;
+        tally.total += entry.rating;
+    }
+
+    return tally;
 }
 
 /**
