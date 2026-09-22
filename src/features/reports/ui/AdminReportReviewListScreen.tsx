@@ -13,21 +13,27 @@ import {
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSearchField } from '../../admin/ui/AdminSearchField';
+import { AdminSelectModal } from '../../admin/ui/AdminSelectModal';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
-import { adminColors } from '../../admin/ui/adminTheme';
+import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { fetchReportsForReview } from '../api/reportReviewApi';
 import {
+    ADMIN_REPORT_TYPE_FILTERS,
     ADMIN_REVIEW_FILTERS,
     AdminReviewFilter,
     AdminReviewReport,
     NEEDS_REVIEW_LABEL,
+    adminReportTypeCounts,
+    adminReportTypeFilterLabel,
     adminReviewCardSummary,
     adminReviewQueueSummary,
+    filterReportsByType,
     reviewErrorMessage,
 } from '../utils/reportReview';
 import { adminReviewDetailsPath } from '../utils/reportRoutes';
 import {
     REPORT_SEARCH_PLACEHOLDER,
+    ReportTypeFilter,
     filterReportsBySearch,
 } from '../utils/reportSearch';
 import { ReportListCard } from './ReportListCard';
@@ -59,6 +65,15 @@ export const AdminReportReviewListScreen = () => {
     // the queue that came back. Needs Review + "138" is the flagged reports
     // about route 138, not a second filtering system.
     const [search, setSearch] = useState('');
+
+    // Positive feedback or issue reports, on top of both. Held beside the
+    // search rather than inside it for the same reason: the tab is the slice
+    // the API was asked for, and splitting that slice by type is not another
+    // question to ask it — both reports have always come from the one
+    // collection, told apart by the `type` the report already carries.
+    const [typeFilter, setTypeFilter] = useState<ReportTypeFilter>('ALL');
+    const [isTypePickerOpen, setIsTypePickerOpen] = useState(false);
+
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -116,16 +131,27 @@ export const AdminReportReviewListScreen = () => {
         load(next);
     };
 
+    // Status (the tab, asked of the API), then the search, then the type.
+    // Each narrows what the one before it left, so the three compose: Pending +
+    // "NB-5678" + Positive Feedback is the pending positive feedback about that
+    // bus, and clearing any one of them widens the list without disturbing the
+    // other two.
     const visibleReports = useMemo(
-        () => filterReportsBySearch(reports, search),
-        [reports, search]
+        () => filterReportsByType(filterReportsBySearch(reports, search), typeFilter),
+        [reports, search, typeFilter]
     );
 
     // Counted over what is actually on screen, so the line above the list
     // describes the queue the admin is looking at.
     const summary = useMemo(() => adminReviewQueueSummary(visibleReports), [visibleReports]);
 
-    // The box is only worth drawing over a queue there is something to search.
+    // The four numbers above the tabs, counted over everything the tab loaded
+    // rather than over what the search and the type filter have left. They are
+    // the shape of the queue — which is what the admin narrows against — so
+    // they must not move every time a key is pressed.
+    const typeCounts = useMemo(() => adminReportTypeCounts(reports), [reports]);
+
+    // The row is only worth drawing over a queue there is something to narrow.
     const canSearch = !isLoading && !error && reports.length > 0;
 
     const renderBody = () => {
@@ -145,17 +171,9 @@ export const AdminReportReviewListScreen = () => {
         if (reports.length === 0) {
             return (
                 <AdminEmptyState
-                    icon={filter === 'FLAGGED' ? 'shield-checkmark-outline' : 'documents-outline'}
-                    title={
-                        filter === 'FLAGGED'
-                            ? 'No reports need review'
-                            : 'No reports to review'
-                    }
-                    description={
-                        filter === 'FLAGGED'
-                            ? 'Reports the community flags for review will appear here.'
-                            : 'Accessibility reports submitted by passengers will appear here.'
-                    }
+                    icon="documents-outline"
+                    title="No reports to review"
+                    description="Accessibility reports submitted by passengers will appear here."
                 />
             );
         }
@@ -168,7 +186,13 @@ export const AdminReportReviewListScreen = () => {
                 <AdminEmptyState
                     icon="search-outline"
                     title="No matching reports"
-                    description="No reports match your search. Try an issue, a bus, a route or a word from the description."
+                    description={
+                        typeFilter === 'ALL'
+                            ? 'No reports match your search. Try an issue, a bus, a route or a word from the description.'
+                            : `No ${adminReportTypeFilterLabel(
+                                  typeFilter
+                              ).toLowerCase()} match your search. Try another word, or show all report types.`
+                    }
                 />
             );
         }
@@ -233,6 +257,36 @@ export const AdminReportReviewListScreen = () => {
                     />
                 }
             >
+                {/* How the queue divides, before any of it is narrowed: how
+                    much positive feedback and how many issue reports there
+                    are, and how much of each has been upheld. Four numbers off
+                    the reports already loaded — no second request, and nothing
+                    an admin has to open a report to find out. */}
+                {canSearch && (
+                    <View style={styles.countsGrid}>
+                        <CountTile
+                            label="Positive Feedback"
+                            value={typeCounts.positive}
+                            tone={adminColors.success}
+                        />
+                        <CountTile
+                            label="Verified Positive Feedback"
+                            value={typeCounts.verifiedPositive}
+                            tone={adminColors.success}
+                        />
+                        <CountTile
+                            label="Issue Reports"
+                            value={typeCounts.issue}
+                            tone={adminColors.warning}
+                        />
+                        <CountTile
+                            label="Verified Issue Reports"
+                            value={typeCounts.verifiedIssue}
+                            tone={adminColors.warning}
+                        />
+                    </View>
+                )}
+
                 {/* Each filter is a parameter on the review scope, so the queue
                     asks the API for the slice it means to show rather than
                     narrowing a wider list here. */}
@@ -263,23 +317,89 @@ export const AdminReportReviewListScreen = () => {
                     })}
                 </View>
 
-                {/* Below the filters, so it reads as searching the slice
-                    that is open — which is exactly what it does. */}
+                {/* Below the tabs, so it reads as narrowing the slice that is
+                    open — which is exactly what it does. The type filter sits
+                    beside the box in the row the passenger reports list already
+                    uses for the same pair. */}
                 {canSearch && (
-                    <AdminSearchField
-                        value={search}
-                        onChangeText={setSearch}
-                        placeholder={REPORT_SEARCH_PLACEHOLDER}
-                        accessibilityLabel="Search reports"
-                        resultLabel={`${visibleReports.length}/${reports.length}`}
-                    />
+                    <View style={styles.searchRow}>
+                        <View style={styles.searchField}>
+                            <AdminSearchField
+                                value={search}
+                                onChangeText={setSearch}
+                                placeholder={REPORT_SEARCH_PLACEHOLDER}
+                                accessibilityLabel="Search reports"
+                                resultLabel={`${visibleReports.length}/${reports.length}`}
+                            />
+                        </View>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.filterButton,
+                                typeFilter !== 'ALL' && styles.filterButtonActive,
+                            ]}
+                            onPress={() => setIsTypePickerOpen(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                                typeFilter === 'ALL'
+                                    ? 'Filter by report type'
+                                    : `Filter by report type, showing ${adminReportTypeFilterLabel(
+                                          typeFilter
+                                      )}`
+                            }
+                        >
+                            <Ionicons
+                                name="options-outline"
+                                size={20}
+                                color={typeFilter !== 'ALL' ? '#FFFFFF' : adminColors.primary}
+                            />
+                        </TouchableOpacity>
+                    </View>
                 )}
 
                 {renderBody()}
             </ScrollView>
+
+            {/* The same picker the passenger filter sheet opens for its own
+                dropdowns, so one list of choices looks the same everywhere. */}
+            <AdminSelectModal
+                visible={isTypePickerOpen}
+                title="Report Type"
+                options={ADMIN_REPORT_TYPE_FILTERS.map(({ value, label }) => ({ value, label }))}
+                selectedValue={typeFilter}
+                emptyMessage="No report types available."
+                onClose={() => setIsTypePickerOpen(false)}
+                onSelect={(value) => {
+                    setTypeFilter(value as ReportTypeFilter);
+                    setIsTypePickerOpen(false);
+                }}
+            />
         </View>
     );
 };
+
+// ------------------------------------------------------------------
+
+/**
+ * One number in the summary above the queue.
+ *
+ * Deliberately smaller than the dashboard's Overview cards: this is a line of
+ * context over a list, not a dashboard, so it borrows the same surface, border
+ * radius and shadow from the admin theme and none of the icon work. The number
+ * is coloured by what it counts — the project's success green for feedback,
+ * its warning amber for issues — which is the pairing the report type badges
+ * already use.
+ */
+function CountTile({ label, value, tone }: { label: string; value: number; tone: string }) {
+    return (
+        <View style={styles.countTile} accessible accessibilityLabel={`${label}: ${value}`}>
+            <Text style={[styles.countValue, { color: tone }]}>{value}</Text>
+            <Text style={styles.countLabel} numberOfLines={2}>
+                {label}
+            </Text>
+        </View>
+    );
+}
 
 // ------------------------------------------------------------------
 
@@ -332,6 +452,57 @@ function ReviewQueueCard({
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: adminColors.background },
     content: { padding: 16, paddingBottom: 40 },
+
+    // Two by two, so four numbers fit above the tabs without becoming a
+    // dashboard. Same gap as the search row below it.
+    countsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginBottom: 16,
+    },
+    countTile: {
+        // Half the row, less half the gap — two per line at any width.
+        flexBasis: '47%',
+        flexGrow: 1,
+        backgroundColor: adminColors.surface,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        ...adminShadow.card,
+    },
+    countValue: {
+        fontSize: 20,
+        fontWeight: '700',
+    },
+    countLabel: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: adminColors.textMuted,
+        marginTop: 2,
+    },
+
+    // The search field keeps its own bottom margin, so the row aligns its
+    // children to the top and the filter button matches the field's height —
+    // the same row the passenger reports list draws for the same pair.
+    searchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    searchField: { flex: 1, minWidth: 0 },
+    filterButton: {
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filterButtonActive: {
+        backgroundColor: adminColors.primary,
+        borderColor: adminColors.primary,
+    },
 
     segmentedControl: {
         flexDirection: 'row',

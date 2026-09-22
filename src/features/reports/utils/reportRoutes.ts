@@ -108,14 +108,18 @@ export function reportReviewApiPath(reportId: string): string {
     return `${reportApiPath(reportId)}/review`;
 }
 
-/** The admin review queue, relative to the API base URL. */
-export function adminReportsRequestPath(
-    options: { status?: string; flaggedOnly?: boolean } = {}
-): string {
+/**
+ * The admin review queue, relative to the API base URL.
+ *
+ * `flagged=true` is no longer built here. The endpoint still accepts it — that
+ * is the backend's contract and is untouched — but the Needs Review tab that
+ * was the only thing asking for it is gone, and a builder for a parameter
+ * nothing sends is a parameter nobody can tell is unused.
+ */
+export function adminReportsRequestPath(options: { status?: string } = {}): string {
     const params = new URLSearchParams({ scope: 'review' });
 
     if (options.status) params.set('status', options.status);
-    if (options.flaggedOnly) params.set('flagged', 'true');
 
     return `/api/reports?${params.toString()}`;
 }
