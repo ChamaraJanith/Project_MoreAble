@@ -9,6 +9,7 @@ import {
   reviewErrorResponse,
   toAdminReviewReport,
 } from '../../../../src/shared/server/reportAdminReview';
+import { recordAccessibilityScoreSafely } from '../../../../src/shared/server/accessibilityScoreHistory';
 import {
   countReportVotes,
   readReportComments,
@@ -122,6 +123,16 @@ export async function POST(request: Request, context: any) {
       instruction,
       adminReviewerId(admin)
     );
+
+    // Only a VERIFIED report counts toward its bus's accessibility score, and a
+    // decision is only ever made on a PENDING one — so VERIFY is the only
+    // decision that can change a score. REJECT and REMARK leave it where it
+    // was. Best effort: the decision is already saved (MOV-113).
+    const reviewedBusId = applied.report?.busId;
+
+    if (instruction.status === 'VERIFIED' && typeof reviewedBusId === 'string' && reviewedBusId) {
+      await recordAccessibilityScoreSafely(adminDb, reviewedBusId);
+    }
 
     const commentCount = (await readReportComments(adminDb, reportId)).length;
     const serialized = toAdminReviewReport(applied.report, reportRef.id, commentCount);

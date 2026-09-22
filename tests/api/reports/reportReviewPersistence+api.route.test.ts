@@ -636,7 +636,9 @@ describe('review persistence - the write itself', () => {
 
         await review(db, { action: 'VERIFY' });
 
-        expect(db.runTransaction).toHaveBeenCalledTimes(1);
+        // Two: the decision's own, then — only once it has committed — the
+        // accessibility score history's for the report's bus (MOV-113).
+        expect(db.runTransaction).toHaveBeenCalledTimes(2);
     });
 
     it('writes nothing at all when the request is refused', async () => {

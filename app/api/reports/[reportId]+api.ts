@@ -9,6 +9,7 @@ import {
   unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
 import { readReportContent } from '../../../src/shared/server/reportContent';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
@@ -391,6 +392,15 @@ export async function DELETE(request: Request, context: any) {
     if (!loaded.ok) return loaded.response;
 
     await loaded.docRef.delete();
+
+    // A VERIFIED report was part of its bus's accessibility score; withdrawing
+    // it can change that score. Any other status never counted (MOV-113). Best
+    // effort: the report is already deleted.
+    const deletedBusId = loaded.report.busId;
+
+    if (loaded.report.status === 'VERIFIED' && typeof deletedBusId === 'string' && deletedBusId) {
+      await recordAccessibilityScoreSafely(getAdminDb(), deletedBusId);
+    }
 
     return Response.json(
       {

@@ -3,6 +3,7 @@ import {
   unauthorizedResponse,
 } from '../../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { recordAccessibilityScoreSafely } from '../../../../src/shared/server/accessibilityScoreHistory';
 import { loadBusRatingContext, submitBusRating } from '../../../../src/shared/server/busRating';
 import { authoriseOngoingJourneyAccess } from '../../../../src/shared/server/ongoingJourneyAuthorization';
 
@@ -91,9 +92,11 @@ export async function POST(request: Request) {
     const bookingId = bookingIdOf(body.bookingId);
     if (!bookingId) return fail(400, 'bookingId is required.');
 
+    const adminDb = getAdminDb();
+
     // Only these three are read. passengerId, userId, tripId and createdAt in
     // the body are ignored: they come from the session and the server.
-    const result = await submitBusRating(getAdminDb(), authorization.passengerId, {
+    const result = await submitBusRating(adminDb, authorization.passengerId, {
       bookingId,
       busId: typeof body.busId === 'string' ? body.busId : null,
       rating: body.rating,
@@ -101,6 +104,10 @@ export async function POST(request: Request) {
 
     switch (result.kind) {
       case 'RATED':
+        // A new rating can change the bus's accessibility score (MOV-113).
+        // Best effort: the rating is already saved.
+        await recordAccessibilityScoreSafely(adminDb, result.rating.busId);
+
         return Response.json(
           { success: true, message: 'Thank you for rating this bus.', rating: result.rating },
           { status: 201, headers: corsHeaders }
