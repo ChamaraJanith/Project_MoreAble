@@ -22,6 +22,10 @@ import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
 import { getUsers } from '../../src/features/admin/api/userAdminApi';
+import {
+    countActiveTrips,
+    countActiveVehicles,
+} from '../../src/features/admin/utils/systemStatistics';
 import { fetchReportsForReview } from '../../src/features/reports/api/reportReviewApi';
 import {
     NO_SESSION_ACTION,
@@ -65,7 +69,15 @@ export default function AdminDashboard() {
                 getRoutes(),
                 getTrips(),
                 getStops(),
-                getUsers(),
+                // Every registered account, not just the passengers (MOV-134).
+                //
+                // `getUsers()` defaults to PASSENGER because that is what
+                // "Manage Users" administers. Total Users is a statistic about
+                // the platform, so the Overview has to ask for all three roles.
+                // The default itself is deliberately untouched — UserListScreen
+                // still calls `getUsers()` bare and must keep listing
+                // passengers only.
+                getUsers('ALL'),
             ]);
             setBuses(busList);
             setRoutes(routeList);
@@ -111,10 +123,14 @@ export default function AdminDashboard() {
         }, [loadOverview, loadReportCount])
     );
 
+    // `active` is the MOV-134 Active Vehicles statistic, which this card has
+    // always shown in its breakdown line. It is counted through the shared
+    // helper rather than inline so that what counts as an active vehicle is
+    // defined — and tested — in one place. The line renders exactly as before.
     const busBreakdown = useMemo(() => {
         if (!buses) return null;
         return {
-            active: buses.filter((bus) => bus.status === 'ACTIVE').length,
+            active: countActiveVehicles(buses) ?? 0,
             inactive: buses.filter((bus) => bus.status === 'INACTIVE').length,
             maintenance: buses.filter((bus) => bus.status === 'MAINTENANCE').length,
         };
@@ -128,10 +144,13 @@ export default function AdminDashboard() {
         };
     }, [routes]);
 
+    // `active` is the MOV-134 Active Trips statistic — the trip's own status,
+    // not whether a journey is running on it. Counted through the shared helper
+    // for the same reason as the buses above; the line renders as before.
     const tripBreakdown = useMemo(() => {
         if (!trips) return null;
         return {
-            active: trips.filter((trip) => trip.status === 'ACTIVE').length,
+            active: countActiveTrips(trips) ?? 0,
             inactive: trips.filter((trip) => trip.status === 'INACTIVE').length,
         };
     }, [trips]);
@@ -438,9 +457,15 @@ export default function AdminDashboard() {
 
                         <Text style={styles.statLabel}>{t('admin.reports', 'Reports')}</Text>
 
-                        {reportCount.count !== null && (
+                        {/* The one MOV-134 statistic the Overview did not
+                            already state. It goes in the breakdown line this
+                            card already had, worded as the Users card words
+                            its own — no new card, no second request: the
+                            verified total is counted off the very queue this
+                            card's number came from. */}
+                        {reportCount.verified !== null && (
                             <Text style={styles.statBreakdown} numberOfLines={2}>
-                                Accessibility reports filed
+                                {reportCount.verified} verified
                             </Text>
                         )}
                     </TouchableOpacity>
