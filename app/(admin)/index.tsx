@@ -218,6 +218,14 @@ export default function AdminDashboard() {
         router.push('/(admin)/fare-policy' as any);
     };
 
+    // Accessibility Analytics (MOV-168). Cast for the same reason the report
+    // paths are cast: the generated route union in .expo/types is only as
+    // current as the last dev server run, and a route added since then is not
+    // in it yet.
+    const handleAccessibilityAnalytics = () => {
+        router.push('/(admin)/analytics' as any);
+    };
+
     return (
         <View style={styles.container}>
             {/* Header */}
@@ -719,6 +727,37 @@ export default function AdminDashboard() {
 
                         <Text style={styles.cardDescription}>
                             Configure base fares, concessions, and assistance fees
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
+                {/* Accessibility Analytics (MOV-168) */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleAccessibilityAnalytics}
+                    activeOpacity={0.75}
+                >
+                    <View style={styles.iconContainer}>
+                        <Ionicons
+                            name="stats-chart-outline"
+                            size={30}
+                            color="#7B1FA2"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <Text style={styles.cardTitle}>
+                            Accessibility Analytics
+                        </Text>
+
+                        <Text style={styles.cardDescription}>
+                            Monitor accessibility performance across routes and vehicles
                         </Text>
                     </View>
 
