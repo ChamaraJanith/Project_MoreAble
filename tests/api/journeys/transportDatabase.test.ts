@@ -149,6 +149,9 @@ describe('transport records written by admin are read back by journey search', (
             accessibilityFacilities: busPayload.accessibilityFacilities,
             // Derived from the facilities the admin recorded (MOV-89).
             accessibilityScore: computeAccessibilityScore(busPayload.accessibilityFacilities),
+            // The passenger rating travels beside the score (MOV-80); this bus
+            // has no ratings, which reads as no average rather than zero stars.
+            passengerRating: { busId, average: null, count: 0 },
         });
     });
 
@@ -179,6 +182,9 @@ describe('transport records written by admin are read back by journey search', (
             'busModel',
             'manufacturer',
             'numberPlate',
+            // Added by MOV-80: the passenger rating summary. The list stays
+            // exhaustive, so this had to be declared to be allowed through.
+            'passengerRating',
             'seatCapacity',
         ]);
     });

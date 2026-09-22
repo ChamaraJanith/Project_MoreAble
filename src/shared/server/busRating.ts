@@ -19,7 +19,14 @@
 // refuses a second rating for the same journey — including from a second seat
 // booked on the same run — while a later run of the same bus is a new key.
 
-import { BusRating, BusRatingContext, BusRatingValue, isBusRatingValue } from '../../entities/rating/model/types';
+import {
+    BusRating,
+    BusRatingContext,
+    BusRatingSummary,
+    BusRatingValue,
+    isBusRatingValue,
+} from '../../entities/rating/model/types';
+import { PassengerRatingTally, tallyPassengerRatings } from '../utils/accessibility';
 import { readPassengerJourneyCompletion } from './passengerJourneyRecord';
 
 export const BUS_RATINGS_COLLECTION = 'busRatings';
@@ -232,4 +239,76 @@ export async function submitBusRating(
         transaction.set(ratingRef, rating);
         return { kind: 'RATED', rating };
     });
+}
+
+// ------------------------------------------------------------------
+// Reading: how one bus stands with its passengers (MOV-80 / MOV-116)
+// ------------------------------------------------------------------
+
+/**
+ * A tally as a passenger-facing summary: the plain mean on the 1–5 scale.
+ *
+ * NOT `computeRatingScore`. That one exists to feed the accessibility score
+ * (MOV-79): it pulls the mean toward a neutral 3 in proportion to how few
+ * ratings there are, then remaps 1–5 onto 0–100, and it is weighted at 20%
+ * alongside facilities and community reports. Useful for ranking buses against
+ * each other; wrong as an answer to "what did passengers give this bus". A
+ * single 5-star rating is 5.0 here and nowhere near 100 there.
+ *
+ * Left unrounded. The mean of 5, 4 and 4 is 4.333…, and the screen decides how
+ * many decimals to show (one, today) — rounding here as well would round twice
+ * and could move the displayed figure by a tenth.
+ *
+ * `average` is null exactly when `count` is 0. Never 0: the scale starts at 1,
+ * so a zero is not a rating any passenger could have given, and showing one for
+ * a bus nobody has rated would be the worst possible verdict rather than the
+ * absence of evidence it really is.
+ */
+export function busRatingSummaryFromTally(
+    tally: PassengerRatingTally | null | undefined,
+    busId: string
+): BusRatingSummary {
+    const count = tally?.count ?? 0;
+
+    return {
+        busId,
+        average: count > 0 ? (tally as PassengerRatingTally).total / count : null,
+        count,
+    };
+}
+
+/**
+ * The average rating and rating count for the bus stored at `buses/{busId}`.
+ *
+ * One single-field equality query, exactly as `loadAccessibilityScoreEvidence`
+ * reads the same collection — Firestore indexes that automatically, so no
+ * composite index is needed and no other bus's ratings are ever fetched.
+ *
+ * Which ratings count is not decided here. `readBusRating` rebuilds each stored
+ * document and returns null for anything malformed, and `tallyPassengerRatings`
+ * then counts only whole 1–5 ratings naming this bus. Both are the functions the
+ * accessibility score already uses, so a rating that counts toward the average a
+ * passenger reads is exactly one that counts toward the score.
+ *
+ * Reading never writes: no score is recalculated and no history entry is
+ * recorded (MOV-113 is written by the routes that CHANGE the evidence).
+ */
+export async function loadBusRatingSummary(adminDb: any, busId: string): Promise<BusRatingSummary> {
+    const key = text(busId);
+
+    // Nothing to query on. Answered as an unrated bus rather than refused: the
+    // id is echoed back trimmed, exactly as the success path below returns it.
+    if (!key) return { busId: typeof busId === 'string' ? busId.trim() : '', average: null, count: 0 };
+
+    const snapshot = await adminDb
+        .collection(BUS_RATINGS_COLLECTION)
+        .where('busId', '==', key)
+        .get();
+
+    const tally = tallyPassengerRatings(
+        (snapshot?.docs ?? []).map((doc: any) => readBusRating(doc.data())),
+        key
+    );
+
+    return busRatingSummaryFromTally(tally, key);
 }

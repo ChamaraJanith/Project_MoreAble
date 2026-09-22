@@ -236,6 +236,37 @@ describe('what the app asks the API for', () => {
         expect(BUS_RATING_SUMMARY_PATH('BUS A/1')).toBe('/api/buses/BUS%20A%2F1/ratings');
     });
 
+    it('parses the exact envelope the MOV-116 route returns', async () => {
+        // The real response, verbatim: success, a message, and the summary.
+        respond(200, {
+            success: true,
+            message: 'Bus ratings retrieved successfully.',
+            summary: { busId: 'BUS-A', average: 13 / 3, count: 3 },
+        });
+
+        const result = await getBusRatingSummary('tok', 'BUS-A');
+
+        expect(result.ok && result.value.count).toBe(3);
+        expect(result.ok && result.value.average).toBeCloseTo(4.3333333, 6);
+        // The server sends the exact mean; the screen is what rounds it, once.
+        expect(describeRatingSummary(result.ok ? result.value : null).averageLabel).toBe('4.3');
+    });
+
+    it('carries an unrated bus through as no ratings, not as zero stars', async () => {
+        respond(200, {
+            success: true,
+            message: 'Bus ratings retrieved successfully.',
+            summary: { busId: 'BUS-A', average: null, count: 0 },
+        });
+
+        const result = await getBusRatingSummary('tok', 'BUS-A');
+
+        expect(result).toEqual({ ok: true, value: { busId: 'BUS-A', average: null, count: 0 } });
+        expect(describeRatingSummary(result.ok ? result.value : null).compactLabel).toBe(
+            NO_RATINGS_LABEL
+        );
+    });
+
     it('treats a route that is not served as unavailable, not as an error', async () => {
         respond(404, { success: false, message: 'Not found.' });
 
@@ -360,5 +391,54 @@ describe('where the three things actually appear', () => {
 
     it('is a reading, not a control: no rating can be submitted from it', () => {
         expect(summaryView).not.toContain('submitBusRating');
+    });
+});
+
+// ------------------------------------------------------------------
+// The MOV-116 backend, as the screens consume it.
+// ------------------------------------------------------------------
+describe('the rating the screens show is the backend’s', () => {
+    const search = read('app/api/journeys/search+api.ts');
+    const details = read('src/features/journey/ui/RouteDetailsScreen.tsx');
+    const route = read('app/api/buses/[busId]/ratings+api.ts');
+
+    it('the search response carries the summary the result card reads', () => {
+        expect(search).toContain('passengerRating: busRatingSummaryFromTally(');
+    });
+
+    it('the search derives it from evidence it had already read, not a new query', () => {
+        // The tally handed in is the one the accessibility score was built from,
+        // so the rating costs no extra Firestore read and cannot belong to a
+        // different bus than the score beside it.
+        expect(search).toContain('busRatingSummaryFromTally(evidence.ratings, bus.busId)');
+    });
+
+    it('the search still reports the accessibility score separately', () => {
+        expect(search).toContain('accessibilityScore: computeAccessibilityScore(');
+    });
+
+    it('the endpoint the client calls is the endpoint that exists', () => {
+        expect(BUS_RATING_SUMMARY_PATH('BUS-A')).toBe('/api/buses/BUS-A/ratings');
+        expect(route).toContain('export async function GET');
+        expect(route).toContain('loadBusRatingSummary');
+    });
+
+    it('Route Details shows a summary the search already carried without a loading flash', () => {
+        expect(details).toContain('const seededRating = bus?.passengerRating ?? null;');
+        expect(details).toMatch(/seededRating \? 'READY'/);
+    });
+
+    it('Route Details still refreshes it from the endpoint', () => {
+        expect(details).toContain('getBusRatingSummary(token, bus.busId)');
+    });
+
+    it('reading ratings never writes accessibility score history', () => {
+        expect(route).not.toContain('recordAccessibilityScore');
+        expect(route).not.toContain('accessibilityScoreHistory');
+    });
+
+    it('the endpoint does not serve reports, which already have one', () => {
+        expect(route).not.toContain('getVerifiedBusReports');
+        expect(route).not.toContain("collection('reports')");
     });
 });
