@@ -293,10 +293,15 @@ export interface TrendPointView {
     /**
      * Where this point sits between the lowest and highest weeks, 0 to 1.
      *
-     * Null for a week with no value — a gap in the line, not a point at the
-     * bottom of it. This is the one number a visual needs that the API does not
-     * send, and it is derived here so MOV-170's chart can be handed a series
-     * rather than work it out again.
+     * Null for a week with no value — a gap, not a point at the bottom.
+     *
+     * NOT THE TREND CHART'S SCALE, and not what MOV-170 plots. This is
+     * normalised against the window's own range, so the same score moves as
+     * soon as another week is higher or lower; that is fine for a relative
+     * strip and wrong for a chart meant to be compared with itself over time.
+     * The chart puts a score on the fixed 0–100 axis instead — see
+     * `scoreToY` in utils/accessibilityTrendChart. Reach for that, not this,
+     * when placing a score on a canvas.
      */
     heightRatio: number | null;
     accessibilityLabel: string;
