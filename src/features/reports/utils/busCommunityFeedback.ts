@@ -157,6 +157,62 @@ export function selectVerifiedBusReports(
         .slice(0, Math.max(0, limit));
 }
 
+// ==================================================================
+// The rating block's own state
+//
+// Two rules, pulled out of Route Details so they can be tested. The screen
+// holds a summary that may arrive twice — once seeded from the search response
+// the passenger tapped through from, once refreshed from the endpoint — and
+// these decide what the block shows at each point. Behaviour is unchanged; the
+// expressions simply used to be inline, where no test could reach them.
+// ==================================================================
+
+export type BusRatingLoadState = 'LOADING' | 'READY' | 'UNAVAILABLE';
+
+/**
+ * The state the rating block starts in, before any request has answered.
+ *
+ * A seeded summary starts READY rather than LOADING. The passenger read that
+ * very figure on the card they tapped, and covering it with "Loading passenger
+ * ratings…" would be a flash that tells them nothing they did not already know.
+ * With nothing seeded it is LOADING while a read is possible, and UNAVAILABLE
+ * when there is nothing to read with — no session, or no bus.
+ */
+export function initialRatingLoadState(
+    seeded: BusRatingSummary | null | undefined,
+    canRead: boolean
+): BusRatingLoadState {
+    if (seeded) return 'READY';
+
+    return canRead ? 'LOADING' : 'UNAVAILABLE';
+}
+
+/** Which of the block's three appearances to draw. */
+export interface RatingCardView {
+    loading: boolean;
+    unavailable: boolean;
+}
+
+/**
+ * What the block shows, given where the read got to and the best summary held.
+ *
+ * A failed refresh does NOT discard a summary already in hand. The seeded figure
+ * came from the same server moments earlier and is still the best answer there
+ * is — replacing it with "ratings are not available" because a refresh timed out
+ * would take working information away from the passenger over a request they
+ * never asked for. So UNAVAILABLE is shown only when there is genuinely nothing
+ * to show.
+ */
+export function ratingCardView(
+    state: BusRatingLoadState,
+    summary: BusRatingSummary | null | undefined
+): RatingCardView {
+    return {
+        loading: state === 'LOADING',
+        unavailable: state === 'UNAVAILABLE' && !summary,
+    };
+}
+
 /** What the feedback list says when the bus has no verified reports. */
 export const NO_VERIFIED_FEEDBACK_TITLE = 'No verified feedback yet';
 export const NO_VERIFIED_FEEDBACK_DESCRIPTION =

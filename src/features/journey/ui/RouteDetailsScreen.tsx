@@ -9,6 +9,11 @@ import { setSelectedVehicle } from '../../booking/store/selectedVehicleStore';
 import { fetchSeats } from '../../booking/api/bookingApi';
 import { getBusRatingSummary } from '../../reports/api/busCommunityApi';
 import { BusRatingSummaryCard } from '../../reports/ui/BusRatingSummaryView';
+import {
+    BusRatingLoadState,
+    initialRatingLoadState,
+    ratingCardView,
+} from '../../reports/utils/busCommunityFeedback';
 import { SelectedJourney, useSelectedJourney } from '../store/selectedRouteStore';
 import {
     goBackOrTo,
@@ -156,17 +161,12 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
 
     const [ratingSummary, setRatingSummary] = React.useState<BusRatingSummary | null>(seededRating);
 
-    // Both of these are known before the first render, so they are the initial
-    // state rather than something an effect corrects afterwards.
-    //
-    // A seeded summary starts READY, not LOADING: the passenger just read this
-    // very figure on the result card they tapped, and showing them "Loading
-    // passenger ratings…" over a number we already have would be a flash for no
-    // information. The refresh below still runs and still replaces it — quietly,
-    // because a figure on screen being confirmed is not something to announce.
+    // Known before the first render, so it is the initial state rather than
+    // something an effect corrects afterwards. What each state draws, and why a
+    // failed refresh keeps a seeded figure, is `ratingCardView` below.
     const canReadRatings = !!token && !!bus?.busId;
-    const [ratingState, setRatingState] = React.useState<'LOADING' | 'READY' | 'UNAVAILABLE'>(
-        seededRating ? 'READY' : canReadRatings ? 'LOADING' : 'UNAVAILABLE'
+    const [ratingState, setRatingState] = React.useState<BusRatingLoadState>(
+        initialRatingLoadState(seededRating, canReadRatings)
     );
 
     React.useEffect(() => {
@@ -409,8 +409,7 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
                 {bus ? (
                     <BusRatingSummaryCard
                         summary={ratingSummary}
-                        loading={ratingState === 'LOADING'}
-                        unavailable={ratingState === 'UNAVAILABLE' && !ratingSummary}
+                        {...ratingCardView(ratingState, ratingSummary)}
                         onViewFeedback={handleViewCommunityFeedback}
                     />
                 ) : null}
