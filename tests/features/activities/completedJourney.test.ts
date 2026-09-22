@@ -148,8 +148,9 @@ describe('End Journey confirmation', () => {
         expect(screen).toMatch(/createEndJourneyAction<EndJourneyResult[^(]*\(\s*confirmEndJourney,/);
         expect(screen).toContain("t('ongoingJourney.endJourney', 'End Journey')");
         expect(screen).toContain("t('ongoingJourney.backToOngoing', 'Back to Ongoing')");
-        // After ending: stop following the bus here, then show the summary.
-        expect(screen).toMatch(/stopTracking\(\);\s*if \(bookingId\) router\.replace\(completedJourneyDetailsHref\(bookingId\)\)/);
+        // After ending: stop following the bus here, then offer to rate the
+        // bus (the journey is already completed by then).
+        expect(screen).toMatch(/stopTracking\(\);\s*if \(bookingId\) router\.replace\(busRatingHref\(bookingId\)\)/);
     });
 
     it('the dialog resolves true only on the End Journey button', () => {
