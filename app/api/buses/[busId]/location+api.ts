@@ -7,6 +7,7 @@ import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
 import { JOURNEY_SHARING_SCOPE } from '../../../../src/shared/config/jwt';
 import { authoriseLocationReport } from '../../../../src/shared/server/vehicleLocationAuthorization';
 import { isJourneyActive } from '../../../../src/shared/utils/journeyLifecycle';
+import { processVehicleArrivalAlertsForBus } from '../../../../src/features/notifications/services/vehicleArrivalService';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -254,6 +255,11 @@ export async function PUT(request: Request, context?: any) {
       .collection(VEHICLE_LOCATIONS_COLLECTION)
       .doc(authorisedBusId)
       .set(location);
+
+    // Asynchronously evaluate arrival alerts for passengers waiting for this bus
+    processVehicleArrivalAlertsForBus(authorisedBusId, adminDb).catch((err) =>
+      console.warn('[LocationAPI] Vehicle arrival background evaluation warning:', err)
+    );
 
     return Response.json(
       {
