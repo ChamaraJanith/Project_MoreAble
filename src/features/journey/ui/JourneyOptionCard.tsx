@@ -12,7 +12,9 @@ import {
 import { accessibilityScoreColor } from '../../../shared/utils/accessibility';
 import { setSelectedVehicle } from '../../booking/store/selectedVehicleStore';
 import { fetchSeats } from '../../booking/api/bookingApi';
+import { BusRatingSummaryCompact } from '../../reports/ui/BusRatingSummaryView';
 import { setSelectedJourney } from '../store/selectedRouteStore';
+import { JOURNEY_ROUTE_DETAILS_PATH } from '../utils/journeyNavigation';
 import { ACCESSIBILITY_REQUIREMENTS, meetsAccessibilityRequirement } from '../utils/accessibilityFilters';
 import {
     buildJourneyLegs,
@@ -135,7 +137,7 @@ export function JourneyOptionCard({
         setSelectedJourney({ route, option, geo, travelDate, travelTime, selectedAt: Date.now() });
 
         router.push({
-            pathname: '/journey/route-details',
+            pathname: JOURNEY_ROUTE_DETAILS_PATH,
             params: { routeId: route.routeId, tripId: trip.tripId },
         });
     };
@@ -175,6 +177,10 @@ export function JourneyOptionCard({
         `${distanceLabel ? `Journey distance ${distanceLabel}. ` : 'Journey distance not available. '}` +
         `${transferCount === 0 ? 'Direct, no transfers. ' : `${transferCount} transfer${transferCount > 1 ? 's' : ''}. `}` +
         `Board at ${route.origin}, get off at ${route.destination}.` +
+        // The passenger rating is deliberately NOT repeated here. It is its own
+        // focusable row further down the card with its own sentence, and saying
+        // it twice would also risk it being heard as part of the accessibility
+        // score this label already reads out.
         `${bus ? ` Bus ${bus.numberPlate}, ${bus.busModel}.` : ' Bus details unavailable.'}`;
 
     return (
@@ -323,6 +329,16 @@ export function JourneyOptionCard({
                         <Text style={styles.busModelText} numberOfLines={1}>
                             {bus.busModel} · {totalSeats} seats capacity
                         </Text>
+
+                        {/*
+                          How passengers rated THIS bus (MOV-80) — the plain
+                          average, not the accessibility score in the badge
+                          above. The two answer different questions and are
+                          shown separately on purpose. One line, and absent
+                          entirely until the figure is known, so the card does
+                          not grow taller for a bus nobody has rated.
+                        */}
+                        <BusRatingSummaryCompact summary={bus.passengerRating} />
 
                         <View style={styles.busFacilitiesRow}>
                             {ACCESSIBILITY_REQUIREMENTS.filter((req) =>

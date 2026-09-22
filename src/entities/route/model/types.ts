@@ -1,4 +1,5 @@
 import { BusAccessibilityFacilities, VehicleLocation } from '../../bus/model/types';
+import { BusRatingSummary } from '../../rating/model/types';
 import { Stop } from '../../stop/model/types';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
@@ -80,6 +81,23 @@ export interface JourneySearchBus {
      * rather than a bad one.
      */
     accessibilityScore: number;
+
+    /**
+     * How passengers rated this bus (MOV-80): the plain average and the number
+     * of ratings behind it.
+     *
+     * Carried on the search response rather than fetched per card, exactly as
+     * `accessibilityScore` above is. A results screen draws many cards, and a
+     * lookup per card would be one request per departure.
+     *
+     * A DIFFERENT figure from `accessibilityScore`, not a component of it read
+     * back out: the score weighs ratings at 20% through a neutral prior, and
+     * this is the mean itself. Both are shown, separately and labelled.
+     *
+     * Optional because MOV-116 adds it to the search response; until then it is
+     * absent and the card shows no rating rather than a fabricated one.
+     */
+    passengerRating?: BusRatingSummary | null;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
     formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString,
     TimeOfDay, toApiDateString, toApiTimeString
 } from '../utils/dateTime';
+import { goBackOrTo, HOME_PATH, JOURNEY_RESULTS_PATH } from '../utils/journeyNavigation';
 import { getRecentSearches, RecentSearch, saveRecentSearch } from '../utils/recentSearchesStorage';
 import { TravelDatePickerModal } from './TravelDatePickerModal';
 import { TravelTimePickerModal } from './TravelTimePickerModal';
@@ -121,7 +122,7 @@ export const JourneyPlannerForm = () => {
         saveRecentSearch({ origin, destination, travelDate, travelTime }).catch(() => {});
 
         router.push({
-            pathname: '/journey/results',
+            pathname: JOURNEY_RESULTS_PATH,
             params: { origin, destination, travelDate, travelTime },
         });
     };
@@ -140,7 +141,10 @@ export const JourneyPlannerForm = () => {
                 <View style={styles.headerRow}>
                     <TouchableOpacity
                         style={styles.backButton}
-                        onPress={() => router.back()}
+                        // The planner is the stack's root, so this normally
+                        // leaves journey planning for Home — which is what the
+                        // tab navigator above does with an exhausted stack.
+                        onPress={() => goBackOrTo(HOME_PATH)}
                         accessibilityRole="button"
                         accessibilityLabel="Go back"
                     >
