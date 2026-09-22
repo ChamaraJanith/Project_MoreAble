@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { BusRatingSummary } from '../../../src/entities/rating/model/types';
 import { AccessibilityReport } from '../../../src/entities/report/model/types';
 import {
     BUS_RATING_SUMMARY_PATH,
@@ -20,6 +21,8 @@ import {
     NO_RATINGS_LABEL,
     describeRatingSummary,
     formatAverageRating,
+    initialRatingLoadState,
+    ratingCardView,
     ratingCountLabel,
     selectVerifiedBusReports,
 } from '../../../src/features/reports/utils/busCommunityFeedback';
@@ -423,13 +426,17 @@ describe('the rating the screens show is the backend’s', () => {
         expect(route).toContain('loadBusRatingSummary');
     });
 
-    it('Route Details shows a summary the search already carried without a loading flash', () => {
+    it('Route Details seeds its rating from the summary the search carried', () => {
         expect(details).toContain('const seededRating = bus?.passengerRating ?? null;');
-        expect(details).toMatch(/seededRating \? 'READY'/);
+        expect(details).toContain('initialRatingLoadState(seededRating, canReadRatings)');
     });
 
     it('Route Details still refreshes it from the endpoint', () => {
         expect(details).toContain('getBusRatingSummary(token, bus.busId)');
+    });
+
+    it('Route Details draws the block through the shared rule', () => {
+        expect(details).toContain('ratingCardView(ratingState, ratingSummary)');
     });
 
     it('reading ratings never writes accessibility score history', () => {
@@ -440,5 +447,97 @@ describe('the rating the screens show is the backend’s', () => {
     it('the endpoint does not serve reports, which already have one', () => {
         expect(route).not.toContain('getVerifiedBusReports');
         expect(route).not.toContain("collection('reports')");
+    });
+});
+
+// ------------------------------------------------------------------
+// The rating block on Route Details, where the summary can arrive twice:
+// seeded from the search response, then refreshed from the endpoint.
+// ------------------------------------------------------------------
+describe('what the rating block shows while it is being read', () => {
+    const seeded: BusRatingSummary = { busId: 'BUS-A', average: 4.6, count: 24 };
+    const refreshed: BusRatingSummary = { busId: 'BUS-A', average: 4.4, count: 26 };
+
+    it('starts on the seeded figure, with no loading state over it', () => {
+        const state = initialRatingLoadState(seeded, true);
+
+        expect(state).toBe('READY');
+        expect(ratingCardView(state, seeded)).toEqual({ loading: false, unavailable: false });
+    });
+
+    it('loads when nothing was seeded and a read is possible', () => {
+        const state = initialRatingLoadState(null, true);
+
+        expect(state).toBe('LOADING');
+        expect(ratingCardView(state, null)).toEqual({ loading: true, unavailable: false });
+    });
+
+    it('is unavailable when there is nothing seeded and nothing to read with', () => {
+        // No session, or no bus on the departure.
+        const state = initialRatingLoadState(null, false);
+
+        expect(state).toBe('UNAVAILABLE');
+        expect(ratingCardView(state, null)).toEqual({ loading: false, unavailable: true });
+    });
+
+    it('shows the refreshed figure once it lands', () => {
+        expect(ratingCardView('READY', refreshed)).toEqual({ loading: false, unavailable: false });
+        expect(describeRatingSummary(refreshed).compactLabel).toBe('4.4 (26)');
+    });
+
+    it('KEEPS a seeded figure when the refresh fails, rather than destroying it', () => {
+        // The seeded summary came from the same server moments earlier and is
+        // still the best answer there is. A refresh that times out must not take
+        // a working figure off the screen.
+        const view = ratingCardView('UNAVAILABLE', seeded);
+
+        expect(view).toEqual({ loading: false, unavailable: false });
+        expect(describeRatingSummary(seeded).compactLabel).toBe('4.6 (24)');
+    });
+
+    it('keeps a seeded "no ratings" answer through a failed refresh too', () => {
+        // An unrated bus is a real answer, not a missing one.
+        const unrated: BusRatingSummary = { busId: 'BUS-A', average: null, count: 0 };
+
+        expect(ratingCardView('UNAVAILABLE', unrated)).toEqual({
+            loading: false,
+            unavailable: false,
+        });
+        expect(describeRatingSummary(unrated).compactLabel).toBe(NO_RATINGS_LABEL);
+    });
+
+    it('says ratings are unavailable only when it has nothing at all', () => {
+        expect(ratingCardView('UNAVAILABLE', null)).toEqual({
+            loading: false,
+            unavailable: true,
+        });
+    });
+});
+
+// ------------------------------------------------------------------
+describe('the rating display is not a second scoring implementation', () => {
+    const featureFiles = [
+        'src/features/reports/utils/busCommunityFeedback.ts',
+        'src/features/reports/api/busCommunityApi.ts',
+        'src/features/reports/ui/BusRatingSummaryView.tsx',
+        'src/features/reports/ui/BusCommunityFeedbackScreen.tsx',
+        'src/features/journey/ui/JourneyOptionCard.tsx',
+        'src/features/journey/ui/RouteDetailsScreen.tsx',
+    ];
+
+    it.each(featureFiles)('%s never calls the accessibility scoring functions', (file) => {
+        const source = read(file);
+
+        expect(source).not.toContain('computeRatingScore');
+        expect(source).not.toContain('computeAccessibilityScore');
+        expect(source).not.toContain('tallyPassengerRatings');
+    });
+
+    it('does not re-derive an average anywhere in the rating UI', () => {
+        // The average is the server's. Nothing in the display layer divides a
+        // total by a count, which would be a second definition of it.
+        for (const file of featureFiles) {
+            expect(read(file)).not.toMatch(/total\s*\/\s*count/);
+        }
     });
 });

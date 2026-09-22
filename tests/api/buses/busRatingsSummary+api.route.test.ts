@@ -118,6 +118,23 @@ describe('the average of valid ratings', () => {
         });
     });
 
+    it('averages five ratings to a terminating decimal', async () => {
+        // 5 + 4 + 4 + 3 + 2 = 18 over 5.
+        const db = seed([
+            rating('BUS-A', 5, '1'),
+            rating('BUS-A', 4, '2'),
+            rating('BUS-A', 4, '3'),
+            rating('BUS-A', 3, '4'),
+            rating('BUS-A', 2, '5'),
+        ]);
+
+        expect((await read(db, 'BUS-A')).body.summary).toEqual({
+            busId: 'BUS-A',
+            average: 3.6,
+            count: 5,
+        });
+    });
+
     it('answers a single rating with that rating', async () => {
         const db = seed([rating('BUS-A', 5, '1')]);
 
