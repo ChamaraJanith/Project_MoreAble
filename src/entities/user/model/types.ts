@@ -34,6 +34,21 @@ export type UserRole = 'PASSENGER' | 'GUARDIAN' | 'ADMIN';
  */
 export type AccountStatus = 'ACTIVE' | 'SUSPENDED';
 
+/**
+ * Where an account's accessibility verification stands.
+ *
+ * The vocabulary `PATCH /api/users/:userId/accessibility-status` validates
+ * against, and the one UserDetailsScreen offers an admin. Independent of both
+ * `isVerified` (OTP/contact verification) and `accountStatus` above: it records
+ * whether the accessibility needs a passenger declared have been confirmed.
+ *
+ * Declared here because four existing modules — that route, userAdminApi,
+ * UserDetailsScreen and UserListScreen — already import it from this file. The
+ * type was referenced without ever having been declared, which left every
+ * module in that import chain failing to compile.
+ */
+export type AccessibilityVerificationStatus = 'PENDING' | 'VERIFIED' | 'REJECTED';
+
 export interface Guardian {
   guardianId: string;
   userId: string;

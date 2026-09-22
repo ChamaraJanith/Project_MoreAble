@@ -1,4 +1,4 @@
-// The Reports tile on the admin dashboard (MOV-131).
+// The Reports tile on the admin dashboard (MOV-131, extended by MOV-134).
 //
 // The tile makes one claim — how many accessibility reports exist — and the
 // things that can go wrong with it are all about what it says when it does not
@@ -41,6 +41,25 @@ function queueOf(size: number) {
 /** The state after reading a queue of `size` reports. */
 function loaded(size: number): ReportCountState {
     return reportCountReducer(initialReportCountState, reportCountAction(queueOf(size)));
+}
+
+/** A queue holding exactly these report statuses, in this order. */
+function queueOfStatuses(...statuses: string[]) {
+    return {
+        ok: true as const,
+        value: {
+            reports: statuses.map((status, index) => ({ reportId: `REP-${index}`, status })),
+            flaggedCount: 0,
+        },
+    };
+}
+
+/** The state after reading a queue holding those statuses. */
+function loadedStatuses(...statuses: string[]): ReportCountState {
+    return reportCountReducer(
+        initialReportCountState,
+        reportCountAction(queueOfStatuses(...statuses))
+    );
 }
 
 // ==================================================================
@@ -104,7 +123,7 @@ describe('the count', () => {
 
     it('says on the tile that it opens the review queue', () => {
         expect(reportCountAccessibilityLabel(loaded(3))).toBe(
-            'Reports 3. Opens the accessibility report review queue.'
+            'Reports 3. 0 verified. Opens the accessibility report review queue.'
         );
     });
 });
@@ -175,5 +194,96 @@ describe('a failed read', () => {
         expect(recovered.status).toBe('ready');
         expect(recovered.count).toBe(2);
         expect(recovered.error).toBeNull();
+    });
+});
+
+// ==================================================================
+// The verified total (MOV-134)
+//
+// The one MOV-134 statistic the Overview did not already state. It is a
+// subtotal of the count above it, taken off the same single read, so what
+// matters is that the two move together and can never describe different
+// queues.
+// ==================================================================
+describe('the verified total', () => {
+    it('counts only the reports an admin upheld', () => {
+        const state = loadedStatuses('VERIFIED', 'PENDING', 'VERIFIED', 'REJECTED');
+
+        expect(state.count).toBe(4);
+        expect(state.verified).toBe(2);
+    });
+
+    it('excludes every status that is not a finding the report held', () => {
+        const state = loadedStatuses('PENDING', 'REJECTED', 'REVIEWED', 'RESOLVED');
+
+        expect(state.count).toBe(4);
+        expect(state.verified).toBe(0);
+    });
+
+    it('is 0 rather than absent when nothing has been verified yet', () => {
+        // The card renders its breakdown line on `verified !== null`, so a zero
+        // has to be a zero — not a missing value that hides the line.
+        const state = loadedStatuses('PENDING', 'PENDING');
+
+        expect(state.verified).toBe(0);
+        expect(isReportCountLoading(state)).toBe(false);
+    });
+
+    it('is not known before anything has been read', () => {
+        expect(initialReportCountState.verified).toBeNull();
+    });
+
+    it('is dropped alongside the total when the read fails', () => {
+        // A stale subtotal under a tile that has stopped being able to confirm
+        // it is exactly as wrong as a stale total.
+        const state = reportCountReducer(
+            loadedStatuses('VERIFIED', 'PENDING'),
+            reportCountAction({ ok: false, status: 500, message: 'Server error.' })
+        );
+
+        expect(state.count).toBeNull();
+        expect(state.verified).toBeNull();
+    });
+
+    it('is dropped when there is no admin session to ask with', () => {
+        expect(reportCountReducer(initialReportCountState, NO_SESSION_ACTION).verified).toBeNull();
+    });
+
+    it('stays on screen while the queue is being re-read', () => {
+        const reloading = reportCountReducer(loadedStatuses('VERIFIED', 'PENDING'), {
+            type: 'loadStarted',
+        });
+
+        // Same rule as the total: a returning admin does not watch a number
+        // they can already see blink away and come back.
+        expect(reloading.count).toBe(2);
+        expect(reloading.verified).toBe(1);
+    });
+
+    it('is replaced by the next read rather than added to', () => {
+        const afterReload = reportCountReducer(
+            loadedStatuses('VERIFIED', 'VERIFIED', 'VERIFIED'),
+            reportCountAction(queueOfStatuses('VERIFIED', 'PENDING'))
+        );
+
+        expect(afterReload.count).toBe(2);
+        expect(afterReload.verified).toBe(1);
+    });
+
+    it('never exceeds the total it is a share of', () => {
+        const state = loadedStatuses('VERIFIED', 'VERIFIED', 'PENDING', 'REJECTED', 'RESOLVED');
+
+        // Guaranteed by both numbers coming out of one reading of one queue —
+        // which is why the verified count is derived here and not fetched.
+        expect(state.verified as number).toBeLessThanOrEqual(state.count as number);
+    });
+
+    it('is spoken on the tile alongside the total', () => {
+        // The card sets an explicit accessibilityLabel, which replaces what its
+        // children say, so a number only in the breakdown line would be visible
+        // and unreachable.
+        expect(reportCountAccessibilityLabel(loadedStatuses('VERIFIED', 'PENDING'))).toBe(
+            'Reports 2. 1 verified. Opens the accessibility report review queue.'
+        );
     });
 });
