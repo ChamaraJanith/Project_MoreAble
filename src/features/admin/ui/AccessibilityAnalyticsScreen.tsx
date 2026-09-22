@@ -12,7 +12,6 @@ import {
 } from '../api/accessibilityAnalyticsApi';
 import {
     RouteRow,
-    TrendPointView,
     TrendView,
     VehicleRow,
     averageScoreDisplay,
@@ -20,6 +19,7 @@ import {
     trendView,
     vehicleRows,
 } from '../utils/accessibilityAnalyticsPresentation';
+import { AccessibilityTrendChart } from './AccessibilityTrendChart';
 import { AdminScreenHeader } from './AdminScreenHeader';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from './AdminStates';
 import { adminColors, adminShadow } from './adminTheme';
@@ -327,12 +327,17 @@ function VehicleRowView({ row, isLast }: { row: VehicleRow; isLast: boolean }) {
  *
  * The container and the series are in place; the chart itself is MOV-170. What
  * is drawn here is a plain bar strip built from Views — no chart library and no
- * new dependency — so the section is a working part of the screen rather than a
- * grey placeholder, and MOV-170 replaces the bars alone.
+ * new dependency — and MOV-170 replaced those bars with the real chart.
  *
- * A week with no recorded score draws a flat, muted baseline rather than a bar
- * of height 0: the fleet did not score nothing that week, nothing was recorded,
- * and the two must not look alike.
+ * The summary row above it is unchanged and still reads its latest, high and
+ * low straight off `trendView`: the chart draws the same series and computes
+ * none of those figures again, so the line and the numbers beside it cannot
+ * disagree.
+ *
+ * A week with no recorded score is still shown as an absence rather than a
+ * zero — the chart breaks its line and marks the week on the axis. The fleet
+ * did not score nothing that week; nothing was recorded, and the two must not
+ * look alike.
  */
 function TrendSection({ trend }: { trend: TrendView }) {
     if (!trend.hasAnyValue) {
@@ -367,42 +372,9 @@ function TrendSection({ trend }: { trend: TrendView }) {
                 </View>
             </View>
 
-            <View style={styles.trendPlot} accessibilityLabel="Weekly accessibility score trend">
-                {trend.points.map((point) => (
-                    <TrendBar key={point.date} point={point} />
-                ))}
-            </View>
+            <AccessibilityTrendChart series={trend.points} />
 
             <Text style={styles.trendSummary}>{trend.summary}</Text>
-        </View>
-    );
-}
-
-/** The minimum visible height of a bar, so the lowest week is still a bar. */
-const TREND_BAR_MIN_HEIGHT = 8;
-const TREND_BAR_MAX_HEIGHT = 96;
-
-function TrendBar({ point }: { point: TrendPointView }) {
-    if (!point.hasValue) {
-        return (
-            <View style={styles.trendBarSlot} accessible accessibilityLabel={point.accessibilityLabel}>
-                <View style={styles.trendBarEmpty} />
-            </View>
-        );
-    }
-
-    const height =
-        TREND_BAR_MIN_HEIGHT +
-        (point.heightRatio ?? 0) * (TREND_BAR_MAX_HEIGHT - TREND_BAR_MIN_HEIGHT);
-
-    return (
-        <View style={styles.trendBarSlot} accessible accessibilityLabel={point.accessibilityLabel}>
-            <View
-                style={[
-                    styles.trendBar,
-                    { height, backgroundColor: accessibilityScoreColor(point.score as number) },
-                ]}
-            />
         </View>
     );
 }
@@ -532,23 +504,6 @@ const styles = StyleSheet.create({
     trendLatestValue: { fontSize: 28, fontWeight: '800', marginTop: 2 },
     trendRangeGroup: { alignItems: 'flex-end', gap: 2 },
     trendRangeText: { fontSize: 12, color: adminColors.textSecondary, fontWeight: '600' },
-    trendPlot: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        justifyContent: 'space-between',
-        height: TREND_BAR_MAX_HEIGHT,
-        gap: 4,
-    },
-    // flex:1 rather than a fixed width, so twelve weeks fit any screen.
-    trendBarSlot: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-    trendBar: { width: '100%', borderRadius: 4, minHeight: TREND_BAR_MIN_HEIGHT },
-    // A week with nothing recorded: a baseline, deliberately not a zero bar.
-    trendBarEmpty: {
-        width: '100%',
-        height: 3,
-        borderRadius: 2,
-        backgroundColor: adminColors.borderSubtle,
-    },
     trendSummary: {
         marginTop: 14,
         fontSize: 12,
