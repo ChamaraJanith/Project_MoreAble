@@ -249,7 +249,12 @@ export interface JourneyPoller {
 export function createJourneyPoller(
     poll: () => Promise<boolean>,
     intervalMs: number = ONGOING_JOURNEY_POLL_INTERVAL_MS,
-    timers: PollerTimers = { setInterval, clearInterval }
+    // Called through wrappers, not stored as methods: on web the browser's own
+    // setInterval throws "Illegal invocation" when `this` is not the window.
+    timers: PollerTimers = {
+        setInterval: (callback, ms) => setInterval(callback, ms),
+        clearInterval: (handle) => clearInterval(handle),
+    }
 ): JourneyPoller {
     let handle: unknown = null;
     let inFlight = false;

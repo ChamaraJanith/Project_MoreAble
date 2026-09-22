@@ -27,6 +27,15 @@ export function completedJourneyDetailsHref(bookingId: string): ActivityHref {
     return { pathname: '/activities/completed/[bookingId]', params: { bookingId } };
 }
 
+/**
+ * Rate this bus: shown once the passenger's own End Journey has completed.
+ * Journey completion never waits for it; Submit and Skip both lead to
+ * Activities.
+ */
+export function busRatingHref(bookingId: string) {
+    return { pathname: '/activities/rate/[bookingId]', params: { bookingId } } as const;
+}
+
 /** The details view for a completed activity with no recorded completion. */
 export function completedJourneyHref(bookingId: string): ActivityHref {
     return { pathname: '/booking/ticket/[bookingId]', params: { bookingId } };
