@@ -22,6 +22,7 @@ import {
     setSelectedVehicle,
     useSelectedVehicle,
 } from '../../../src/features/booking/store/selectedVehicleStore';
+import { formatDisplayDate } from '../../../src/features/journey/utils/dateTime';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 
 export default function BookingConfirmScreen() {
@@ -34,12 +35,18 @@ export default function BookingConfirmScreen() {
         isPrioritySeat,
         origin,
         destination,
+        travelDate,
+        date,
+        journeyDate,
     } = useLocalSearchParams<{
         tripId: string;
         seatNumber: string;
         isPrioritySeat: string;
         origin?: string;
         destination?: string;
+        travelDate?: string;
+        date?: string;
+        journeyDate?: string;
     }>();
 
     const selectedVehicle = useSelectedVehicle();
@@ -164,6 +171,8 @@ export default function BookingConfirmScreen() {
                 tripId: tripId as string,
                 seatNumber: seatNumber as string,
                 passengerId: user?.passengerId,
+                journeyDate: travelDate || date || journeyDate || undefined,
+                travelDate: travelDate || date || journeyDate || undefined,
                 origin:
                     journeyOrigin !== '—'
                         ? journeyOrigin
@@ -172,6 +181,8 @@ export default function BookingConfirmScreen() {
                     journeyDestination !== '—'
                         ? journeyDestination
                         : undefined,
+                departureTime: selectedVehicle?.departureTime || undefined,
+                estimatedArrivalTime: selectedVehicle?.estimatedArrivalTime || undefined,
                 assistanceRequested: {
                     wheelchairAssistance,
                     boardingAssistance,
@@ -388,6 +399,30 @@ export default function BookingConfirmScreen() {
                 </View>
 
                 <View style={styles.divider} />
+
+                {(travelDate || date || journeyDate || (selectedVehicle as any)?.travelDate) && (
+                    <>
+                        <View style={styles.stopRow}>
+                            <Ionicons
+                                name="calendar-outline"
+                                size={14}
+                                color="#0066CC"
+                            />
+
+                            <View style={{ marginLeft: 10 }}>
+                                <Text style={styles.stopLabel}>
+                                    Travel Date
+                                </Text>
+
+                                <Text style={styles.stopValue}>
+                                    {formatDisplayDate(travelDate || date || journeyDate || (selectedVehicle as any)?.travelDate)}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.divider} />
+                    </>
+                )}
 
                 <View style={styles.stopRow}>
                     <Ionicons

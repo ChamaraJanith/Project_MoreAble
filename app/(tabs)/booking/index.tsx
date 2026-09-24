@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Booking } from '../../../src/entities/booking/model/types';
 import { cancelBooking, getBookingHistory } from '../../../src/features/booking/api/bookingApi';
+import { formatDisplayDate } from '../../../src/features/journey/utils/dateTime';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 import { statusBadgeStyles } from '../../../src/shared/ui/statusBadgeStyles';
 
@@ -261,6 +262,15 @@ export default function MyBookingsScreen() {
 
                                     {/* Meta details - Simple blue and gray theme */}
                                     <View style={styles.metaRow}>
+                                        {(item.journeyDate || item.travelDate || item.journey?.journeyDate || item.journey?.departureDate) && (
+                                            <View style={styles.metaBadge}>
+                                                <Ionicons name="calendar-outline" size={14} color="#0066CC" />
+                                                <Text style={styles.metaText}>
+                                                    {formatDisplayDate(item.journeyDate || item.travelDate || item.journey?.journeyDate || item.journey?.departureDate)}
+                                                </Text>
+                                            </View>
+                                        )}
+
                                         <View style={styles.metaBadge}>
                                             <Ionicons name="time-outline" size={14} color="#0066CC" />
                                             <Text style={styles.metaText}>{item.journey.departureTime}</Text>

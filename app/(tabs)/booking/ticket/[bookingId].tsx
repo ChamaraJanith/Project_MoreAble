@@ -15,6 +15,20 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { Booking } from '../../../../src/entities/booking/model/types';
 import { getBooking } from '../../../../src/features/booking/api/bookingApi';
+import {
+    apiTimeToMinutes,
+    formatDisplayDate,
+    formatFriendlyTime,
+    parseApiTimeString,
+} from '../../../../src/features/journey/utils/dateTime';
+
+function formatTicketTime(value?: string | null): string {
+    if (!value) return '—';
+    if (apiTimeToMinutes(value) !== null) {
+        return formatFriendlyTime(parseApiTimeString(value));
+    }
+    return value;
+}
 
 export default function BookingTicketScreen() {
   const { t } = useTranslation();
@@ -93,6 +107,13 @@ export default function BookingTicketScreen() {
                 <View style={styles.divider} />
 
                 {/* Booking Details */}
+                {(booking.journeyDate || booking.travelDate || booking.journey?.journeyDate || booking.journey?.departureDate) && (
+                    <TicketRow
+                        label="Travel Date"
+                        value={formatDisplayDate(booking.journeyDate || booking.travelDate || booking.journey?.journeyDate || booking.journey?.departureDate)}
+                    />
+                )}
+
                 <TicketRow
                     label="Seat(s)"
                     value={`${booking.seatNumber}${booking.pairedSeatNumber ? ` + Companion Seat ${booking.pairedSeatNumber}` : ''}${booking.isPrioritySeat ? ' (Priority)' : ''}`}
@@ -110,12 +131,12 @@ export default function BookingTicketScreen() {
 
                 <TicketRow
                     label="Departure"
-                    value={booking.journey.departureTime}
+                    value={formatTicketTime(booking.journey.departureTime)}
                 />
 
                 <TicketRow
                     label="Est. Arrival"
-                    value={booking.journey.estimatedArrivalTime}
+                    value={formatTicketTime(booking.journey.estimatedArrivalTime)}
                 />
 
                 <TicketRow

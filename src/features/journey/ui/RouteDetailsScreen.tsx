@@ -22,6 +22,7 @@ import {
     JOURNEY_RESULTS_PATH,
 } from '../utils/journeyNavigation';
 import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';
+import { formatDisplayDate } from '../utils/dateTime';
 import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
 import { resolveJourneyTiming } from '../utils/journeyTiming';
 import { resolveIntermediateStops } from '../utils/routeMapStops';
@@ -37,7 +38,13 @@ const NOT_AVAILABLE = 'Not available';
  * the Recommended Routes screen — nothing about a specific route is hardcoded.
  */
 export const RouteDetailsScreen = () => {
-    const { routeId, tripId } = useLocalSearchParams<{ routeId?: string; tripId?: string }>();
+    const { routeId, tripId, travelDate, date, journeyDate } = useLocalSearchParams<{
+        routeId?: string;
+        tripId?: string;
+        travelDate?: string;
+        date?: string;
+        journeyDate?: string;
+    }>();
     const held = useSelectedJourney();
 
     // The route and trip ids arrive as navigation params; the journey object
@@ -101,6 +108,13 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
     const { route, option, geo } = selection;
     const { trip, bus } = option;
 
+    const { travelDate, date, journeyDate } = useLocalSearchParams<{
+        travelDate?: string;
+        date?: string;
+        journeyDate?: string;
+    }>();
+    const targetTravelDate = travelDate || date || journeyDate || (selection as any)?.travelDate;
+
     const [seatInfo, setSeatInfo] = React.useState<{
         availableSeats: number;
         totalSeats: number;
@@ -117,7 +131,7 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
     React.useEffect(() => {
         if (seatInfo !== null || !trip?.tripId) return;
         let isMounted = true;
-        fetchSeats(trip.tripId)
+        fetchSeats(trip.tripId, targetTravelDate)
             .then((data) => {
                 if (!isMounted || !data?.seats) return;
                 const available = data.seats.filter((s) => s.status === 'AVAILABLE').length;
@@ -255,6 +269,7 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
                 tripId: trip.tripId,
                 origin: route.origin,
                 destination: route.destination,
+                travelDate: travelDate || date || journeyDate || (selection as any)?.travelDate || undefined,
             },
         });
     };
@@ -282,6 +297,15 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
                             </Text>
                         </View>
                     </View>
+
+                    {targetTravelDate && (
+                        <View style={styles.travelDateBadge}>
+                            <Ionicons name="calendar-outline" size={13} color="#0066CC" />
+                            <Text style={styles.travelDateBadgeText}>
+                                Travel Date: {formatDisplayDate(targetTravelDate)}
+                            </Text>
+                        </View>
+                    )}
 
                     {/* Departure → arrival: the key decision information */}
                     <View style={styles.timeRow}>
@@ -629,6 +653,23 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: '#64748B',
         marginTop: 3,
+    },
+    travelDateBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+        marginBottom: 12,
+        backgroundColor: '#EFF6FF',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 8,
+        alignSelf: 'flex-start',
+        gap: 6,
+    },
+    travelDateBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#0066CC',
     },
 
     timeRow: {

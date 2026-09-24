@@ -22,13 +22,45 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { tripId, seatNumber, isPrioritySeat, passengerId, origin, destination, assistanceRequested, specialRequests, receiverDetails } = body;
+        const {
+            tripId,
+            seatNumber,
+            isPrioritySeat,
+            passengerId,
+            origin,
+            destination,
+            departureTime,
+            estimatedArrivalTime,
+            arrivalTime,
+            assistanceRequested,
+            specialRequests,
+            receiverDetails,
+            journeyDate,
+            travelDate,
+            date,
+        } = body;
 
         if (!tripId || !seatNumber) {
             return Response.json(
                 { success: false, message: 'tripId and seatNumber are required.' },
                 { status: 400, headers: corsHeaders }
             );
+        }
+
+        const inputDate =
+            (typeof journeyDate === 'string' && journeyDate.trim()) ||
+            (typeof travelDate === 'string' && travelDate.trim()) ||
+            (typeof date === 'string' && date.trim()) ||
+            null;
+
+        if (inputDate) {
+            const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+            if (!DATE_REGEX.test(inputDate) || Number.isNaN(Date.parse(inputDate))) {
+                return Response.json(
+                    { success: false, message: 'Invalid travel date format. Expected YYYY-MM-DD.' },
+                    { status: 400, headers: corsHeaders }
+                );
+            }
         }
 
         const adminDb = getAdminDb();
@@ -268,12 +300,28 @@ export async function POST(request: Request) {
         const bookingsRef = adminDb.collection('bookings');
         const notificationsRef = adminDb.collection('notifications');
 
+        const resolvedJourneyDate =
+            inputDate ||
+            (trip.departureTime && trip.departureTime.includes('T') ? trip.departureTime.split('T')[0] : null) ||
+            new Date().toISOString().split('T')[0];
+
         const booking = await adminDb.runTransaction(async (transaction: any) => {
             const existingSnapshot = await transaction.get(
                 bookingsRef.where('tripId', '==', tripId).where('seatNumber', '==', seatNumber).where('status', '==', 'CONFIRMED')
             );
 
-            if (!existingSnapshot.empty) {
+            // Check if there is a conflict for this specific journey date
+            const isConflict = existingSnapshot.docs.some((doc: any) => {
+                const d = doc.data();
+                const existingDate =
+                    d.journeyDate ||
+                    d.travelDate ||
+                    d.journey?.departureDate ||
+                    (typeof d.journey?.journeyDate === 'string' ? d.journey.journeyDate : null);
+                return !existingDate || existingDate === resolvedJourneyDate;
+            });
+
+            if (isConflict) {
                 throw new Error('SEAT_TAKEN');
             }
 
@@ -285,7 +333,17 @@ export async function POST(request: Request) {
                     bookingsRef.where('tripId', '==', tripId).where('seatNumber', '==', pairedSeatNumber).where('status', '==', 'CONFIRMED')
                 );
 
-                if (!pairedSnapshot.empty) {
+                const isPairedConflict = pairedSnapshot.docs.some((doc: any) => {
+                    const d = doc.data();
+                    const existingDate =
+                        d.journeyDate ||
+                        d.travelDate ||
+                        d.journey?.departureDate ||
+                        (typeof d.journey?.journeyDate === 'string' ? d.journey.journeyDate : null);
+                    return !existingDate || existingDate === resolvedJourneyDate;
+                });
+
+                if (isPairedConflict) {
                     throw new Error('PAIRED_GUARDIAN_SEAT_TAKEN');
                 }
             }
@@ -300,12 +358,20 @@ export async function POST(request: Request) {
             const bookingId = await generateBookingId(adminDb);
             const now = new Date().toISOString();
 
+            const requestedDepartureTime = typeof departureTime === 'string' && departureTime.trim() ? departureTime.trim() : null;
+            const requestedArrivalTime = typeof estimatedArrivalTime === 'string' && estimatedArrivalTime.trim() ? estimatedArrivalTime.trim() : (typeof arrivalTime === 'string' && arrivalTime.trim() ? arrivalTime.trim() : null);
+
+            const resolvedDepartureTime = requestedDepartureTime || trip.departureTime || '—';
+            const resolvedArrivalTime = requestedArrivalTime || trip.estimatedArrivalTime || '—';
+
             const qrPayload = JSON.stringify({
                 bookingId,
                 tripId,
                 seatNumber,
+                journeyDate: resolvedJourneyDate,
                 numberPlate: bus.numberPlate,
-                departureTime: trip.departureTime,
+                departureTime: resolvedDepartureTime,
+                estimatedArrivalTime: resolvedArrivalTime,
             });
 
             const newBooking = {
@@ -316,6 +382,8 @@ export async function POST(request: Request) {
                 routeId: trip.routeId,
                 busId: trip.busId,
                 seatNumber,
+                journeyDate: resolvedJourneyDate,
+                travelDate: resolvedJourneyDate,
                 seatCategory: targetSeat?.category ?? 'STANDARD',
                 pairedSeatNumber,
                 isPrioritySeat: !!isPrioritySeat || targetSeat?.category === 'PRIORITY',
@@ -325,8 +393,10 @@ export async function POST(request: Request) {
                     routeName: route?.routeName ?? '—',
                     startLocation: journeyOrigin ?? '—',
                     endLocation: journeyDestination ?? '—',
-                    departureTime: trip.departureTime,
-                    estimatedArrivalTime: trip.estimatedArrivalTime,
+                    departureDate: resolvedJourneyDate,
+                    journeyDate: resolvedJourneyDate,
+                    departureTime: resolvedDepartureTime,
+                    estimatedArrivalTime: resolvedArrivalTime,
                 },
                 vehicle: {
                     numberPlate: bus.numberPlate,
@@ -377,8 +447,8 @@ export async function POST(request: Request) {
                     routeName: route?.routeName || '—',
                     seatNumber,
                     pairedSeatNumber,
-                    journeyDate: trip.departureTime ? trip.departureTime.split('T')[0] : now.split('T')[0],
-                    journeyTime: trip.departureTime || '—',
+                    journeyDate: resolvedJourneyDate,
+                    journeyTime: resolvedDepartureTime,
                     startLocation: journeyOrigin || '—',
                     endLocation: journeyDestination || '—',
                 },
