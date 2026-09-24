@@ -851,6 +851,22 @@ export default function ProfileScreen() {
 
           <View style={styles.divider} />
 
+          {/* Favourite Routes (MOV-99) — saved origin/destination pairs, opened
+              as their own screen like Accessibility Reports above. */}
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/favourite-routes' as any)}
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.favouriteRoutes', 'Favourite Routes')}
+            accessibilityHint="Double tap to view and manage your saved routes"
+          >
+            <Ionicons name="star-outline" size={22} color="#0066CC" />
+            <Text style={styles.actionRowText}>{t('profile.favouriteRoutes', 'Favourite Routes')}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
           <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/accessibility-preferences' as any)}>
             <Ionicons name="settings-outline" size={22} color="#475569" />
             <Text style={styles.actionRowText}>{t('profile.appSettings', 'App Settings & Preferences')}</Text>

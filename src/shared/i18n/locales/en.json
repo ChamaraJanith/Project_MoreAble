@@ -68,6 +68,7 @@
     "viewGuardian": "View Guardian Details",
     "myJourneys": "My Journeys & Bookings",
     "accReports": "Accessibility Reports",
+    "favouriteRoutes": "Favourite Routes",
     "appSettings": "App Settings & Preferences",
     "guardianDetails": "Guardian Details",
     "logout": "Log Out",
@@ -152,7 +153,21 @@
     "arrives": "Arrives {{destination}}",
     "busUnavailable": "Bus details unavailable",
     "bookBtn": "Book",
-    "viewDetailsBtn": "View details"
+    "viewDetailsBtn": "View details",
+    "favourites": {
+      "title": "Favourite Routes",
+      "viewAll": "View all favourites",
+      "save": "Save",
+      "saved": "Saved",
+      "screenSubtitle": "Journeys you have saved for quick planning",
+      "emptyTitle": "No favourite routes yet",
+      "emptyDescription": "Save a route from your journey search results and it will appear here, ready to plan again in one tap.",
+      "emptyHint": "Search for a journey, then tap Save on the summary at the top of the results.",
+      "emptyAction": "Plan a journey",
+      "removeTitle": "Remove favourite route?",
+      "removeConfirm": "Remove",
+      "errorTitle": "Unable to load favourite routes"
+    }
   },
   "explore": {
     "title": "Explore"
