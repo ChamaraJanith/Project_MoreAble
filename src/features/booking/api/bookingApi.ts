@@ -38,16 +38,21 @@ export interface SeatMapResponse {
     seats: Seat[];
 }
 
-export async function fetchSeats(tripId: string): Promise<SeatMapResponse> {
-    return (await bookingFetch(`/api/booking/seats/${encodeURIComponent(tripId)}`)) as SeatMapResponse;
+export async function fetchSeats(tripId: string, travelDate?: string): Promise<SeatMapResponse> {
+    const query = travelDate ? `?date=${encodeURIComponent(travelDate)}` : '';
+    return (await bookingFetch(`/api/booking/seats/${encodeURIComponent(tripId)}${query}`)) as SeatMapResponse;
 }
 
 export interface ConfirmBookingPayload {
     tripId: string;
     seatNumber: string;
     passengerId?: string;
+    journeyDate?: string;
+    travelDate?: string;
     origin?: string;       
     destination?: string;
+    departureTime?: string;
+    estimatedArrivalTime?: string;
     assistanceRequested?: AssistanceRequested;
     specialRequests?: string;
     receiverDetails?: {
