@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import React, { useCallback, useState } from 'react';
 import {
@@ -10,12 +10,24 @@ import {
      TextInput, TouchableOpacity,
     View
 } from 'react-native';
+import { loadFavouriteRoutes, useFavouriteRoutes } from '../store/favouriteRoutesStore';
+import {
+    FavouriteRoute,
+    hasHiddenPlannerFavourites,
+    plannerFavourites,
+} from '../utils/favouriteRoutes';
 import {
     formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString,
     TimeOfDay, toApiDateString, toApiTimeString
 } from '../utils/dateTime';
-import { goBackOrTo, HOME_PATH, JOURNEY_RESULTS_PATH } from '../utils/journeyNavigation';
+import {
+    FAVOURITE_ROUTES_PATH,
+    goBackOrTo,
+    HOME_PATH,
+    JOURNEY_RESULTS_PATH,
+} from '../utils/journeyNavigation';
 import { getRecentSearches, RecentSearch, saveRecentSearch } from '../utils/recentSearchesStorage';
+import { FavouriteRouteCard } from './FavouriteRouteCard';
 import { TravelDatePickerModal } from './TravelDatePickerModal';
 import { TravelTimePickerModal } from './TravelTimePickerModal';
 
@@ -38,11 +50,60 @@ export const JourneyPlannerForm = () => {
     const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
     const [hasLoadedRecentSearches, setHasLoadedRecentSearches] = useState(false);
 
+    // ------------------------------------------------------------------
+    // Favourite routes (MOV-99)
+    //
+    // A shortcut list, not the place favourites are managed: the newest few,
+    // with no remove control, and "View all favourites" for the rest. Removing
+    // one belongs to the Favourite Routes screen, where it is confirmed.
+    // ------------------------------------------------------------------
+    const { favourites } = useFavouriteRoutes();
+    const visibleFavourites = plannerFavourites(favourites);
+
+    /**
+     * Opening the planner on a chosen journey pair (MOV-99).
+     *
+     * Favourite Routes navigates here with the pair and a per-tap `prefillAt`
+     * stamp, and that stamp is what the prefill keys on: choosing the SAME
+     * favourite twice leaves origin and destination unchanged, so without it
+     * the second choice would silently do nothing to a form the passenger had
+     * edited in between.
+     *
+     * Only the two locations are filled. The travel date and time stay empty on
+     * purpose — a favourite stores neither, and `handleSearch` below still
+     * requires both before it will search, which is what asks the passenger for
+     * them.
+     *
+     * Applied during render rather than from an effect. This is React's own
+     * "adjusting state when a prop changes" pattern: an effect would commit the
+     * old form first and then immediately re-render with the new one, which is
+     * a visible flash of the previous journey and what
+     * `react-hooks/set-state-in-effect` exists to prevent. `appliedPrefillAt`
+     * remembers which arrival has been taken, so the adjustment runs once per
+     * navigation and not on every render.
+     */
+    const { origin: prefillOrigin, destination: prefillDestination, prefillAt } =
+        useLocalSearchParams<{ origin?: string; destination?: string; prefillAt?: string }>();
+
+    const [appliedPrefillAt, setAppliedPrefillAt] = useState<string | null>(null);
+
+    if (prefillAt && prefillAt !== appliedPrefillAt) {
+        setAppliedPrefillAt(prefillAt);
+        setFormData({
+            origin: prefillOrigin ?? '',
+            destination: prefillDestination ?? '',
+        });
+    }
+
     // Reload whenever the screen regains focus (e.g. returning from the results
     // screen) so a just-saved search shows up without needing a full remount.
     useFocusEffect(
         useCallback(() => {
             let isActive = true;
+
+            // Favourites come back with the screen too, so one starred on the
+            // results screen is already in the list below (MOV-99).
+            loadFavouriteRoutes();
 
             getRecentSearches().then((searches) => {
                 if (isActive) {
@@ -76,6 +137,22 @@ export const JourneyPlannerForm = () => {
         });
         setSelectedDate(parseApiDateString(search.travelDate));
         setSelectedTime(parseApiTimeString(search.travelTime));
+    };
+
+    /**
+     * Use a favourite: fill in the pair and leave the rest alone (MOV-99).
+     *
+     * The same shape as `handleRepeatSearch` above, minus the date and time a
+     * favourite does not carry — and deliberately without searching, because
+     * the search needs both and the passenger has not chosen them yet. Any date
+     * and time already on the form are kept rather than cleared, so changing
+     * only the journey does not throw away a time they just set.
+     */
+    const handleUseFavourite = (favourite: FavouriteRoute) => {
+        setFormData({
+            origin: favourite.origin,
+            destination: favourite.destination,
+        });
     };
 
     const handleSelectDate = (date: Date) => {
@@ -302,6 +379,41 @@ export const JourneyPlannerForm = () => {
                     </TouchableOpacity>
                 </View>
 
+                {/* Favourite Routes (MOV-99)
+                    Hidden entirely when there are none: the planner must not
+                    grow an empty section, and the place that explains how to
+                    save one is the Favourite Routes screen's own empty state. */}
+                {visibleFavourites.length > 0 && (
+                    <View style={styles.favouritesSection}>
+                        <Text style={styles.sectionTitle}>
+                            {t('journey.favourites.title', 'Favourite Routes')}
+                        </Text>
+
+                        {visibleFavourites.map((favourite) => (
+                            <FavouriteRouteCard
+                                key={favourite.favouriteId}
+                                favourite={favourite}
+                                onPress={() => handleUseFavourite(favourite)}
+                            />
+                        ))}
+
+                        {hasHiddenPlannerFavourites(favourites) && (
+                            <TouchableOpacity
+                                style={styles.viewAllButton}
+                                onPress={() => router.push(FAVOURITE_ROUTES_PATH as any)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`View all ${favourites.length} favourite routes`}
+                                accessibilityHint="Double tap to open your favourite routes"
+                            >
+                                <Text style={styles.viewAllText}>
+                                    {t('journey.favourites.viewAll', 'View all favourites')}
+                                </Text>
+                                <Ionicons name="arrow-forward" size={16} color="#0066CC" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+
                 {/* Recent Searches */}
                 <View style={styles.recentSection}>
                     <Text style={styles.sectionTitle}>{t('journey.recentSearches', 'Recent Searches')}</Text>
@@ -523,6 +635,23 @@ const styles = StyleSheet.create({
     },
     recentSection: {
         marginTop: 4,
+    },
+    favouritesSection: {
+        marginTop: 4,
+        marginBottom: 12,
+    },
+    viewAllButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 44,
+        borderRadius: 12,
+        gap: 6,
+    },
+    viewAllText: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0066CC',
     },
     sectionTitle: {
         fontSize: 18,

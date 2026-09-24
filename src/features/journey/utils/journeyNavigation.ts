@@ -18,6 +18,47 @@ export const JOURNEY_RESULTS_PATH = '/journey/results';
 export const JOURNEY_ROUTE_DETAILS_PATH = '/journey/route-details';
 export const JOURNEY_COMMUNITY_FEEDBACK_PATH = '/journey/community-feedback';
 
+/**
+ * Favourite routes (MOV-99).
+ *
+ * A root route rather than a frame of the journey stack, because it is reached
+ * from Profile as well as from the planner — the same arrangement Accessibility
+ * Reports already uses.
+ */
+export const FAVOURITE_ROUTES_PATH = '/favourite-routes';
+
+/** What the planner needs to open with a journey pair already filled in. */
+export interface JourneyPrefillParams {
+    origin: string;
+    destination: string;
+    prefillAt: string;
+}
+
+/**
+ * The params that open the Journey Planner on a chosen journey pair (MOV-99).
+ *
+ * Origin and destination only. The travel date and time are deliberately absent
+ * — a favourite does not store them, and the planner asks for them as it always
+ * has before it will search.
+ *
+ * `prefillAt` is what makes a second tap on the SAME favourite work. The
+ * planner applies a prefill when these params change, and origin and
+ * destination alone do not change when the same favourite is chosen twice, so
+ * the form would keep whatever the passenger had edited it to in between. A
+ * per-tap stamp makes each choice distinct. Injectable so a test can pin it.
+ */
+export function journeyPrefillParams(
+    origin: string,
+    destination: string,
+    now: number = Date.now()
+): JourneyPrefillParams {
+    return {
+        origin: origin.trim(),
+        destination: destination.trim(),
+        prefillAt: String(now),
+    };
+}
+
 /** Home, the tab the journey flow was entered from and the last safe fallback. */
 export const HOME_PATH = '/';
 

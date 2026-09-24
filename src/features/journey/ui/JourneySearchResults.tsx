@@ -15,6 +15,17 @@ import {
 } from '../api/accessibilityPreferenceApi';
 import { searchJourneys } from '../api/journeySearchApi';
 import {
+    removeFavouriteRoute,
+    saveFavouriteRoute,
+    useFavouriteRoutes,
+} from '../store/favouriteRoutesStore';
+import {
+    canSaveFavouriteRoute,
+    favouriteChangeAnnouncement,
+    findFavouriteRoute,
+} from '../utils/favouriteRoutes';
+import { FavouriteToggleButton } from './FavouriteToggleButton';
+import {
     accessibilityRequirementSelection,
     AccessibilityRequirementKey,
     AccessibilityRequirementSelection,
@@ -203,6 +214,36 @@ export const JourneySearchResults = () => {
         goBackOrTo(JOURNEY_PLANNER_PATH);
     };
 
+    // ------------------------------------------------------------------
+    // Favourite this journey (MOV-99)
+    //
+    // The pair being saved is the SEARCH's own origin and destination, not
+    // anything belonging to a matched route or a departure — which is why the
+    // control lives on the summary card above and not on a JourneyOptionCard.
+    // It is independent of the results entirely: a journey can be saved while
+    // the search is still loading, and stays saved when a later search for the
+    // same pair finds nothing.
+    // ------------------------------------------------------------------
+    const { favourites } = useFavouriteRoutes();
+    const [favouriteAnnouncement, setFavouriteAnnouncement] = useState('');
+
+    const canFavourite = canSaveFavouriteRoute(origin, destination);
+    const journeyPair = { origin: origin ?? '', destination: destination ?? '' };
+    const savedFavourite = canFavourite ? findFavouriteRoute(favourites, journeyPair) : null;
+
+    const handleToggleFavourite = () => {
+        if (!canFavourite) return;
+
+        if (savedFavourite) {
+            removeFavouriteRoute(savedFavourite.favouriteId);
+            setFavouriteAnnouncement(favouriteChangeAnnouncement(false, journeyPair));
+            return;
+        }
+
+        saveFavouriteRoute(journeyPair);
+        setFavouriteAnnouncement(favouriteChangeAnnouncement(true, journeyPair));
+    };
+
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
     const friendlyTime = travelTime ? formatFriendlyTime(parseApiTimeString(travelTime)) : '';
 
@@ -240,14 +281,33 @@ export const JourneySearchResults = () => {
                 {/* Search summary */}
                 <View style={styles.summaryCard}>
                     <View style={styles.summaryJourneyRow}>
-                        <Text style={styles.summaryLocationText} numberOfLines={1}>
-                            {origin || 'Origin'}
-                        </Text>
-                        <Ionicons name="arrow-forward" size={16} color="#475569" style={styles.summaryArrow} />
-                        <Text style={styles.summaryLocationText} numberOfLines={1}>
-                            {destination || 'Destination'}
-                        </Text>
+                        <View style={styles.summaryJourneyText}>
+                            <Text style={styles.summaryLocationText} numberOfLines={1}>
+                                {origin || 'Origin'}
+                            </Text>
+                            <Ionicons name="arrow-forward" size={16} color="#475569" style={styles.summaryArrow} />
+                            <Text style={styles.summaryLocationText} numberOfLines={1}>
+                                {destination || 'Destination'}
+                            </Text>
+                        </View>
+
+                        {canFavourite && (
+                            <FavouriteToggleButton
+                                journey={journeyPair}
+                                isSaved={savedFavourite !== null}
+                                onToggle={handleToggleFavourite}
+                            />
+                        )}
                     </View>
+
+                    {!!favouriteAnnouncement && (
+                        <Text
+                            style={styles.favouriteAnnouncement}
+                            accessibilityLiveRegion="polite"
+                        >
+                            {favouriteAnnouncement}
+                        </Text>
+                    )}
 
                     <View style={styles.summaryMetaRow}>
                         <View style={styles.summaryMetaTextGroup}>
@@ -436,11 +496,25 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 10,
     },
+    // Holds the origin/arrow/destination so the favourite control beside it
+    // takes its own width instead of squeezing the two place names.
+    summaryJourneyText: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     summaryLocationText: {
         flexShrink: 1,
         fontSize: 17,
         fontWeight: '800',
         color: '#0F172A',
+    },
+    favouriteAnnouncement: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#059669',
+        marginBottom: 10,
+        lineHeight: 18,
     },
     summaryArrow: {
         marginHorizontal: 8,

@@ -43,6 +43,13 @@ interface AdminEmptyStateProps {
     secondaryDescription?: string;
     actionLabel?: string;
     onAction?: () => void;
+    /**
+     * The icon on the action button. Defaults to 'add', which is right for the
+     * "create one" actions the admin screens offer; a screen whose way out is
+     * not creating anything (e.g. Favourite Routes sending a passenger off to
+     * search) names its own.
+     */
+    actionIcon?: keyof typeof Ionicons.glyphMap;
 }
 
 export function AdminEmptyState({
@@ -52,6 +59,7 @@ export function AdminEmptyState({
     secondaryDescription,
     actionLabel,
     onAction,
+    actionIcon = 'add',
 }: AdminEmptyStateProps) {
     return (
         <View style={styles.stateCard} accessibilityLiveRegion="polite">
@@ -72,7 +80,7 @@ export function AdminEmptyState({
                     accessibilityRole="button"
                     accessibilityLabel={actionLabel}
                 >
-                    <Ionicons name="add" size={19} color="#FFFFFF" />
+                    <Ionicons name={actionIcon} size={19} color="#FFFFFF" />
                     <Text style={styles.statePrimaryButtonText}>{actionLabel}</Text>
                 </TouchableOpacity>
             )}
