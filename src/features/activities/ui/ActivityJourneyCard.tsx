@@ -7,8 +7,10 @@ import { AppText as Text } from '../../../shared/ui/AppText';
 import { statusBadgeStyles } from '../../../shared/ui/statusBadgeStyles';
 import {
     apiTimeToMinutes,
+    formatDisplayDate,
     formatFriendlyDate,
     formatFriendlyTime,
+    parseApiDateString,
     parseApiTimeString,
 } from '../../journey/utils/dateTime';
 import { completionReasonLabel } from '../utils/completedJourney';
@@ -46,10 +48,13 @@ function formatStartedAt(value?: string): string | null {
     });
 }
 
-function formatJourneyDate(value?: string): string | null {
+function formatJourneyDate(value?: string | null): string | null {
     if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return formatFriendlyDate(parseApiDateString(value));
+    }
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : formatFriendlyDate(date);
+    return Number.isNaN(date.getTime()) ? value : formatFriendlyDate(date);
 }
 
 /**
@@ -71,7 +76,8 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const arrival = formatScheduledTime(booking.journey?.estimatedArrivalTime);
     // A recorded completion (MOV-297) dates the journey by when it finished.
     const completion = isOngoing ? undefined : booking.passengerJourney;
-    const journeyDate = isOngoing ? null : formatJourneyDate(completion?.completedAt ?? booking.boardedAt);
+    const rawDate = completion?.completedAt ?? booking.boardedAt ?? booking.journeyDate ?? booking.travelDate ?? booking.journey?.journeyDate ?? booking.journey?.departureDate;
+    const journeyDate = formatJourneyDate(rawDate);
     const startedAt = isOngoing ? formatStartedAt(booking.activeJourney?.startedAt) : null;
     const completedAt = completion ? formatStartedAt(completion.completedAt) : null;
     const reason = completion ? completionReasonLabel(completion.completionReason) : null;

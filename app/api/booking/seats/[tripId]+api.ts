@@ -51,12 +51,31 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
         const routeDoc = await adminDb.collection('routes').doc(trip.routeId).get();
         const route = routeDoc.exists ? routeDoc.data() : null;
 
+        const url = new URL(request.url, 'http://localhost');
+        const travelDate =
+            url.searchParams.get('date') ||
+            url.searchParams.get('travelDate') ||
+            url.searchParams.get('journeyDate');
+
         const [bookingsSnapshot, evidence] = await Promise.all([
             adminDb.collection('bookings').where('tripId', '==', tripId).where('status', '==', 'CONFIRMED').get(),
             loadAccessibilityScoreEvidence(adminDb, trip.busId),
         ]);
 
-        const bookedMap = buildBookedSeatMap(bookingsSnapshot.docs);
+        // Filter bookings strictly for the requested travelDate if provided
+        const dateScopedDocs = travelDate
+            ? bookingsSnapshot.docs.filter((d: any) => {
+                const data = d.data();
+                const bDate =
+                    data.journeyDate ||
+                    data.travelDate ||
+                    data.journey?.departureDate ||
+                    (typeof data.journey?.journeyDate === 'string' ? data.journey.journeyDate : null);
+                return !bDate || bDate === travelDate;
+            })
+            : bookingsSnapshot.docs;
+
+        const bookedMap = buildBookedSeatMap(dateScopedDocs);
         const layout = applyBookedSeats(buildSeatLayout(bus), bookedMap);
         const seats = flattenSeats(layout);
 
@@ -65,6 +84,7 @@ export async function GET(request: Request, { tripId }: Record<string, string>) 
                 success: true,
                 message: 'Seat availability retrieved successfully.',
                 tripId,
+                travelDate: travelDate || null,
                 routeNumber: route?.routeNumber ?? null,
                 numberPlate: bus.numberPlate,
                 busModel: bus.busModel,

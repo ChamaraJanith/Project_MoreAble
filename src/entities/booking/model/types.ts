@@ -77,6 +77,8 @@ export interface SelectedVehicle {
   origin: string;        // ADD — passenger's actual boarding stop
   destination: string; // ADD — passenger's actual alighting stop
   selectedAt: number;
+  travelDate?: string;
+  journeyDate?: string;
 }
 
 export interface BookingJourneyDetails {
@@ -86,6 +88,8 @@ export interface BookingJourneyDetails {
   endLocation: string;
   departureTime: string;
   estimatedArrivalTime: string;
+  journeyDate?: string;
+  departureDate?: string;
 }
 
 export interface BookingVehicleDetails {
@@ -141,6 +145,8 @@ export interface Booking {
   isPrioritySeat: boolean;
   pairedSeatNumber: string | null;
   status: BookingStatus;
+  journeyDate?: string;
+  travelDate?: string;
   boardingStatus?: BoardingStatus;
   boardedAt?: string;
   paymentStatus?: PaymentStatus;

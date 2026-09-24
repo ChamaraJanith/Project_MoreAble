@@ -22,6 +22,7 @@ import {
 } from '../../../../src/features/booking/api/bookingApi';
 import { PriorityAccessModal } from '../../../../src/features/booking/ui/PriorityAccessModal';
 import { SeatMap } from '../../../../src/features/booking/ui/SeatMap';
+import { formatDisplayDate } from '../../../../src/features/journey/utils/dateTime';
 import { useAuthStore } from '../../../../src/shared/store/authStore';
 import { isEligibleForPrioritySeat } from '../../../../src/shared/utils/priorityEligibility';
 
@@ -32,9 +33,16 @@ export default function SeatSelectionScreen() {
   const { t } = useTranslation();
     const router = useRouter();
 
-    const { tripId, origin, destination } = useLocalSearchParams<{
-        tripId: string; origin?: string; destination?: string;
+    const { tripId, origin, destination, travelDate, date, journeyDate } = useLocalSearchParams<{
+        tripId: string;
+        origin?: string;
+        destination?: string;
+        travelDate?: string;
+        date?: string;
+        journeyDate?: string;
     }>();
+
+    const targetDate = travelDate || date || journeyDate;
 
     const { user } = useAuthStore();
 
@@ -59,7 +67,7 @@ export default function SeatSelectionScreen() {
         if (!tripId) return;
 
         loadSeats();
-    }, [tripId]);
+    }, [tripId, targetDate]);
 
     async function loadSeats() {
         try {
@@ -68,7 +76,7 @@ export default function SeatSelectionScreen() {
             setSelectedSeatNumber(null);
 
             setData(
-                await fetchSeats(tripId as string)
+                await fetchSeats(tripId as string, targetDate)
             );
         } catch (err: any) {
             setError(err.message);
@@ -154,6 +162,7 @@ export default function SeatSelectionScreen() {
                 priorityReason: selectedSeat.seatNumber ? (priorityReasonBySeat[selectedSeat.seatNumber] ?? '') : '',
                 origin: origin ?? '',
                 destination: destination ?? '',
+                travelDate: targetDate || '',
             },
         });
     }
@@ -251,6 +260,15 @@ export default function SeatSelectionScreen() {
                         Departs {data.departureTime} · Est. arrival{' '}
                         {data.estimatedArrivalTime}
                     </Text>
+
+                    {targetDate && (
+                        <View style={styles.travelDateBadge}>
+                            <Ionicons name="calendar-outline" size={13} color="#0066CC" />
+                            <Text style={styles.travelDateBadgeText} numberOfLines={1}>
+                                Travel Date: {formatDisplayDate(targetDate)}
+                            </Text>
+                        </View>
+                    )}
                 </View>
             </View>
 
@@ -558,5 +576,16 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '700',
         fontSize: 15,
+    },
+    travelDateBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        gap: 4,
+    },
+    travelDateBadgeText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#0066CC',
     },
 });

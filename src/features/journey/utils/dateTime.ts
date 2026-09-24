@@ -179,3 +179,23 @@ export function formatDurationBetween(
 ): string | null {
     return formatDurationMinutes(minutesBetweenApiTimes(departureTime, arrivalTime));
 }
+
+/**
+ * Safely formats an ISO date string or 'YYYY-MM-DD' into a friendly display string (e.g. "Thu, 24 Sep 2026").
+ */
+export function formatDisplayDate(dateStr?: string | null): string {
+    if (!dateStr) return '';
+    try {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            return formatFriendlyDate(parseApiDateString(dateStr));
+        }
+        const d = new Date(dateStr);
+        if (!Number.isNaN(d.getTime())) {
+            return formatFriendlyDate(d);
+        }
+    } catch {
+        // fallback
+    }
+    return dateStr;
+}
+

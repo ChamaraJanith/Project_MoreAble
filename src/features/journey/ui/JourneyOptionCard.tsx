@@ -21,6 +21,7 @@ import {
     describeJourneyForDisplay,
     JourneyDisplay,
 } from '../utils/journeyRecommendations';
+import { formatDisplayDate } from '../utils/dateTime';
 import { JourneyTiming, resolveJourneyTiming } from '../utils/journeyTiming';
 
 interface JourneyOptionCardProps {
@@ -80,7 +81,7 @@ export function JourneyOptionCard({
     React.useEffect(() => {
         if (seatInfo !== null || !trip?.tripId) return;
         let isMounted = true;
-        fetchSeats(trip.tripId)
+        fetchSeats(trip.tripId, travelDate)
             .then((data) => {
                 if (!isMounted || !data?.seats) return;
                 const available = data.seats.filter((s) => s.status === 'AVAILABLE').length;
@@ -164,6 +165,7 @@ export function JourneyOptionCard({
                 tripId: trip.tripId,
                 origin: route.origin,
                 destination: route.destination,
+                travelDate: travelDate || undefined,
             },
         });
     };
@@ -222,6 +224,15 @@ export function JourneyOptionCard({
                     </View>
                 )}
             </View>
+
+            {travelDate && (
+                <View style={styles.travelDateBadge}>
+                    <Ionicons name="calendar-outline" size={12} color="#0066CC" />
+                    <Text style={styles.travelDateBadgeText}>
+                        {formatDisplayDate(travelDate)}
+                    </Text>
+                </View>
+            )}
 
             {/* Departure → arrival: the most important information on the card */}
             <View style={styles.timeRow}>
@@ -469,6 +480,23 @@ const styles = StyleSheet.create({
     },
     scoreTextUnknown: {
         color: '#64748B',
+    },
+    travelDateBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 2,
+        marginBottom: 10,
+        backgroundColor: '#EFF6FF',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
+        gap: 4,
+    },
+    travelDateBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#0066CC',
     },
     timesScopeNote: {
         fontSize: 12,
