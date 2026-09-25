@@ -11,22 +11,29 @@
  * route — is copied onto it at creation, because the passenger may later delete
  * their own report and the complaint has to keep reading correctly without it.
  *
- * This module covers creating and reading complaints. Moving one through
- * ASSIGNED, IN_PROGRESS and RESOLVED is MOV-178.
+ * This module covers creating and reading complaints (MOV-177) and moving one
+ * through ASSIGNED, IN_PROGRESS and RESOLVED (MOV-178).
  */
 
 import {
+    COMPLAINT_ACTIONS,
     COMPLAINT_INITIAL_STATUS,
     Complaint,
+    ComplaintAction,
     ComplaintStatus,
+    complaintActionOutcomes,
+    isComplaintAction,
     isComplaintStatus,
+    nextComplaintStatus,
 } from '../../entities/complaint/model/types';
 import {
     isReportIssueCategory,
     reportTypeOf,
 } from '../../entities/report/model/types';
 import {
+    ADMIN_ROLE,
     AdminAuthorization,
+    MAX_ADMIN_REMARK_LENGTH,
     authenticateAdmin,
     reviewConflictError,
     reviewErrorResponse,
@@ -525,5 +532,345 @@ export async function readComplaintDetail(
         sourceReport: reportDoc.exists
             ? serializeComplaintSourceReport(reportDoc.data() ?? {}, reportId)
             : null,
+    };
+}
+
+// ------------------------------------------------------------------
+// Status workflow (MOV-178)
+// ------------------------------------------------------------------
+
+/** Where the accounts an admin can assign a complaint to are stored. */
+const USERS_COLLECTION = 'users';
+
+/** The same cap an admin remark has, and for the same reason. */
+export const MAX_COMPLAINT_RESOLUTION_NOTE_LENGTH = MAX_ADMIN_REMARK_LENGTH;
+
+/**
+ * The name stored when the assignee's account carries none — a fallback rather
+ * than an omitted field, so a reassignment never leaves the previous assignee's
+ * name behind on the complaint. The same arrangement a comment's author name
+ * uses.
+ */
+const FALLBACK_ASSIGNEE_NAME = 'Administrator';
+
+export interface ComplaintActionInstruction {
+    action: ComplaintAction;
+    /** The status the client expects the action to produce, or null if none was sent. */
+    expectedStatus: ComplaintStatus | null;
+    /** The user document id to assign, for ASSIGN and REASSIGN only. */
+    assignedTo: string | null;
+    /** The trimmed note, for RESOLVE only. */
+    resolutionNote: string | null;
+}
+
+/**
+ * The resolution note in a request body, trimmed, or why it cannot be stored.
+ *
+ * Required: a complaint marked RESOLVED with nothing written against it is a
+ * record nobody can check. Capped like an admin remark; the cap applies to the
+ * trimmed text, so padding does not count against it.
+ */
+export function readResolutionNote(input: unknown): FeedbackValidation<string> {
+    if (input === undefined || input === null) {
+        return { ok: false, message: 'A resolution note is required.' };
+    }
+
+    if (typeof input !== 'string') {
+        return { ok: false, message: 'Resolution note must be text.' };
+    }
+
+    const trimmed = input.trim();
+
+    if (!trimmed) {
+        return { ok: false, message: 'A resolution note is required.' };
+    }
+
+    if (trimmed.length > MAX_COMPLAINT_RESOLUTION_NOTE_LENGTH) {
+        return {
+            ok: false,
+            message: `A resolution note can be at most ${MAX_COMPLAINT_RESOLUTION_NOTE_LENGTH} characters.`,
+        };
+    }
+
+    return { ok: true, value: trimmed };
+}
+
+/**
+ * A PATCH body as an instruction, or why it is not one.
+ *
+ * Only the fields the action uses are read. Anything else the body carries —
+ * reportId, description, createdBy, a status of its own choosing — is never
+ * looked at, so it cannot reach the stored complaint.
+ *
+ * `status` may be sent, and is treated as an assertion about what the action
+ * does rather than as the thing applied, as a report review treats it: one the
+ * action can never produce is a confused request and a 400 here. Whether it
+ * matches what the action produces from the complaint's CURRENT status is
+ * checked inside the transaction.
+ */
+export function readComplaintActionInstruction(
+    body: unknown
+): FeedbackValidation<ComplaintActionInstruction> {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return { ok: false, message: 'Invalid request body.' };
+    }
+
+    const { action, status, assignedTo, resolutionNote } = body as Record<string, any>;
+
+    if (action === undefined || action === null || action === '') {
+        return {
+            ok: false,
+            message: `A complaint action is required. Expected one of ${COMPLAINT_ACTIONS.join(', ')}.`,
+        };
+    }
+
+    if (!isComplaintAction(action)) {
+        return {
+            ok: false,
+            message: `Action must be one of ${COMPLAINT_ACTIONS.join(', ')}.`,
+        };
+    }
+
+    let expectedStatus: ComplaintStatus | null = null;
+
+    if (status !== undefined && status !== null) {
+        const outcomes = complaintActionOutcomes(action);
+
+        if (!isComplaintStatus(status) || !outcomes.includes(status)) {
+            return {
+                ok: false,
+                message:
+                    action === 'REASSIGN'
+                        ? `Action ${action} does not change the status.`
+                        : `Action ${action} sets the status to ${outcomes.join(' or ')}.`,
+            };
+        }
+
+        expectedStatus = status;
+    }
+
+    let assignee: string | null = null;
+
+    if (action === 'ASSIGN' || action === 'REASSIGN') {
+        if (assignedTo === undefined || assignedTo === null || assignedTo === '') {
+            return { ok: false, message: `assignedTo is required for ${action}.` };
+        }
+
+        assignee = readDocumentId(assignedTo);
+
+        if (!assignee) {
+            return { ok: false, message: 'Invalid assignedTo.' };
+        }
+    }
+
+    let note: string | null = null;
+
+    if (action === 'RESOLVE') {
+        const noteCheck = readResolutionNote(resolutionNote);
+
+        if (!noteCheck.ok) return noteCheck;
+
+        note = noteCheck.value;
+    }
+
+    return {
+        ok: true,
+        value: { action, expectedStatus, assignedTo: assignee, resolutionNote: note },
+    };
+}
+
+/**
+ * Whether a user account can be made responsible for a complaint, or why not.
+ *
+ * Only an ADMIN — the project has no staff role — and not one whose account is
+ * suspended. A document with no accountStatus predates the field and reads as
+ * active, the rule the admin user routes already apply.
+ */
+export function checkComplaintAssignee(
+    user: Record<string, any>
+): { ok: true } | { ok: false; status: number; message: string } {
+    if (user?.role !== ADMIN_ROLE) {
+        return {
+            ok: false,
+            status: 409,
+            message: 'A complaint can only be assigned to an administrator.',
+        };
+    }
+
+    if (user?.accountStatus === 'SUSPENDED') {
+        return {
+            ok: false,
+            status: 409,
+            message: 'A complaint cannot be assigned to a suspended administrator.',
+        };
+    }
+
+    return { ok: true };
+}
+
+/**
+ * The fields an action writes, and no others.
+ *
+ * An allow-list per action: START names startedAt and nothing about the
+ * assignment, REASSIGN names the assignment and not the status, and nothing
+ * copied from the report or recorded at creation is ever named — so those
+ * fields are out of reach by construction, not by care. Written with
+ * `update`, which leaves every key it does not name exactly as stored; in
+ * particular a REASSIGN of an IN_PROGRESS complaint keeps its startedAt.
+ *
+ * The *At fields are ISO strings, as a report's reviewedAt is; updatedAt is a
+ * Date, as the complaint was created with.
+ */
+export function buildComplaintActionUpdate(
+    instruction: ComplaintActionInstruction,
+    nextStatus: ComplaintStatus,
+    actorId: string,
+    assignee: { id: string; userName: string } | null,
+    now: Date = new Date()
+): Record<string, any> {
+    const at = now.toISOString();
+
+    switch (instruction.action) {
+        case 'ASSIGN':
+        case 'REASSIGN':
+            return {
+                ...(instruction.action === 'ASSIGN' ? { status: nextStatus } : {}),
+                assignedTo: assignee?.id,
+                assignedToName: assignee?.userName || FALLBACK_ASSIGNEE_NAME,
+                assignedBy: actorId,
+                assignedAt: at,
+                updatedAt: now,
+            };
+        case 'START':
+            return { status: nextStatus, startedAt: at, updatedAt: now };
+        case 'RESOLVE':
+            return {
+                status: nextStatus,
+                resolutionNote: instruction.resolutionNote,
+                resolvedBy: actorId,
+                resolvedAt: at,
+                updatedAt: now,
+            };
+    }
+}
+
+/** Why an action cannot be taken from the complaint's current status. */
+function transitionConflictMessage(action: ComplaintAction, current: string): string {
+    if (current === 'RESOLVED') {
+        return 'This complaint is RESOLVED and can no longer be changed.';
+    }
+
+    return `Cannot ${action} a complaint that is ${current}.`;
+}
+
+/**
+ * Applies an action to a complaint, atomically.
+ *
+ * The check that the action is allowed from the current status and the write
+ * that applies it are one transaction. Read first and write after, and two
+ * admins who both see ASSIGNED can both START — the second overwriting the
+ * first's startedAt. So the complaint is re-read INSIDE the transaction, and so
+ * is the assignee, and the update is made against those reads: whoever commits
+ * second is retried, re-reads the new status, and gets a 409. The same pattern
+ * a report review uses.
+ *
+ * Refusals are raised as the review's tagged conflict error, carrying the
+ * status the route answers with: 404 for a complaint or assignee that does not
+ * exist, 409 for a transition or assignee the complaint's state does not allow.
+ *
+ * Only the complaint is written. The source report and its bus's accessibility
+ * score are not touched by any action.
+ */
+export async function applyComplaintAction(
+    adminDb: any,
+    complaintId: string,
+    instruction: ComplaintActionInstruction,
+    actorId: string
+): Promise<{ complaint: SerializedComplaint; nextStatus: ComplaintStatus }> {
+    const complaintRef = adminDb.collection(COMPLAINTS_COLLECTION).doc(complaintId);
+
+    const applied = await adminDb.runTransaction(async (transaction: any) => {
+        // Every read comes before any write, as a Firestore transaction requires.
+        const snapshot = await transaction.get(complaintRef);
+
+        if (!snapshot.exists) {
+            throw reviewConflictError('Complaint not found.', 404);
+        }
+
+        const current = snapshot.data() ?? {};
+        const currentStatus =
+            typeof current.status === 'string' && current.status
+                ? current.status
+                : COMPLAINT_INITIAL_STATUS;
+        const nextStatus = nextComplaintStatus(instruction.action, currentStatus);
+
+        if (!nextStatus) {
+            throw reviewConflictError(
+                transitionConflictMessage(instruction.action, currentStatus),
+                409
+            );
+        }
+
+        // The client's expected status was one this action can produce — the
+        // route checked that — but not the one it produces from here: the
+        // complaint is not in the state the client believed it was.
+        if (instruction.expectedStatus && instruction.expectedStatus !== nextStatus) {
+            throw reviewConflictError(
+                `This complaint is ${currentStatus}; ${instruction.action} would leave it ${nextStatus}, not ${instruction.expectedStatus}.`,
+                409
+            );
+        }
+
+        let assignee: { id: string; userName: string } | null = null;
+
+        if (instruction.assignedTo) {
+            if (instruction.action === 'REASSIGN' && current.assignedTo === instruction.assignedTo) {
+                throw reviewConflictError(
+                    `This complaint is already assigned to ${instruction.assignedTo}.`,
+                    409
+                );
+            }
+
+            const userDoc = await transaction.get(
+                adminDb.collection(USERS_COLLECTION).doc(instruction.assignedTo)
+            );
+
+            if (!userDoc.exists) {
+                throw reviewConflictError('Assignee not found.', 404);
+            }
+
+            const user = userDoc.data() ?? {};
+            const assignable = checkComplaintAssignee(user);
+
+            if (!assignable.ok) {
+                throw reviewConflictError(assignable.message, assignable.status);
+            }
+
+            assignee = {
+                id: instruction.assignedTo,
+                userName: typeof user.userName === 'string' ? user.userName.trim() : '',
+            };
+        }
+
+        const update = buildComplaintActionUpdate(instruction, nextStatus, actorId, assignee);
+
+        // A partial update naming only this action's keys — never `set`, which
+        // would replace the document and take the copied report fields with it.
+        transaction.update(complaintRef, update);
+
+        return { nextStatus, merged: { ...current, ...update } };
+    });
+
+    // Answered from what Firestore holds after the commit rather than from what
+    // this process believes it wrote, as a report review is. If the re-read
+    // comes back empty the merge is returned: the write did succeed.
+    const stored = await complaintRef.get();
+
+    return {
+        nextStatus: applied.nextStatus,
+        complaint: serializeComplaint(
+            stored?.exists ? (stored.data() ?? applied.merged) : applied.merged,
+            complaintId
+        ),
     };
 }
