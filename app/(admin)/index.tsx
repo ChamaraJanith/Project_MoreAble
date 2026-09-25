@@ -37,6 +37,7 @@ import {
     reportCountReducer,
 } from '../../src/features/reports/utils/reportCountState';
 import { adminReviewQueuePath } from '../../src/features/reports/utils/reportRoutes';
+import { complaintListPath } from '../../src/features/admin/utils/complaintWorkflow';
 import { useAuthStore } from '../../src/shared/store/authStore';
 
 export default function AdminDashboard() {
@@ -208,6 +209,13 @@ export default function AdminDashboard() {
     // server run, and a route added since then is not in it yet.
     const handleReports = () => {
         router.push(adminReviewQueuePath() as Href);
+    };
+
+    // Complaint Management (MOV-176). Cast for the same reason as the report
+    // paths above: a route added since the last dev server run is not yet in
+    // the generated route union.
+    const handleComplaints = () => {
+        router.push(complaintListPath() as Href);
     };
 
     const handleUsers = () => {
@@ -665,6 +673,37 @@ export default function AdminDashboard() {
 
                         <Text style={styles.cardDescription}>
                             Review reported accessibility issues
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
+                {/* Complaint Management (MOV-176) */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleComplaints}
+                    activeOpacity={0.75}
+                >
+                    <View style={styles.iconContainer}>
+                        <Ionicons
+                            name="construct-outline"
+                            size={30}
+                            color="#7B1FA2"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <Text style={styles.cardTitle}>
+                            Complaint Management
+                        </Text>
+
+                        <Text style={styles.cardDescription}>
+                            Assign, track and resolve complaints from verified reports
                         </Text>
                     </View>
 
