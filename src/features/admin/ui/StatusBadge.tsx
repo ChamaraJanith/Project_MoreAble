@@ -15,6 +15,8 @@ type BadgeStatus =
     | 'REVIEWED'
     | 'RESOLVED'
     | 'REJECTED'
+    | 'ASSIGNED'
+    | 'IN_PROGRESS'
     | string;
 
 interface StatusBadgeProps {
@@ -94,6 +96,21 @@ const BADGE_CONFIG: Record<
         color: adminColors.danger,
         background: adminColors.dangerSoft,
         icon: 'close-circle',
+    },
+
+    // Complaint workflow states (MOV-176). PENDING and RESOLVED above are
+    // shared with it; these two exist only on a complaint.
+    ASSIGNED: {
+        label: 'Assigned',
+        color: adminColors.primary,
+        background: adminColors.primarySoft,
+        icon: 'person-circle',
+    },
+    IN_PROGRESS: {
+        label: 'In Progress',
+        color: adminColors.accent,
+        background: adminColors.accentSoft,
+        icon: 'sync-circle',
     },
 };
 

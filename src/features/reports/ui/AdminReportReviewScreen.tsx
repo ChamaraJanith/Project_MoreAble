@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Href, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useReducer, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -12,7 +12,15 @@ import {
 } from 'react-native';
 import { ReportReviewAction } from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
+import { createComplaint } from '../../admin/api/complaintAdminApi';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
+import {
+    DUPLICATE_COMPLAINT_MESSAGE,
+    canCreateComplaintFromReport,
+    complaintDetailsPath,
+    complaintErrorMessage,
+    readDuplicateComplaint,
+} from '../../admin/utils/complaintWorkflow';
 import {
     AdminEmptyState,
     AdminErrorState,
@@ -123,6 +131,19 @@ export const AdminReportReviewScreen = () => {
 
     /** Which photo the full-screen viewer is showing, or null when closed. */
     const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+    // Opening a complaint from a VERIFIED issue report (MOV-176). Kept apart
+    // from the review reducer: it writes a complaint, not the report, and the
+    // report stays VERIFIED whatever happens here.
+    const [isConfirmingComplaint, setIsConfirmingComplaint] = useState(false);
+    const [isCreatingComplaint, setIsCreatingComplaint] = useState(false);
+    const [complaintMessage, setComplaintMessage] = useState<{
+        tone: 'error' | 'success';
+        text: string;
+    } | null>(null);
+    /** The complaint this report already has, once one is known. */
+    const [linkedComplaintId, setLinkedComplaintId] = useState<string | null>(null);
+    const creatingComplaint = useRef(false);
 
     const loadReport = useCallback(async () => {
         if (!reportId) {
@@ -244,6 +265,55 @@ export const AdminReportReviewScreen = () => {
         if (!shouldSendRemark(state, remark)) return;
 
         runAction(REMARK_ACTION);
+    };
+
+    /**
+     * Opens a complaint from this report and goes to it.
+     *
+     * The ref is what stops a second press becoming a second request before
+     * React has drawn the button busy. A 409 because the report already has a
+     * complaint is said as such, with a way to it when the API named it.
+     */
+    const confirmCreateComplaint = async () => {
+        setIsConfirmingComplaint(false);
+
+        if (!reportId || !token || creatingComplaint.current) return;
+
+        creatingComplaint.current = true;
+        setIsCreatingComplaint(true);
+        setComplaintMessage(null);
+
+        const result = await createComplaint(reportId, token);
+
+        creatingComplaint.current = false;
+        setIsCreatingComplaint(false);
+
+        if (result.ok) {
+            const complaintId = result.value.complaint.complaintId;
+
+            setLinkedComplaintId(complaintId);
+            setComplaintMessage({ tone: 'success', text: `Complaint ${complaintId} created.` });
+            router.push(complaintDetailsPath(complaintId) as Href);
+            return;
+        }
+
+        const duplicate = readDuplicateComplaint(result.status, result.message);
+
+        if (duplicate.isDuplicate) {
+            setLinkedComplaintId(duplicate.complaintId);
+            setComplaintMessage({ tone: 'error', text: DUPLICATE_COMPLAINT_MESSAGE });
+            return;
+        }
+
+        // Any other 409 means the report is no longer in a state a complaint
+        // can be opened from — the API's own wording says which — and the page
+        // reloads to show where it now stands.
+        setComplaintMessage({
+            tone: 'error',
+            text: result.status === 409 ? result.message : complaintErrorMessage(result.status, result.message),
+        });
+
+        if (shouldReloadAfterFailure(result.status)) loadReport();
     };
 
     const { report } = state;
@@ -572,6 +642,61 @@ export const AdminReportReviewScreen = () => {
                         </Text>
                     </View>
                 )}
+
+                {/* ---------------- 8. Complaint (MOV-176) ----------------
+                    Only for a VERIFIED issue report. Opens a complaint to track
+                    getting the issue fixed; the report itself stays VERIFIED. */}
+                {canCreateComplaintFromReport(report) && (
+                    <View style={styles.complaintSection}>
+                        {complaintMessage && (
+                            <InlineMessage
+                                tone={complaintMessage.tone}
+                                message={complaintMessage.text}
+                            />
+                        )}
+
+                        {linkedComplaintId ? (
+                            <TouchableOpacity
+                                style={styles.secondaryButton}
+                                onPress={() =>
+                                    router.push(complaintDetailsPath(linkedComplaintId) as Href)
+                                }
+                                accessibilityRole="button"
+                                accessibilityLabel={`View Complaint ${linkedComplaintId}`}
+                            >
+                                <Ionicons name="open-outline" size={18} color={adminColors.primary} />
+                                <Text style={styles.secondaryButtonText}>View Complaint</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            complaintMessage?.text !== DUPLICATE_COMPLAINT_MESSAGE && (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.verifyButton,
+                                        styles.complaintButton,
+                                        isCreatingComplaint && styles.buttonDisabled,
+                                    ]}
+                                    onPress={() => setIsConfirmingComplaint(true)}
+                                    disabled={isCreatingComplaint}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Create Complaint"
+                                    accessibilityState={{
+                                        disabled: isCreatingComplaint,
+                                        busy: isCreatingComplaint,
+                                    }}
+                                >
+                                    {isCreatingComplaint ? (
+                                        <ActivityIndicator size="small" color="#FFFFFF" />
+                                    ) : (
+                                        <Ionicons name="construct" size={18} color="#FFFFFF" />
+                                    )}
+                                    <Text style={styles.verifyButtonText}>
+                                        {isCreatingComplaint ? 'Creating…' : 'Create Complaint'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )
+                        )}
+                    </View>
+                )}
             </>
         );
     };
@@ -608,6 +733,16 @@ export const AdminReportReviewScreen = () => {
                 isBusy={isReviewBusy(state)}
                 onCancel={() => setConfirming(null)}
                 onConfirm={confirmDecision}
+            />
+
+            <ConfirmDialog
+                visible={isConfirmingComplaint}
+                title="Create Complaint?"
+                message="This opens a complaint to track fixing this accessibility issue. The complaint starts as Pending, and this report stays Verified."
+                confirmLabel="Create Complaint"
+                isBusy={isCreatingComplaint}
+                onCancel={() => setIsConfirmingComplaint(false)}
+                onConfirm={confirmCreateComplaint}
             />
         </View>
     );
@@ -834,6 +969,9 @@ const styles = StyleSheet.create({
         letterSpacing: 0.2,
     },
     buttonDisabled: { opacity: 0.5 },
+
+    complaintSection: { marginTop: 4 },
+    complaintButton: { marginTop: 16 },
 
     decidedNotice: {
         backgroundColor: adminColors.surface,

@@ -24,6 +24,9 @@ export default function AdminLayout() {
       <Stack.Screen name="reports/index" options={{ title: 'Review Reports' }} />
       <Stack.Screen name="reports/[reportId]" options={{ title: 'Review Report' }} />
 
+      <Stack.Screen name="complaints/index" options={{ title: 'Complaint Management' }} />
+      <Stack.Screen name="complaints/[complaintId]" options={{ title: 'Complaint Details' }} />
+
       <Stack.Screen name="users/index" options={{ title: 'User Management' }} />
       <Stack.Screen name="users/[userId]" options={{ title: 'User Profile' }} />
 
