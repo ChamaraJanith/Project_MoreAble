@@ -41,6 +41,64 @@ export function isComplaintStatus(value: unknown): value is ComplaintStatus {
 /** The status every complaint is created in. */
 export const COMPLAINT_INITIAL_STATUS: ComplaintStatus = 'PENDING';
 
+// ==================================================================
+// Status workflow (MOV-178)
+//
+// A complaint moves by an ACTION, never by a status sent from the client —
+// the same arrangement REPORT_REVIEW_ACTIONS uses for reports. The client says
+// START; the table below says what START means, and from which state.
+// ==================================================================
+
+/** Every action an admin can take on a complaint. */
+export const COMPLAINT_ACTIONS = ['ASSIGN', 'REASSIGN', 'START', 'RESOLVE'] as const;
+
+export type ComplaintAction = (typeof COMPLAINT_ACTIONS)[number];
+
+/** Whether an arbitrary value is a complaint action the API will accept. */
+export function isComplaintAction(value: unknown): value is ComplaintAction {
+    return (
+        typeof value === 'string' &&
+        (COMPLAINT_ACTIONS as readonly string[]).includes(value)
+    );
+}
+
+/**
+ * For each action, the statuses it may be taken from and the status each one
+ * leads to. A combination that is not listed is not a transition.
+ *
+ * REASSIGN leaves the status where it was, the way a report REMARK does, and is
+ * a separate action from ASSIGN so that two admins assigning the same PENDING
+ * complaint at once cannot both succeed. RESOLVED appears as no action's
+ * starting point: it is final.
+ */
+export const COMPLAINT_TRANSITIONS: Record<
+    ComplaintAction,
+    Partial<Record<ComplaintStatus, ComplaintStatus>>
+> = {
+    ASSIGN: { PENDING: 'ASSIGNED' },
+    REASSIGN: { ASSIGNED: 'ASSIGNED', IN_PROGRESS: 'IN_PROGRESS' },
+    START: { ASSIGNED: 'IN_PROGRESS' },
+    RESOLVE: { IN_PROGRESS: 'RESOLVED' },
+};
+
+/**
+ * The status `action` moves a complaint in `current` to, or null when the
+ * action cannot be taken from there.
+ */
+export function nextComplaintStatus(
+    action: ComplaintAction,
+    current: unknown
+): ComplaintStatus | null {
+    if (!isComplaintStatus(current)) return null;
+
+    return COMPLAINT_TRANSITIONS[action][current] ?? null;
+}
+
+/** Every status `action` can produce, from any starting point. */
+export function complaintActionOutcomes(action: ComplaintAction): ComplaintStatus[] {
+    return Object.values(COMPLAINT_TRANSITIONS[action]) as ComplaintStatus[];
+}
+
 /**
  * One complaint, as stored at `complaints/{complaintId}`.
  *
