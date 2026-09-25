@@ -263,15 +263,47 @@ export async function removeFavouriteRoute(favouriteId: string): Promise<void> {
 /**
  * Drops everything this session was holding.
  *
- * For a test starting from a known empty store, and for a sign-out: favourites
- * belong to one passenger, so they must not survive into another's session. A
- * signed-out `loadFavouriteRoutes` clears them too, which is what the screens
- * reach on focus.
+ * Favourites belong to one passenger, so they must never survive into another's
+ * session. Called on sign-out by the subscription below, and by a test starting
+ * from a known empty store.
+ *
+ * `latestLoadId` moves too, so a read that was already in flight when the
+ * session ended cannot land afterwards and refill the list with the previous
+ * passenger's favourites.
  */
 export function resetFavouriteRoutes(): void {
     latestLoadId++;
     setState(EMPTY_STATE);
 }
+
+/**
+ * Empties the favourites the moment the session changes (MOV-102).
+ *
+ * Logging out has to clear them immediately, not eventually. Waiting for the
+ * next screen focus to notice there is no token would leave one passenger's
+ * saved journeys readable on a shared device until something happened to look.
+ *
+ * Driven from HERE rather than from `logout()` on purpose. This module already
+ * imports the auth store to read the session token, so having the auth store
+ * import it back would be a genuine import cycle between the two — and
+ * `authStore` is left completely untouched as a result, with every existing
+ * logout side effect exactly as it was. Zustand's own `subscribe` is the
+ * store's published API, not a new mechanism invented for this, and it runs
+ * synchronously inside `set`, so the favourites are gone by the time `logout()`
+ * returns.
+ *
+ * Fires on any change of token, which covers signing out, a session expiring
+ * and one passenger replacing another. Resetting on sign-IN is harmless — there
+ * is nothing held to lose — and guarantees a new session always starts clean.
+ */
+let lastSeenSessionToken: string | null = useAuthStore.getState().token;
+
+useAuthStore.subscribe((session) => {
+    if (session.token === lastSeenSessionToken) return;
+
+    lastSeenSessionToken = session.token;
+    resetFavouriteRoutes();
+});
 
 /**
  * Replaces the held favourites wholesale — where the GET response lands.
