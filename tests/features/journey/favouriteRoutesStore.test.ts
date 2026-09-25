@@ -37,12 +37,31 @@ jest.mock('../../../src/features/journey/api/favouriteRoutesApi', () => ({
  * `shared/api/config`, neither of which this node-only Jest setup transforms —
  * and none of that is what these tests are about. Only the token the store
  * asks for matters here.
+ *
+ * The holder lives inside the factory because the store reads the session while
+ * it is still being evaluated, which is before a `let` declared out here would
+ * be initialised.
+ *
+ * `subscribe` is accepted and never fired on purpose: these tests are about the
+ * store's own save, remove and load rules. Clearing on sign-out is a different
+ * rule, and it is covered against the REAL auth store in
+ * `favouriteRoutesLogout.test.ts`.
  */
-let mockSessionToken: string | null = null;
+jest.mock('../../../src/shared/store/authStore', () => {
+    const session: { token: string | null } = { token: null };
 
-jest.mock('../../../src/shared/store/authStore', () => ({
-    useAuthStore: { getState: () => ({ token: mockSessionToken }) },
-}));
+    return {
+        __session: session,
+        useAuthStore: {
+            getState: () => session,
+            subscribe: () => () => {},
+        },
+    };
+});
+
+const mockSession = (
+    jest.requireMock('../../../src/shared/store/authStore') as { __session: { token: string | null } }
+).__session;
 
 const mockFetch = fetchFavouriteRoutes as jest.Mock;
 const mockCreate = createFavouriteRoute as jest.Mock;
@@ -68,11 +87,11 @@ const OLDER = {
 };
 
 function signIn() {
-    mockSessionToken = SESSION;
+    mockSession.token = SESSION;
 }
 
 function signOut() {
-    mockSessionToken = null;
+    mockSession.token = null;
 }
 
 beforeEach(() => {
@@ -122,6 +141,42 @@ describe('loading', () => {
 
         expect(mockFetch).not.toHaveBeenCalled();
         expect(getFavouriteRoutesState().favourites).toEqual([]);
+    });
+
+    it('lets the newest read win when two overlap', async () => {
+        // Both screens refresh on focus, so a slow first read can answer after
+        // a second one has already put a fresher list on screen.
+        let settleFirst: (value: unknown) => void = () => {};
+        mockFetch.mockReturnValueOnce(new Promise((resolve) => { settleFirst = resolve; }));
+        const firstRead = loadFavouriteRoutes();
+
+        mockFetch.mockResolvedValueOnce({ ok: true, value: [SAVED] });
+        await loadFavouriteRoutes();
+
+        // The stale answer arrives last, carrying a list that is no longer true.
+        settleFirst({ ok: true, value: [OLDER] });
+        await firstRead;
+
+        expect(getFavouriteRoutesState().favourites.map((f) => f.favouriteId)).toEqual([
+            SAVED.favouriteId,
+        ]);
+    });
+
+    it('does not let a stale failure overwrite a newer success', async () => {
+        let settleFirst: (value: unknown) => void = () => {};
+        mockFetch.mockReturnValueOnce(new Promise((resolve) => { settleFirst = resolve; }));
+        const firstRead = loadFavouriteRoutes();
+
+        mockFetch.mockResolvedValueOnce({ ok: true, value: [SAVED] });
+        await loadFavouriteRoutes();
+
+        settleFirst({ ok: false, status: null, code: null, message: 'Network error.' });
+        await firstRead;
+
+        const state = getFavouriteRoutesState();
+        expect(state.status).toBe('ready');
+        expect(state.errorMessage).toBeNull();
+        expect(state.favourites).toHaveLength(1);
     });
 });
 
@@ -193,6 +248,28 @@ describe('saving', () => {
         expect(mockCreate).not.toHaveBeenCalled();
         expect(getFavouriteRoutesState().favourites).toEqual([]);
         expect(getFavouriteRoutesState().status).toBe('error');
+    });
+
+    it('ends up removed when the passenger un-stars while the save is still in flight', async () => {
+        let settle: (value: unknown) => void = () => {};
+        mockCreate.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+        mockDelete.mockResolvedValue({ ok: true, value: true });
+
+        const saving = saveFavouriteRoute(JOURNEY);
+
+        // The provisional entry is on screen; the passenger taps the star again.
+        const provisionalId = getFavouriteRoutesState().favourites[0].favouriteId;
+        await removeFavouriteRoute(provisionalId);
+        expect(getFavouriteRoutesState().favourites).toEqual([]);
+
+        // The save now answers. The passenger's last instruction was "not
+        // saved", so what it created has to be taken back off the server rather
+        // than reappearing on screen.
+        settle({ ok: true, value: { favourite: SAVED, alreadySaved: false } });
+        await saving;
+
+        expect(getFavouriteRoutesState().favourites).toEqual([]);
+        expect(mockDelete).toHaveBeenCalledWith(SESSION, SAVED.favouriteId);
     });
 });
 
