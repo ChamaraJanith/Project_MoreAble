@@ -1,15 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-
-// Set notification handler so pop-down banner appears even when app is in foreground
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-    }),
-});
+import { useNotificationPreferencesStore } from '../../features/notifications/store/notificationPreferencesStore';
+import { usePreferencesStore } from '../store/preferencesStore';
+import { setupAndroidNotificationChannels } from '../../features/notifications/hooks/usePushNotifications';
 
 export async function requestNotificationPermissions(): Promise<boolean> {
     if (Platform.OS === 'web') return false;
@@ -37,8 +30,21 @@ export async function sendLocalBookingNotification(booking: {
 }) {
     if (Platform.OS === 'web') return;
     try {
+        // Check Notification Preferences (MOV-240)
+        const notifPrefs = useNotificationPreferencesStore.getState().preferences;
+        if (notifPrefs?.bookingAlerts === false || notifPrefs?.pushEnabled === false) {
+            return;
+        }
+
         const hasPermission = await requestNotificationPermissions();
         if (!hasPermission) return;
+
+        if (Platform.OS === 'android') {
+            await setupAndroidNotificationChannels();
+        }
+
+        const appPrefs = usePreferencesStore.getState().preferences;
+        const soundOption = appPrefs?.notificationSound !== false ? 'default' : undefined;
 
         const routeNo = booking.journey?.routeNumber || '—';
         const routeName = booking.journey?.routeName;
@@ -51,10 +57,10 @@ export async function sendLocalBookingNotification(booking: {
             content: {
                 title,
                 body,
-                sound: 'default',
+                sound: soundOption,
                 data: { bookingId: booking.bookingId },
             },
-            trigger: null, // Immediately trigger device notification banner
+            trigger: Platform.OS === 'android' ? ({ channelId: 'general-alerts' } as any) : null,
         });
     } catch (error) {
         console.error('Failed to trigger local device notification:', error);
@@ -73,8 +79,21 @@ export async function sendLocalBoardingReminderNotification(reminder: {
 }) {
     if (Platform.OS === 'web') return;
     try {
+        // Check Notification Preferences (MOV-240)
+        const notifPrefs = useNotificationPreferencesStore.getState().preferences;
+        if (notifPrefs?.boardingReminders === false || notifPrefs?.pushEnabled === false) {
+            return;
+        }
+
         const hasPermission = await requestNotificationPermissions();
         if (!hasPermission) return;
+
+        if (Platform.OS === 'android') {
+            await setupAndroidNotificationChannels();
+        }
+
+        const appPrefs = usePreferencesStore.getState().preferences;
+        const soundOption = appPrefs?.notificationSound !== false ? 'default' : undefined;
 
         const mins = reminder.minutesRemaining || 15;
         const vehicle = reminder.vehicleNumber || 'Bus';
@@ -89,10 +108,10 @@ export async function sendLocalBoardingReminderNotification(reminder: {
             content: {
                 title,
                 body,
-                sound: 'default',
+                sound: soundOption,
                 data: { bookingId: reminder.bookingId, type: 'BOARDING_REMINDER' },
             },
-            trigger: null,
+            trigger: Platform.OS === 'android' ? ({ channelId: 'boarding-alerts' } as any) : null,
         });
     } catch (error) {
         console.error('Failed to trigger local boarding reminder notification:', error);
@@ -144,8 +163,18 @@ export async function scheduleLocalBoardingReminder(booking: {
 }) {
     if (Platform.OS === 'web') return;
     try {
+        // Check Notification Preferences (MOV-240)
+        const notifPrefs = useNotificationPreferencesStore.getState().preferences;
+        if (notifPrefs?.boardingReminders === false || notifPrefs?.pushEnabled === false) {
+            return;
+        }
+
         const hasPermission = await requestNotificationPermissions();
         if (!hasPermission) return;
+
+        if (Platform.OS === 'android') {
+            await setupAndroidNotificationChannels();
+        }
 
         const departureStr = booking.journey?.departureTime;
         const journeyDateStr = booking.journey?.journeyDate;
@@ -180,6 +209,7 @@ export async function scheduleLocalBoardingReminder(booking: {
                 trigger: {
                     type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
                     seconds: secondsFromNow,
+                    channelId: 'boarding-alerts',
                 },
             });
         } else {
@@ -193,7 +223,7 @@ export async function scheduleLocalBoardingReminder(booking: {
                         sound: 'default',
                         data: { bookingId: booking.bookingId, type: 'BOARDING_REMINDER' },
                     },
-                    trigger: null,
+                    trigger: Platform.OS === 'android' ? ({ channelId: 'boarding-alerts' } as any) : null,
                 });
             }
         }
