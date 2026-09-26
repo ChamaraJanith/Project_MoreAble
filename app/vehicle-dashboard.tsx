@@ -9,7 +9,6 @@ import {
     SafeAreaView,
     StatusBar,
     StyleSheet,
-    
     TouchableOpacity,
     View
 } from 'react-native';
@@ -24,7 +23,7 @@ import { BusSession, clearBusSession, getBusSession } from '../src/shared/utils/
 type VehicleTab = 'PASSENGERS' | 'TRIP_CONTROL' | 'TRIP';
 
 export default function VehicleDashboardScreen() {
-  const { t } = useTranslation();
+    const { t } = useTranslation();
     const [session, setSession] = useState<BusSession | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [exitError, setExitError] = useState('');
@@ -79,7 +78,7 @@ export default function VehicleDashboardScreen() {
             <View style={styles.header}>
                 <View style={styles.headerTitleGroup}>
                     <View style={styles.busIconBox}>
-                        <Ionicons name="bus" size={18} color="#0066CC" />
+                        <Ionicons name="bus" size={20} color="#0066CC" />
                     </View>
                     <View>
                         <Text style={styles.headerTitle}>{t('driver.transitConsole', 'Transit Console')}</Text>
@@ -88,6 +87,11 @@ export default function VehicleDashboardScreen() {
                             <Text style={styles.headerSubtitle}>
                                 {identity.signedIn ? identity.numberPlate : 'Not Signed In'}
                             </Text>
+                            {journey.journey?.trip?.routeNumber && (
+                                <View style={styles.headerRouteTag}>
+                                    <Text style={styles.headerRouteTagText}>Route {journey.journey.trip.routeNumber}</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
                 </View>
@@ -97,8 +101,9 @@ export default function VehicleDashboardScreen() {
                     onPress={handleExit}
                     accessibilityRole="button"
                     accessibilityLabel="Sign this bus out"
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                    <Ionicons name="log-out-outline" size={16} color="#64748B" />
+                    <Ionicons name="log-out-outline" size={16} color="#DC2626" />
                     <Text style={styles.logoutText}>{t('driver.exitBus', 'Exit')}</Text>
                 </TouchableOpacity>
             </View>
@@ -120,7 +125,9 @@ export default function VehicleDashboardScreen() {
                 ) : !identity.signedIn ? (
                     /* Unauthenticated Bus Screen */
                     <View style={styles.signInCard}>
-                        <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
+                        <View style={styles.lockIconCircle}>
+                            <Ionicons name="lock-closed-outline" size={42} color="#0066CC" />
+                        </View>
                         <Text style={styles.signInTitle}>{t('driver.consoleLocked', 'Vehicle Console Locked')}</Text>
                         <Text style={styles.signInDesc}>
                             Please sign in with your bus device credentials to access the Passenger Manifest & Conductor Console.
@@ -129,7 +136,9 @@ export default function VehicleDashboardScreen() {
                         <TouchableOpacity
                             style={styles.signInBtn}
                             onPress={() => router.replace('/(auth)/device-login' as any)}
+                            activeOpacity={0.85}
                         >
+                            <Ionicons name="key-outline" size={18} color="#FFFFFF" />
                             <Text style={styles.signInBtnText}>{t('driver.signInToBus', 'SIGN IN TO BUS DEVICE')}</Text>
                         </TouchableOpacity>
                     </View>
@@ -141,10 +150,11 @@ export default function VehicleDashboardScreen() {
                             <TouchableOpacity
                                 style={[styles.tabItem, activeTab === 'PASSENGERS' && styles.tabItemActive]}
                                 onPress={() => setActiveTab('PASSENGERS')}
+                                activeOpacity={0.8}
                             >
                                 <Ionicons
                                     name="people"
-                                    size={18}
+                                    size={16}
                                     color={activeTab === 'PASSENGERS' ? '#0066CC' : '#64748B'}
                                 />
                                 <Text
@@ -153,17 +163,18 @@ export default function VehicleDashboardScreen() {
                                         activeTab === 'PASSENGERS' && styles.tabTextActive,
                                     ]}
                                 >
-                                    Passengers & Assistance
+                                    Manifest
                                 </Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
                                 style={[styles.tabItem, activeTab === 'TRIP_CONTROL' && styles.tabItemActive]}
                                 onPress={() => setActiveTab('TRIP_CONTROL')}
+                                activeOpacity={0.8}
                             >
                                 <Ionicons
                                     name="navigate"
-                                    size={18}
+                                    size={16}
                                     color={activeTab === 'TRIP_CONTROL' ? '#0066CC' : '#64748B'}
                                 />
                                 <Text
@@ -179,10 +190,11 @@ export default function VehicleDashboardScreen() {
                             <TouchableOpacity
                                 style={[styles.tabItem, activeTab === 'TRIP' && styles.tabItemActive]}
                                 onPress={() => setActiveTab('TRIP')}
+                                activeOpacity={0.8}
                             >
                                 <Ionicons
                                     name="information-circle"
-                                    size={18}
+                                    size={16}
                                     color={activeTab === 'TRIP' ? '#0066CC' : '#64748B'}
                                 />
                                 <Text
@@ -191,7 +203,7 @@ export default function VehicleDashboardScreen() {
                                         activeTab === 'TRIP' && styles.tabTextActive,
                                     ]}
                                 >
-                                    Trip Info
+                                    Bus Specs
                                 </Text>
                             </TouchableOpacity>
                         </View>
@@ -199,7 +211,12 @@ export default function VehicleDashboardScreen() {
                         {/* Active Tab View */}
                         <View style={styles.tabContent}>
                             {activeTab === 'PASSENGERS' && (
-                                <PassengerManifestTab busId={session?.busId} numberPlate={session?.numberPlate} />
+                                <PassengerManifestTab
+                                    busId={session?.busId}
+                                    numberPlate={session?.numberPlate}
+                                    activeJourney={journey.journey}
+                                    onNavigateToTripControl={() => setActiveTab('TRIP_CONTROL')}
+                                />
                             )}
 
                             {activeTab === 'TRIP_CONTROL' && (
@@ -226,7 +243,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 20,
+        paddingHorizontal: 16,
         paddingVertical: 12,
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
@@ -237,55 +254,72 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     busIconBox: {
-        width: 36,
-        height: 36,
-        borderRadius: 10,
-        backgroundColor: '#EBF3FA',
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: '#EFF6FF',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 10,
+        borderWidth: 1,
+        borderColor: '#DBEAFE',
     },
     headerTitle: {
         fontSize: 16,
-        fontWeight: '800',
+        fontWeight: '900',
         color: '#0F172A',
+        letterSpacing: 0.2,
     },
     plateRow: {
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 2,
+        gap: 6,
     },
     activeDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
+        width: 7,
+        height: 7,
+        borderRadius: 4,
         backgroundColor: '#10B981',
-        marginRight: 6,
     },
     headerSubtitle: {
         fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
+        fontWeight: '800',
+        color: '#334155',
+    },
+    headerRouteTag: {
+        backgroundColor: '#F1F5F9',
+        paddingHorizontal: 6,
+        paddingVertical: 1.5,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    headerRouteTagText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#0066CC',
     },
     logoutButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F1F5F9',
-        paddingVertical: 6,
+        backgroundColor: '#FEF2F2',
+        paddingVertical: 7,
         paddingHorizontal: 12,
-        borderRadius: 16,
+        borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#E2E8F0',
+        borderColor: '#FEE2E2',
+        gap: 4,
     },
     logoutText: {
         fontSize: 12,
-        fontWeight: '700',
-        color: '#475569',
-        marginLeft: 4,
+        fontWeight: '800',
+        color: '#DC2626',
     },
     container: {
         flex: 1,
-        padding: 16,
+        paddingHorizontal: 12,
+        paddingTop: 10,
     },
     exitErrorRow: {
         flexDirection: 'row',
@@ -313,65 +347,94 @@ const styles = StyleSheet.create({
     signInCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 20,
-        padding: 30,
+        padding: 28,
         alignItems: 'center',
         marginTop: 40,
         borderWidth: 1,
         borderColor: '#E2E8F0',
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    lockIconCircle: {
+        width: 70,
+        height: 70,
+        borderRadius: 35,
+        backgroundColor: '#EFF6FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 8,
     },
     signInTitle: {
         fontSize: 18,
         fontWeight: '800',
         color: '#0F172A',
-        marginTop: 12,
+        marginTop: 8,
     },
     signInDesc: {
         fontSize: 13,
         color: '#64748B',
         textAlign: 'center',
         marginTop: 6,
-        lineHeight: 18,
+        lineHeight: 19,
     },
     signInBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: '#0066CC',
-        paddingHorizontal: 20,
-        paddingVertical: 12,
+        paddingHorizontal: 22,
+        paddingVertical: 13,
         borderRadius: 12,
         marginTop: 20,
+        gap: 8,
+        shadowColor: '#0066CC',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 3,
     },
     signInBtnText: {
         color: '#FFFFFF',
         fontWeight: '800',
         fontSize: 13,
+        letterSpacing: 0.3,
     },
     tabBar: {
         flexDirection: 'row',
         backgroundColor: '#FFFFFF',
         borderRadius: 14,
-        padding: 4,
+        padding: 3,
         borderWidth: 1,
         borderColor: '#E2E8F0',
-        marginBottom: 14,
+        marginBottom: 10,
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.03,
+        shadowRadius: 2,
+        elevation: 1,
     },
     tabItem: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 10,
+        paddingVertical: 9,
         borderRadius: 10,
+        gap: 5,
     },
     tabItemActive: {
-        backgroundColor: '#EBF3FA',
+        backgroundColor: '#EFF6FF',
     },
     tabText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '700',
         color: '#64748B',
-        marginLeft: 6,
     },
     tabTextActive: {
         color: '#0066CC',
+        fontWeight: '800',
     },
     tabContent: {
         flex: 1,
