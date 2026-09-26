@@ -191,7 +191,13 @@ export function ConductorBoardingCard({
         guardianInfo,
     } = verificationResult;
 
+    const isTicketValid =
+        verificationResult.valid !== false &&
+        !verificationResult.dateMismatchWarning &&
+        !verificationResult.busMismatchWarning;
+
     const isAlreadyPaid = paymentStatus === 'PAID';
+    const isCashPayment = booking?.paymentMethod === 'CASH' || Boolean(booking?.isWalkIn);
     const hasAssistance =
         isWheelchair ||
         assistanceRequested?.boardingAssistance ||
@@ -199,8 +205,8 @@ export function ConductorBoardingCard({
         assistanceRequested?.prioritySeatAssistance;
 
     const handleConfirm = async () => {
-        if (alreadyBoarded) {
-            // Already boarded: close inspection card
+        if (!isTicketValid || alreadyBoarded) {
+            // Blocked / Already boarded: close inspection card
             onClose();
             return;
         }
@@ -223,6 +229,7 @@ export function ConductorBoardingCard({
             visible={visible}
             animationType="slide"
             transparent={true}
+            statusBarTranslucent={true}
             onRequestClose={onClose}
         >
             <View style={styles.modalBackdrop}>
@@ -233,23 +240,41 @@ export function ConductorBoardingCard({
                             <View
                                 style={[
                                     styles.validityBadge,
-                                    alreadyBoarded
+                                    !isTicketValid
+                                        ? styles.validityBadgeDanger
+                                        : alreadyBoarded
                                         ? styles.validityBadgeWarning
                                         : styles.validityBadgeSuccess,
                                 ]}
                             >
                                 <Ionicons
-                                    name={alreadyBoarded ? 'checkmark-circle-outline' : 'checkmark-circle'}
+                                    name={
+                                        !isTicketValid
+                                            ? 'close-circle'
+                                            : alreadyBoarded
+                                            ? 'checkmark-circle-outline'
+                                            : 'checkmark-circle'
+                                    }
                                     size={16}
-                                    color={alreadyBoarded ? '#D97706' : '#059669'}
+                                    color={!isTicketValid ? '#DC2626' : alreadyBoarded ? '#D97706' : '#059669'}
                                 />
                                 <Text
                                     style={[
                                         styles.validityBadgeText,
-                                        { color: alreadyBoarded ? '#92400E' : '#065F46' },
+                                        {
+                                            color: !isTicketValid
+                                                ? '#991B1B'
+                                                : alreadyBoarded
+                                                ? '#92400E'
+                                                : '#065F46',
+                                        },
                                     ]}
                                 >
-                                    {alreadyBoarded ? 'ALREADY ONBOARD' : 'TICKET VALID • CONFIRM BOARDING'}
+                                    {!isTicketValid
+                                        ? 'TICKET REJECTED • BOARDING BLOCKED'
+                                        : alreadyBoarded
+                                        ? 'ALREADY ONBOARD'
+                                        : 'TICKET VALID • CONFIRM BOARDING'}
                                 </Text>
                             </View>
                             <Text style={styles.bookingIdText}>Ref: {booking.bookingId}</Text>
@@ -285,6 +310,27 @@ export function ConductorBoardingCard({
                             </View>
                         </View>
 
+                        {/* Date Mismatch or Bus Mismatch Warning Banners */}
+                        {verificationResult.dateMismatchWarning && (
+                            <View style={styles.warningBanner}>
+                                <Ionicons name="alert-circle" size={18} color="#B45309" />
+                                <View style={{ flex: 1, marginLeft: 8 }}>
+                                    <Text style={styles.warningBannerTitle}>Date Mismatch Warning</Text>
+                                    <Text style={styles.warningBannerText}>{verificationResult.dateMismatchWarning}</Text>
+                                </View>
+                            </View>
+                        )}
+
+                        {verificationResult.busMismatchWarning && (
+                            <View style={[styles.warningBanner, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+                                <Ionicons name="bus-outline" size={18} color="#DC2626" />
+                                <View style={{ flex: 1, marginLeft: 8 }}>
+                                    <Text style={[styles.warningBannerTitle, { color: '#991B1B' }]}>Vehicle Warning</Text>
+                                    <Text style={[styles.warningBannerText, { color: '#B91C1C' }]}>{verificationResult.busMismatchWarning}</Text>
+                                </View>
+                            </View>
+                        )}
+
                         {/* Seat & Passenger Info Card */}
                         <View style={styles.infoCard}>
                             <View style={styles.seatRow}>
@@ -301,8 +347,16 @@ export function ConductorBoardingCard({
                                         Route {booking.journey?.routeNumber || '—'} · Bus {booking.vehicle?.numberPlate || '—'}
                                     </Text>
 
-                                    {/* Badges */}
+                                    {/* Travel Date & Accessibility Badges */}
                                     <View style={styles.badgesRow}>
+                                        {(verificationResult.travelDate || booking.travelDate || booking.journeyDate || booking.departureDate) && (
+                                            <View style={styles.travelDateBadge}>
+                                                <Ionicons name="calendar-outline" size={12} color="#0066CC" />
+                                                <Text style={styles.travelDateBadgeText}>
+                                                    {verificationResult.travelDate || booking.travelDate || booking.journeyDate || booking.departureDate}
+                                                </Text>
+                                            </View>
+                                        )}
                                         {isWheelchair && (
                                             <View style={styles.wheelchairBadge}>
                                                 <Ionicons name="accessibility" size={12} color="#7C3AED" />
@@ -330,7 +384,9 @@ export function ConductorBoardingCard({
                         <View style={styles.fareCard}>
                             <View style={styles.fareHeaderRow}>
                                 <View>
-                                    <Text style={styles.fareLabel}>Ticket Fare (Cash)</Text>
+                                    <Text style={styles.fareLabel}>
+                                        {isAlreadyPaid && !isCashPayment ? 'Ticket Fare (Online Paid)' : 'Ticket Fare (Cash)'}
+                                    </Text>
                                     <Text style={styles.fareAmount}>
                                         {fareCurrency} {fareAmount.toFixed(2)}
                                     </Text>
@@ -355,12 +411,21 @@ export function ConductorBoardingCard({
                                             { color: isAlreadyPaid ? '#065F46' : '#92400E' },
                                         ]}
                                     >
-                                        {isAlreadyPaid ? 'PAID · CASH' : 'CASH TO COLLECT'}
+                                        {isAlreadyPaid
+                                            ? (isCashPayment ? 'PAID · CASH' : 'PAID · ONLINE')
+                                            : 'CASH TO COLLECT'}
                                     </Text>
                                 </View>
                             </View>
 
-                            {!isAlreadyPaid && !alreadyBoarded && (
+                            {!isTicketValid ? (
+                                <View style={styles.cashBlockedBanner}>
+                                    <Ionicons name="ban-outline" size={16} color="#DC2626" />
+                                    <Text style={styles.cashBlockedText}>
+                                        Fare collection and boarding are blocked due to ticket mismatch. Cannot accept payment for invalid journey.
+                                    </Text>
+                                </View>
+                            ) : !isAlreadyPaid && !alreadyBoarded && (
                                 <TouchableOpacity
                                     style={[
                                         styles.cashCollectCheckRow,
@@ -470,7 +535,23 @@ export function ConductorBoardingCard({
 
                     {/* Bottom Action Bar */}
                     <View style={styles.footerBar}>
-                        {alreadyBoarded ? (
+                        {!isTicketValid ? (
+                            /* Blocked / Invalid Mismatch State: Safe dismissal only */
+                            <TouchableOpacity
+                                style={styles.boardingBlockedBtn}
+                                onPress={onClose}
+                                activeOpacity={0.9}
+                            >
+                                <Ionicons
+                                    name="ban"
+                                    size={20}
+                                    color="#FFFFFF"
+                                />
+                                <Text style={styles.confirmBtnText}>
+                                    Boarding Blocked (Dismiss Ticket)
+                                </Text>
+                            </TouchableOpacity>
+                        ) : alreadyBoarded ? (
                             /* Already Boarded State: Inspection dismissal */
                             <TouchableOpacity
                                 style={styles.alreadyBoardedBtn}
@@ -551,6 +632,11 @@ const styles = StyleSheet.create({
     },
     validityBadgeWarning: {
         backgroundColor: '#FEF3C7',
+    },
+    validityBadgeDanger: {
+        backgroundColor: '#FEE2E2',
+        borderWidth: 1,
+        borderColor: '#FCA5A5',
     },
     validityBadgeText: {
         fontSize: 11,
@@ -965,5 +1051,75 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '700',
         color: '#64748B',
+    },
+    warningBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFBEB',
+        borderColor: '#FDE68A',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 12,
+    },
+    warningBannerTitle: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: '#92400E',
+        marginBottom: 2,
+    },
+    warningBannerText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#B45309',
+        lineHeight: 16,
+    },
+    travelDateBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EFF6FF',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        gap: 4,
+    },
+    travelDateBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#0066CC',
+    },
+    cashBlockedBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF2F2',
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#FECACA',
+        marginTop: 10,
+        gap: 8,
+    },
+    cashBlockedText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#991B1B',
+        flex: 1,
+        lineHeight: 16,
+    },
+    boardingBlockedBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#DC2626',
+        paddingVertical: 14,
+        borderRadius: 14,
+        gap: 8,
+        elevation: 2,
+        shadowColor: '#DC2626',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
     },
 });

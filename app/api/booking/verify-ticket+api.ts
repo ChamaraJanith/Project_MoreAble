@@ -13,7 +13,7 @@ export async function OPTIONS() {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { qrPayload, bookingId: directBookingId, busId, tripId } = body;
+        const { qrPayload, bookingId: directBookingId, busId, tripId, date } = body;
 
         let bookingId = directBookingId;
 
@@ -82,6 +82,19 @@ export async function POST(request: Request) {
             busMismatchWarning = `Bus Mismatch: Ticket is booked for bus ${bookingData.vehicle?.numberPlate || bookingData.busId}, not this vehicle.`;
         }
 
+        // Check travel date mismatch warning if date is provided
+        const ticketTravelDate =
+            bookingData.travelDate ||
+            bookingData.journeyDate ||
+            bookingData.departureDate ||
+            bookingData.journey?.departureDate ||
+            bookingData.journey?.journeyDate;
+
+        let dateMismatchWarning = '';
+        if (date && ticketTravelDate && ticketTravelDate !== date) {
+            dateMismatchWarning = `Travel Date Mismatch: Ticket is scheduled for ${ticketTravelDate}, not this operational date (${date}).`;
+        }
+
         // Fetch passenger user profile if available
         let passengerName = bookingData.userId;
         let guardianInfo: any = null;
@@ -141,17 +154,43 @@ export async function POST(request: Request) {
         const paymentStatus = bookingData.paymentStatus || 'COLLECT_CASH';
         const alreadyBoarded = bookingData.boardingStatus === 'BOARDED';
 
+        let isValid = true;
+        let isBoardingAllowed = true;
+        let rejectionReason: 'DATE_MISMATCH' | 'BUS_MISMATCH' | 'ALREADY_BOARDED' | null = null;
+        let statusMessage = 'Ticket verified successfully. Boarding permitted.';
+
+        if (dateMismatchWarning) {
+            isValid = false;
+            isBoardingAllowed = false;
+            rejectionReason = 'DATE_MISMATCH';
+            statusMessage = dateMismatchWarning;
+        } else if (busMismatchWarning) {
+            isValid = false;
+            isBoardingAllowed = false;
+            rejectionReason = 'BUS_MISMATCH';
+            statusMessage = busMismatchWarning;
+        } else if (alreadyBoarded) {
+            isValid = true;
+            isBoardingAllowed = false;
+            rejectionReason = null;
+            statusMessage = `Passenger has already boarded at ${bookingData.boardedAt || 'earlier stop'}.`;
+        }
+
         const responsePayload = {
             success: true,
-            valid: true,
-            message: alreadyBoarded
-                ? `Passenger has already boarded at ${bookingData.boardedAt || 'earlier stop'}.`
-                : busMismatchWarning || 'Ticket verified successfully.',
+            valid: isValid,
+            isBoardingAllowed,
+            rejectionReason,
+            message: statusMessage,
             busMismatchWarning: busMismatchWarning || null,
+            dateMismatchWarning: dateMismatchWarning || null,
+            travelDate: ticketTravelDate || null,
+            journeyDate: ticketTravelDate || null,
             booking: {
                 ...bookingData,
                 id: bookingDoc.id,
                 bookingId,
+                travelDate: ticketTravelDate || bookingData.travelDate,
             },
             passengerName,
             dropOffHalt,

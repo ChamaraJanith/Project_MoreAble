@@ -147,9 +147,12 @@ export interface Booking {
   status: BookingStatus;
   journeyDate?: string;
   travelDate?: string;
+  departureDate?: string;
   boardingStatus?: BoardingStatus;
   boardedAt?: string;
   paymentStatus?: PaymentStatus;
+  paymentMethod?: 'CASH' | 'ONLINE' | 'CARD';
+  isWalkIn?: boolean;
   journey: BookingJourneyDetails;
   vehicle: BookingVehicleDetails;
   qrPayload: string;
@@ -378,6 +381,12 @@ export interface BoardingVerificationResult {
   fareAmount: number;
   fareCurrency: string;
   paymentStatus: PaymentStatus;
+  travelDate?: string;
+  journeyDate?: string;
+  busMismatchWarning?: string | null;
+  dateMismatchWarning?: string | null;
+  isBoardingAllowed?: boolean;
+  rejectionReason?: 'DATE_MISMATCH' | 'BUS_MISMATCH' | 'CANCELLED' | 'ALREADY_BOARDED' | null;
   assistanceRequested?: AssistanceRequested;
   specialRequests?: string;
   receiverDetails?: {

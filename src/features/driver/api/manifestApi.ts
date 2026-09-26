@@ -1,6 +1,7 @@
 import {
     BoardingConfirmationResult,
     BoardingVerificationResult,
+    Booking,
 } from '../../../entities/booking/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 
@@ -9,14 +10,29 @@ export interface VerifyTicketParams {
     bookingId?: string;
     busId?: string;
     tripId?: string;
+    date?: string;
 }
 
 export interface ConfirmBoardingParams {
     bookingId: string;
     busId?: string;
     conductorId?: string;
+    date?: string;
     cashCollected?: boolean;
     assistanceProgress?: 'IN_PROGRESS' | 'COMPLETED';
+}
+
+export interface IssueWalkinTicketParams {
+    tripId: string;
+    busId?: string;
+    seatNumber: string;
+    origin: string;
+    destination: string;
+    passengerName?: string;
+    passengerPhone?: string;
+    passengerEmail?: string;
+    date?: string;
+    conductorId?: string;
 }
 
 /**
@@ -85,3 +101,27 @@ export async function confirmReceiverDetails(bookingId: string): Promise<{ succe
 
     return data;
 }
+
+/**
+ * Issues an on-board walk-in ticket for a spot passenger (Standard Seats Only).
+ */
+export async function issueWalkinTicket(
+    params: IssueWalkinTicketParams
+): Promise<{ success: boolean; message: string; booking: Booking }> {
+    const res = await fetch(`${API_BASE_URL}/api/booking/issue-walkin-ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+        throw new Error(
+            data?.message || `Failed to issue walk-in ticket (HTTP ${res.status}).`
+        );
+    }
+
+    return data;
+}
+
