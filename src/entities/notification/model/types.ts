@@ -75,4 +75,62 @@ export interface PushDeliveryResult {
     recipientCount: number;
     ticketIds?: string[];
     errorMessage?: string;
+    reason?: string;
+}
+
+/**
+ * Passenger Notification Preferences (MOV-24 / MOV-240)
+ * Allows passengers to granularly configure which notification types they receive.
+ * Rule: emergencyAlerts is ALWAYS true and cannot be disabled.
+ */
+export interface NotificationPreferences {
+    /** Booking confirmation, receipt, and payment status updates */
+    bookingAlerts: boolean;
+    /** 15-minute boarding reminders and departure calls */
+    boardingReminders: boolean;
+    /** Bus approaching / ETA / arrival alerts at pickup halt */
+    arrivalAlerts: boolean;
+    /** Approaching drop-off destination alerts */
+    destinationReminders: boolean;
+    /** Caregiver journey updates and safety synchronization */
+    caregiverUpdates: boolean;
+    /** Emergency SOS alerts (CRITICAL: Always true, cannot be disabled) */
+    emergencyAlerts: boolean;
+    /** Master push notification channel switch */
+    pushEnabled?: boolean;
+    /** Multi-channel Email notifications */
+    emailAlerts?: boolean;
+    /** Multi-channel SMS text alerts */
+    smsAlerts?: boolean;
+    /** Timestamp when preferences were last updated */
+    updatedAt?: string;
+}
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+    bookingAlerts: true,
+    boardingReminders: true,
+    arrivalAlerts: true,
+    destinationReminders: true,
+    caregiverUpdates: true,
+    emergencyAlerts: true,
+    pushEnabled: true,
+    emailAlerts: true,
+    smsAlerts: true,
+};
+
+export function normalizeNotificationPreferences(
+    input?: Partial<NotificationPreferences> | null
+): NotificationPreferences {
+    return {
+        bookingAlerts: input?.bookingAlerts ?? DEFAULT_NOTIFICATION_PREFERENCES.bookingAlerts,
+        boardingReminders: input?.boardingReminders ?? DEFAULT_NOTIFICATION_PREFERENCES.boardingReminders,
+        arrivalAlerts: input?.arrivalAlerts ?? DEFAULT_NOTIFICATION_PREFERENCES.arrivalAlerts,
+        destinationReminders: input?.destinationReminders ?? DEFAULT_NOTIFICATION_PREFERENCES.destinationReminders,
+        caregiverUpdates: input?.caregiverUpdates ?? DEFAULT_NOTIFICATION_PREFERENCES.caregiverUpdates,
+        emergencyAlerts: true, // STRICT ENTERPRISE RULE: Emergency alerts cannot be disabled
+        pushEnabled: input?.pushEnabled ?? DEFAULT_NOTIFICATION_PREFERENCES.pushEnabled,
+        emailAlerts: input?.emailAlerts ?? DEFAULT_NOTIFICATION_PREFERENCES.emailAlerts,
+        smsAlerts: input?.smsAlerts ?? DEFAULT_NOTIFICATION_PREFERENCES.smsAlerts,
+        updatedAt: input?.updatedAt || new Date().toISOString(),
+    };
 }
