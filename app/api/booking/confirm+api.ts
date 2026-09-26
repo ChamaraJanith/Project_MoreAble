@@ -454,8 +454,21 @@ export async function POST(request: Request) {
                 },
             };
 
+            // Check passenger notification preferences (MOV-240)
+            let shouldInsertNotification = true;
+            if (passengerId && passengerId !== 'GUEST') {
+                try {
+                    const userDoc = await adminDb.collection('users').doc(passengerId).get();
+                    if (userDoc.exists && userDoc.data()?.notificationPreferences?.bookingAlerts === false) {
+                        shouldInsertNotification = false;
+                    }
+                } catch (_) {}
+            }
+
             transaction.set(bookingsRef.doc(bookingId), newBooking);
-            transaction.set(notificationsRef.doc(notificationId), newNotification);
+            if (shouldInsertNotification) {
+                transaction.set(notificationsRef.doc(notificationId), newNotification);
+            }
             return newBooking;
         });
 

@@ -83,16 +83,27 @@ export default function NotificationsTabScreen() {
                     )}
                 </View>
 
-                {unreadCount > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {unreadCount > 0 && (
+                        <TouchableOpacity
+                            style={styles.markAllButton}
+                            onPress={handleMarkAllAsRead}
+                            accessibilityRole="button"
+                            accessibilityLabel="Mark all notifications as read"
+                        >
+                            <Text style={styles.markAllText}>Mark read</Text>
+                        </TouchableOpacity>
+                    )}
+
                     <TouchableOpacity
-                        style={styles.markAllButton}
-                        onPress={handleMarkAllAsRead}
+                        style={{ padding: 6, borderRadius: 8, backgroundColor: '#F1F5F9' }}
+                        onPress={() => router.push('/notification-preferences' as any)}
                         accessibilityRole="button"
-                        accessibilityLabel="Mark all notifications as read"
+                        accessibilityLabel="Open notification preferences settings"
                     >
-                        <Text style={styles.markAllText}>Mark read</Text>
+                        <Ionicons name="settings-outline" size={20} color="#475569" />
                     </TouchableOpacity>
-                )}
+                </View>
             </View>
 
             {/* Filter Tabs */}

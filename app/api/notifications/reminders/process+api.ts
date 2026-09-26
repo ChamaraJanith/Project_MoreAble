@@ -1,4 +1,5 @@
 import { getAdminDb } from '../../../../src/shared/config/firebaseAdmin';
+import { getUserNotificationPreferences } from '../../../../src/shared/services/pushNotificationDispatcher';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -111,8 +112,27 @@ export async function handleProcessReminders(request: Request) {
 
             // Send reminder if departure is in the upcoming window: 0 < diffMinutes <= 15
             if (diffMinutes > 0 && diffMinutes <= 15) {
-                const roundedMins = Math.max(1, Math.round(diffMinutes));
                 const bookingId = data.bookingId || doc.id;
+                const userId = data.userId || 'GUEST';
+
+                // Check passenger notification preferences
+                if (userId && userId !== 'GUEST') {
+                    try {
+                        const notifPrefs = await getUserNotificationPreferences(userId);
+                        if (notifPrefs.boardingReminders === false || notifPrefs.pushEnabled === false) {
+                            await bookingsRef.doc(bookingId).update({
+                                reminderSent: true,
+                                reminderSentAt: nowIso,
+                                skippedByPreference: true,
+                            });
+                            continue;
+                        }
+                    } catch (prefErr) {
+                        console.warn('[Reminders API] Error checking user preferences:', prefErr);
+                    }
+                }
+
+                const roundedMins = Math.max(1, Math.round(diffMinutes));
                 const vehicleNumber = vehicle.numberPlate || data.vehicleNumber || 'Bus';
                 const routeNumber = journey.routeNumber || '—';
                 const routeName = journey.routeName || '—';

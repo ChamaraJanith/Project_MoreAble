@@ -865,6 +865,18 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/notification-preferences' as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Notification Preferences"
+            accessibilityHint="Double tap to configure journey, arrival, and boarding alert settings"
+          >
+            <Ionicons name="notifications-outline" size={22} color="#0284C7" />
+            <Text style={styles.actionRowText}>{t('profile.notificationPreferences', 'Notification Preferences')}</Text>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+
           <View style={styles.divider} />
 
           <TouchableOpacity style={styles.actionRow} onPress={() => router.push('/accessibility-preferences' as any)}>

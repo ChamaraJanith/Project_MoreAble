@@ -14,7 +14,10 @@ import {
   CaregiverSafetyLog,
 } from '../../../entities/caregiver/model/types';
 import { getAdminDb } from '../../../shared/config/firebaseAdmin';
-import { sendPushNotificationToUser } from '../../../shared/services/pushNotificationDispatcher';
+import {
+  getUserNotificationPreferences,
+  sendPushNotificationToUser,
+} from '../../../shared/services/pushNotificationDispatcher';
 import { sendRealEmail } from '../../../shared/services/emailService';
 import {
   canCaregiverReceiveAlert,
@@ -264,19 +267,29 @@ export async function dispatchCaregiverSafetyAlert(
     // 3. Mobile App Push Dispatch (if caregiver is also a registered app user)
     if (ch?.push !== false && caregiver.caregiverId) {
       try {
-        await sendPushNotificationToUser(caregiver.caregiverId, {
-          title: `Transit Update: ${payload.passengerName || 'Passenger'}`,
-          body: formatCaregiverSmsMessage(eventType, payload),
-          data: {
-            eventType,
-            bookingId: payload.bookingId,
-            passengerId: payload.passengerId,
-            trackingToken,
-            trackingUrl,
-          },
-        });
-        channelsDelivered.push('PUSH');
-        result.channelsSummary.push++;
+        let shouldSendPush = true;
+        if (eventType !== 'EMERGENCY_SOS') {
+          const cPrefs = await getUserNotificationPreferences(caregiver.caregiverId);
+          if (cPrefs.caregiverUpdates === false || cPrefs.pushEnabled === false) {
+            shouldSendPush = false;
+          }
+        }
+
+        if (shouldSendPush) {
+          await sendPushNotificationToUser(caregiver.caregiverId, {
+            title: `Transit Update: ${payload.passengerName || 'Passenger'}`,
+            body: formatCaregiverSmsMessage(eventType, payload),
+            data: {
+              eventType,
+              bookingId: payload.bookingId,
+              passengerId: payload.passengerId,
+              trackingToken,
+              trackingUrl,
+            },
+          });
+          channelsDelivered.push('PUSH');
+          result.channelsSummary.push++;
+        }
       } catch (pushErr) {
         console.warn(`Push dispatch failed for caregiver ${caregiver.caregiverId}:`, pushErr);
       }

@@ -3,9 +3,45 @@ import {
     PushNotificationPayload,
     PushDeliveryResult,
     NotificationPriority,
+    NotificationPreferences,
+    DEFAULT_NOTIFICATION_PREFERENCES,
+    normalizeNotificationPreferences,
 } from '../../entities/notification/model/types';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+
+/**
+ * Retrieves the user's notification preferences from Firestore.
+ * Always returns normalized preferences with emergencyAlerts: true.
+ */
+export async function getUserNotificationPreferences(userId: string): Promise<NotificationPreferences> {
+    if (!userId || userId === 'GUEST') return DEFAULT_NOTIFICATION_PREFERENCES;
+    try {
+        const adminDb = getAdminDb();
+        const trimmed = userId.trim();
+
+        // 1. Try dedicated notification_preferences collection
+        const prefDoc = await adminDb.collection('notification_preferences').doc(trimmed).get();
+        if (prefDoc.exists) {
+            return normalizeNotificationPreferences(prefDoc.data());
+        }
+
+        // 2. Try users collection doc
+        const userDoc = await adminDb.collection('users').doc(trimmed).get();
+        if (userDoc.exists && userDoc.data()?.notificationPreferences) {
+            return normalizeNotificationPreferences(userDoc.data()?.notificationPreferences);
+        }
+
+        // 3. Try users collection by passengerId
+        const pQuery = await adminDb.collection('users').where('passengerId', '==', trimmed).limit(1).get();
+        if (!pQuery.empty && pQuery.docs[0].data()?.notificationPreferences) {
+            return normalizeNotificationPreferences(pQuery.docs[0].data()?.notificationPreferences);
+        }
+    } catch (err) {
+        console.warn(`[PushDispatcher] Error fetching preferences for ${userId}:`, err);
+    }
+    return DEFAULT_NOTIFICATION_PREFERENCES;
+}
 
 /**
  * Validates whether a token string is a valid Expo Push Token format.
@@ -238,6 +274,16 @@ export async function dispatchVehicleArrivalAlert(
         bookingId?: string;
     }
 ): Promise<PushDeliveryResult> {
+    const prefs = await getUserNotificationPreferences(userId);
+    if (prefs.arrivalAlerts === false || prefs.pushEnabled === false) {
+        return {
+            success: true,
+            status: 'skipped',
+            recipientCount: 0,
+            reason: 'ARRIVAL_ALERTS_DISABLED_BY_USER_PREFERENCE',
+        };
+    }
+
     const routeDisplay = data.routeName ? `${data.routeNumber} (${data.routeName})` : data.routeNumber;
     const etaText = data.etaMinutes <= 1 ? 'is arriving now' : `will arrive in ~${data.etaMinutes} mins`;
 
@@ -273,6 +319,16 @@ export async function dispatchBoardingAlert(
         passengerName?: string;
     }
 ): Promise<PushDeliveryResult> {
+    const prefs = await getUserNotificationPreferences(userId);
+    if (prefs.boardingReminders === false || prefs.pushEnabled === false) {
+        return {
+            success: true,
+            status: 'skipped',
+            recipientCount: 0,
+            reason: 'BOARDING_REMINDERS_DISABLED_BY_USER_PREFERENCE',
+        };
+    }
+
     return sendPushNotificationToUser(userId, {
         title: `Boarding Confirmed • Seat ${data.seatNumber} 🎟️`,
         body: `Welcome aboard bus ${data.vehicleNumber} (Route ${data.routeNumber}). Your trip to ${data.dropOffHalt} has commenced!`,
@@ -291,6 +347,45 @@ export async function dispatchBoardingAlert(
 }
 
 /**
+ * [MOV-240 Integration] Dispatch Booking Confirmation Alert
+ */
+export async function dispatchBookingAlert(
+    userId: string,
+    data: {
+        bookingId: string;
+        routeNumber: string;
+        seatNumber: string;
+        origin: string;
+        destination: string;
+        fareAmount?: number;
+    }
+): Promise<PushDeliveryResult> {
+    const prefs = await getUserNotificationPreferences(userId);
+    if (prefs.bookingAlerts === false || prefs.pushEnabled === false) {
+        return {
+            success: true,
+            status: 'skipped',
+            recipientCount: 0,
+            reason: 'BOOKING_ALERTS_DISABLED_BY_USER_PREFERENCE',
+        };
+    }
+
+    return sendPushNotificationToUser(userId, {
+        title: `Booking Confirmed #${data.bookingId} 🎫`,
+        body: `Seat ${data.seatNumber} booked on Route ${data.routeNumber} (${data.origin} to ${data.destination}). Safe journey!`,
+        priority: 'high',
+        channelId: 'general-alerts',
+        sound: 'default',
+        data: {
+            type: 'BOOKING_CONFIRMATION',
+            bookingId: data.bookingId,
+            seatNumber: data.seatNumber,
+            route: '/(tabs)/ticket',
+        },
+    });
+}
+
+/**
  * Dispatch Destination Reminder Alert to Passenger
  */
 export async function dispatchDestinationReminder(
@@ -302,6 +397,16 @@ export async function dispatchDestinationReminder(
         estimatedArrivalTime?: string;
     }
 ): Promise<PushDeliveryResult> {
+    const prefs = await getUserNotificationPreferences(userId);
+    if (prefs.destinationReminders === false || prefs.pushEnabled === false) {
+        return {
+            success: true,
+            status: 'skipped',
+            recipientCount: 0,
+            reason: 'DESTINATION_REMINDERS_DISABLED_BY_USER_PREFERENCE',
+        };
+    }
+
     const stopsText = data.remainingStops ? `${data.remainingStops} stops remaining.` : '';
     const etaText = data.estimatedArrivalTime ? ` ETA: ${data.estimatedArrivalTime}.` : '';
 
@@ -333,6 +438,16 @@ export async function dispatchCaregiverJourneyAlert(
         bookingId?: string;
     }
 ): Promise<PushDeliveryResult> {
+    const prefs = await getUserNotificationPreferences(guardianId);
+    if (prefs.caregiverUpdates === false || prefs.pushEnabled === false) {
+        return {
+            success: true,
+            status: 'skipped',
+            recipientCount: 0,
+            reason: 'CAREGIVER_UPDATES_DISABLED_BY_USER_PREFERENCE',
+        };
+    }
+
     let title = `Journey Update • ${data.passengerName} 🛡️`;
     let body = `${data.passengerName} has updated their journey status.`;
 

@@ -5,6 +5,8 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { API_BASE_URL } from '../../../shared/api/config';
+import { useNotificationPreferencesStore } from '../store/notificationPreferencesStore';
+import { usePreferencesStore } from '../../../shared/store/preferencesStore';
 
 // Safe check for Expo Go store client on Android
 const isExpoGoOnAndroid =
@@ -12,15 +14,74 @@ const isExpoGoOnAndroid =
     (Constants?.appOwnership === 'expo' ||
         Constants?.executionEnvironment === (ExecutionEnvironment?.StoreClient || 'storeClient'));
 
-// Ensure global notification presentation handler is set safely
+// Ensure global notification presentation handler is set safely with preferences awareness
 try {
     Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-            shouldShowBanner: true,
-            shouldShowList: true,
-            shouldPlaySound: true,
-            shouldSetBadge: true,
-        }),
+        handleNotification: async (notification) => {
+            try {
+                const prefs = useNotificationPreferencesStore.getState().preferences;
+                const data = (notification?.request?.content?.data || {}) as Record<string, any>;
+                const notifType = String(data.type || '');
+                const isEmergency =
+                    notifType === 'EMERGENCY_SOS' ||
+                    notifType === 'SOS_EMERGENCY' ||
+                    Boolean(data.isEmergency);
+
+                // Emergency SOS alerts must ALWAYS bypass filters and present full alert with sound
+                if (isEmergency) {
+                    return {
+                        shouldShowBanner: true,
+                        shouldShowList: true,
+                        shouldPlaySound: true,
+                        shouldSetBadge: true,
+                    };
+                }
+
+                // Master push notifications toggle
+                if (prefs?.pushEnabled === false) {
+                    return {
+                        shouldShowBanner: false,
+                        shouldShowList: false,
+                        shouldPlaySound: false,
+                        shouldSetBadge: false,
+                    };
+                }
+
+                // Granular category preference filters
+                if (prefs?.bookingAlerts === false && (notifType === 'BOOKING_CONFIRMATION' || notifType === 'BOOKING')) {
+                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                }
+                if (prefs?.boardingReminders === false && (notifType === 'BOARDING_REMINDER' || notifType === 'BOARDING_CONFIRMED' || notifType === 'PASSENGER_BOARDED')) {
+                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                }
+                if (prefs?.arrivalAlerts === false && notifType === 'VEHICLE_ARRIVAL') {
+                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                }
+                if (prefs?.destinationReminders === false && notifType === 'DESTINATION_REMINDER') {
+                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                }
+                if (prefs?.caregiverUpdates === false && (notifType === 'CAREGIVER_JOURNEY_UPDATE' || notifType === 'CARE_PASSENGER_BOARDED' || notifType.startsWith('CAREGIVER'))) {
+                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                }
+
+                const appPrefs = usePreferencesStore.getState().preferences;
+                const soundOption = appPrefs?.notificationSound !== false;
+
+                return {
+                    shouldShowBanner: true,
+                    shouldShowList: true,
+                    shouldPlaySound: soundOption,
+                    shouldSetBadge: true,
+                };
+            } catch {
+                return {
+                    shouldShowBanner: true,
+                    shouldShowList: true,
+                    shouldPlaySound: true,
+                    shouldSetBadge: true,
+                };
+            }
+        },
     });
 } catch (handlerErr) {
     // Graceful fallback in Expo Go
@@ -30,7 +91,7 @@ try {
  * Configure high-priority notification channels on Android (Android 8.0+)
  */
 export async function setupAndroidNotificationChannels(): Promise<void> {
-    if (Platform.OS !== 'android' || isExpoGoOnAndroid) return;
+    if (Platform.OS !== 'android') return;
 
     try {
         await Notifications.setNotificationChannelAsync('sos-emergency', {
