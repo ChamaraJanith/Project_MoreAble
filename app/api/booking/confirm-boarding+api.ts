@@ -22,6 +22,7 @@ export async function POST(request: Request) {
             bookingId,
             busId,
             conductorId,
+            date,
             cashCollected,
             assistanceProgress,
         } = body;
@@ -57,6 +58,42 @@ export async function POST(request: Request) {
             );
         }
 
+        if (bookingData.boardingStatus === 'BOARDED') {
+            return Response.json(
+                { success: false, message: `Cannot board: Passenger has already boarded at ${bookingData.boardedAt || 'earlier stop'}.` },
+                { status: 400, headers: corsHeaders }
+            );
+        }
+
+        // Strict Date Mismatch Guard
+        const ticketTravelDate =
+            bookingData.travelDate ||
+            bookingData.journeyDate ||
+            bookingData.departureDate ||
+            bookingData.journey?.departureDate ||
+            bookingData.journey?.journeyDate;
+
+        if (date && ticketTravelDate && ticketTravelDate !== date) {
+            return Response.json(
+                {
+                    success: false,
+                    message: `Boarding Rejected: Travel date mismatch. Ticket is scheduled for ${ticketTravelDate}, not this operational date (${date}).`,
+                },
+                { status: 400, headers: corsHeaders }
+            );
+        }
+
+        // Strict Bus Mismatch Guard
+        if (busId && bookingData.busId && bookingData.busId !== busId) {
+            return Response.json(
+                {
+                    success: false,
+                    message: `Boarding Rejected: Vehicle mismatch. Ticket is booked for bus ${bookingData.vehicle?.numberPlate || bookingData.busId}, not this vehicle.`,
+                },
+                { status: 400, headers: corsHeaders }
+            );
+        }
+
         // Determine updated assistance status
         let newAssistanceStatus = bookingData.assistanceStatus || 'NOT_REQUIRED';
         const hasAssistance =
@@ -77,12 +114,17 @@ export async function POST(request: Request) {
             ? 'PAID'
             : (bookingData.paymentStatus || 'COLLECT_CASH');
 
+        const updatedPaymentMethod = cashCollected
+            ? 'CASH'
+            : (bookingData.paymentMethod || (bookingData.paymentStatus === 'PAID' ? 'ONLINE' : 'CASH'));
+
         const updatePayload: any = {
             boardingStatus: 'BOARDED',
             boardedAt: now,
             boardedBusId: busId || bookingData.busId,
             conductorVerifiedBy: conductorId || 'CONDUCTOR_ONBOARD',
             paymentStatus: updatedPaymentStatus,
+            paymentMethod: updatedPaymentMethod,
             assistanceStatus: newAssistanceStatus,
             assistanceUpdatedAt: now,
         };

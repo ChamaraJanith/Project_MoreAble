@@ -22,6 +22,7 @@ export async function GET(request: Request) {
         const passengerId = url.searchParams.get('passengerId');
         const busId = url.searchParams.get('busId');
         const tripId = url.searchParams.get('tripId');
+        const date = url.searchParams.get('date');
 
         if (!passengerId && !busId && !tripId) {
             return Response.json({ success: false, message: 'passengerId, busId, or tripId is required.' }, { status: 400, headers: corsHeaders });
@@ -39,10 +40,22 @@ export async function GET(request: Request) {
         }
 
         const snapshot = await query.get();
-        const bookings = snapshot.docs.map((doc: any) => ({
+        let bookings = snapshot.docs.map((doc: any) => ({
             id: doc.id,
             ...doc.data(),
         }));
+
+        if (date) {
+            bookings = bookings.filter((b: any) => {
+                const bDate =
+                    b.travelDate ||
+                    b.journeyDate ||
+                    b.departureDate ||
+                    b.journey?.departureDate ||
+                    b.journey?.journeyDate;
+                return bDate === date;
+            });
+        }
 
         // Fetch user profiles to enrich passenger names if missing
         const userIdsToFetch = Array.from(

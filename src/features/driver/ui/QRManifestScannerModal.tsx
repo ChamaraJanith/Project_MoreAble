@@ -121,6 +121,7 @@ export function QRManifestScannerModal({
             visible={visible}
             animationType="slide"
             transparent={false}
+            statusBarTranslucent={true}
             onRequestClose={onClose}
         >
             <View style={styles.container}>
