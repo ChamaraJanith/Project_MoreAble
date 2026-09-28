@@ -1,3 +1,4 @@
+const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
 /** @type {import('expo/metro-config').MetroConfig} */
@@ -10,6 +11,18 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'zustand' || moduleName.startsWith('zustand/')) {
     return {
       filePath: require.resolve(moduleName),
+      type: 'sourceFile',
+    };
+  }
+
+  // Intercept expo-notifications warnOfExpoGoPushUsage to prevent fatal module-level crash on Android Expo Go
+  if (
+    moduleName === './warnOfExpoGoPushUsage' ||
+    moduleName.endsWith('/warnOfExpoGoPushUsage') ||
+    moduleName === 'expo-notifications/build/warnOfExpoGoPushUsage'
+  ) {
+    return {
+      filePath: path.resolve(__dirname, 'src/shared/shims/warnOfExpoGoPushUsage.js'),
       type: 'sourceFile',
     };
   }

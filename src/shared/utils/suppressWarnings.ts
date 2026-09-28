@@ -4,29 +4,31 @@ import { LogBox, Platform } from 'react-native';
 if (Platform.OS === 'android') {
   const originalWarn = console.warn;
   console.warn = (...args: any[]) => {
-    if (
-      args[0] &&
-      typeof args[0] === 'string' &&
-      (args[0].includes('expo-notifications: Android Push notifications') ||
-        args[0].includes('Android Push notifications (remote notifications)') ||
-        args[0].includes('functionality provided by expo-notifications was removed'))
-    ) {
-      return;
-    }
+    try {
+      const msg = args[0] != null ? String(args[0]?.message || args[0]) : '';
+      if (
+        msg.includes('expo-notifications: Android Push notifications') ||
+        msg.includes('Android Push notifications (remote notifications)') ||
+        msg.includes('functionality provided by expo-notifications was removed')
+      ) {
+        return;
+      }
+    } catch {}
     originalWarn(...args);
   };
 
   const originalError = console.error;
   console.error = (...args: any[]) => {
-    if (
-      args[0] &&
-      (typeof args[0] === 'string' || (args[0] instanceof Error && args[0].message)) &&
-      (String(args[0]).includes('expo-notifications: Android Push notifications') ||
-        String(args[0]).includes('Android Push notifications (remote notifications)') ||
-        String(args[0]).includes('functionality provided by expo-notifications was removed'))
-    ) {
-      return;
-    }
+    try {
+      const msg = args[0] != null ? String(args[0]?.message || args[0]) : '';
+      if (
+        msg.includes('expo-notifications: Android Push notifications') ||
+        msg.includes('Android Push notifications (remote notifications)') ||
+        msg.includes('functionality provided by expo-notifications was removed')
+      ) {
+        return;
+      }
+    } catch {}
     originalError(...args);
   };
 }
