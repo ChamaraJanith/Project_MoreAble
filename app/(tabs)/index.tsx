@@ -171,6 +171,18 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.quickCard}
+            onPress={() => router.push('/active-journey' as any)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.quickIconCircle, { backgroundColor: '#FEF2F2' }]}>
+              <Ionicons name="bus" size={24} color="#DC2626" />
+            </View>
+            <Text style={styles.quickCardTitle}>Active Journey</Text>
+            <Text style={styles.quickCardSub}>Live track & SOS</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickCard}
             onPress={handleOpenProfile}
             activeOpacity={0.8}
           >

@@ -19,6 +19,7 @@ import { PassengerManifestTab } from '../src/features/driver/ui/PassengerManifes
 import { TripInfoTab } from '../src/features/driver/ui/TripInfoTab';
 import { describeBusSession } from '../src/features/driver/utils/busSessionView';
 import { BusSession, clearBusSession, getBusSession } from '../src/shared/utils/busSession';
+import { useJourneyStore } from '../src/shared/store/journeyStore';
 
 type VehicleTab = 'PASSENGERS' | 'TRIP_CONTROL' | 'TRIP';
 
@@ -33,6 +34,9 @@ export default function VehicleDashboardScreen() {
     // tabs does not reload them (MOV-294). Location sharing is not owned here —
     // it follows the journey, so signing out below never stops it.
     const journey = useTripJourney(session?.busId);
+    
+    // Subscribe to emergency store
+    const { activeSOS, clearSOS } = useJourneyStore();
 
     useFocusEffect(
         useCallback(() => {
@@ -110,6 +114,20 @@ export default function VehicleDashboardScreen() {
 
             {/* Main Console Content */}
             <View style={styles.container}>
+                {activeSOS?.isActive && (
+                    <View style={styles.emergencyBanner}>
+                        <Ionicons name="warning" size={24} color="#FFFFFF" />
+                        <View style={styles.emergencyBannerTextContainer}>
+                            <Text style={styles.emergencyBannerTitle}>EMERGENCY SOS</Text>
+                            <Text style={styles.emergencyBannerDesc}>
+                                {activeSOS.passengerName} has triggered an SOS! Please check immediately.
+                            </Text>
+                        </View>
+                        <TouchableOpacity style={styles.dismissEmergencyBtn} onPress={clearSOS}>
+                            <Text style={styles.dismissEmergencyText}>DISMISS</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
                 {!!exitError && (
                     <View style={styles.exitErrorRow} accessibilityLiveRegion="polite">
                         <Ionicons name="alert-circle-outline" size={18} color="#D32F2F" />
@@ -439,4 +457,46 @@ const styles = StyleSheet.create({
     tabContent: {
         flex: 1,
     },
+    emergencyBanner: {
+        backgroundColor: '#DC2626',
+        borderRadius: 12,
+        padding: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+        shadowColor: '#DC2626',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    emergencyBannerTextContainer: {
+        flex: 1,
+        marginLeft: 12,
+    },
+    emergencyBannerTitle: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '900',
+        letterSpacing: 0.5,
+    },
+    emergencyBannerDesc: {
+        color: '#FFFFFF',
+        fontSize: 13,
+        fontWeight: '500',
+        marginTop: 4,
+        lineHeight: 18,
+    },
+    dismissEmergencyBtn: {
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        marginLeft: 10,
+    },
+    dismissEmergencyText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '800',
+    }
 });
