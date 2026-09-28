@@ -1,11 +1,19 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useNotificationPreferencesStore } from '../../features/notifications/store/notificationPreferencesStore';
 import { usePreferencesStore } from '../store/preferencesStore';
 import { setupAndroidNotificationChannels } from '../../features/notifications/hooks/usePushNotifications';
 
+const isExpoGoOnAndroid =
+    Platform.OS === 'android' &&
+    (Constants?.appOwnership === 'expo' ||
+        Constants?.executionEnvironment === (ExecutionEnvironment?.StoreClient || 'storeClient') ||
+        Boolean((Constants as any)?.expoGoConfig) ||
+        Boolean((global as any)?.ExpoModules?.ExpoGo));
+
 export async function requestNotificationPermissions(): Promise<boolean> {
-    if (Platform.OS === 'web') return false;
+    if (Platform.OS === 'web' || isExpoGoOnAndroid) return false;
     try {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
@@ -28,7 +36,7 @@ export async function sendLocalBookingNotification(booking: {
         routeName?: string;
     };
 }) {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || isExpoGoOnAndroid) return;
     try {
         // Check Notification Preferences (MOV-240)
         const notifPrefs = useNotificationPreferencesStore.getState().preferences;
@@ -77,7 +85,7 @@ export async function sendLocalBoardingReminderNotification(reminder: {
     routeName?: string;
     minutesRemaining?: number;
 }) {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || isExpoGoOnAndroid) return;
     try {
         // Check Notification Preferences (MOV-240)
         const notifPrefs = useNotificationPreferencesStore.getState().preferences;
@@ -161,7 +169,7 @@ export async function scheduleLocalBoardingReminder(booking: {
         numberPlate?: string;
     };
 }) {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || isExpoGoOnAndroid) return;
     try {
         // Check Notification Preferences (MOV-240)
         const notifPrefs = useNotificationPreferencesStore.getState().preferences;
