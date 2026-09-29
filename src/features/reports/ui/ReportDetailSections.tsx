@@ -44,7 +44,8 @@ interface ReportHeroProps {
     reportType: ReportType;
     /** The issue category, in the wording the picker offered it in. */
     title: string;
-    status: string;
+    /** The status to badge, or null for none (positive feedback on the passenger side). */
+    status?: string | null;
     submittedLabel: string;
     /** Anything the screen needs under the date, e.g. a review flag. */
     children?: React.ReactNode;
@@ -81,7 +82,7 @@ export function ReportHero({
 
             <View style={reportDetailStyles.heroBadge}>
                 <ReportTypeBadge type={reportType} size="medium" />
-                <StatusBadge status={status} />
+                {!!status && <StatusBadge status={status} />}
             </View>
 
             <Text style={reportDetailStyles.heroDate}>{submittedLabel}</Text>

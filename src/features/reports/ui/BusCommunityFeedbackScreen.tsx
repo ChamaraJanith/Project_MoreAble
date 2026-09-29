@@ -196,7 +196,8 @@ export function BusCommunityFeedbackScreen() {
                             summary={reportCardSummary(report, {
                                 isOwnReport: !!passengerId && report.passengerId === passengerId,
                             })}
-                            status={typeof report.status === 'string' ? report.status : ''}
+                            // A public feed: the type says what it is, no status badge.
+                            status={null}
                             onOpen={() => router.push(reportDetailsPath(report.reportId) as any)}
                         />
                     ))

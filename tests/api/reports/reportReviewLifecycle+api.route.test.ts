@@ -13,6 +13,13 @@
 // asked what it makes of the result — with the stored document checked at each
 // step rather than only the response that announced it.
 //
+// One step is no longer a request. Other passengers cannot see a PENDING issue
+// report — the public feed shows only verified issues and positive feedback —
+// so they cannot vote on one either (the vote route answers 404, tested below).
+// Where a case needs a pending report that already holds community agreement,
+// `agreeUntilFlagged` places those tallies on the stored report, as a record
+// written before that rule would hold them.
+//
 // That ordering is the point. A review flow can pass every isolated test and
 // still be broken at the seams: a decision that persists but never reaches the
 // Verified Reports list, or a flag the vote route raises and the queue does not
@@ -200,11 +207,36 @@ async function agree(db: any, reportId: string, voterIndex: number) {
     );
 }
 
-/** Enough passengers agree to push the report over the review threshold. */
+/**
+ * A pending report that already holds `count` agreeing votes.
+ *
+ * Not cast through the vote route: other passengers can no longer see — and
+ * so cannot vote on — somebody else's PENDING issue. The tallies are placed on
+ * the stored report exactly as the vote route writes them, which is what a
+ * record from before that rule holds.
+ */
 async function agreeUntilFlagged(db: any, reportId: string, count = VOTERS.length) {
-    for (let index = 0; index < count; index += 1) {
-        await agree(db, reportId, index);
+    const now = new Date().toISOString();
+
+    // The vote documents (which the admin review view recounts) and the
+    // tallies on the report (which the lists read), as the vote route writes both.
+    for (const passengerId of VOTERS.slice(0, count)) {
+        const voteId = `${reportId}__${passengerId}`;
+
+        await db.collection('votes').doc(voteId).set({
+            voteId,
+            reportId,
+            passengerId,
+            vote: 'AGREE',
+            createdAt: now,
+            updatedAt: now,
+        });
     }
+
+    await db
+        .collection('reports')
+        .doc(reportId)
+        .update({ agreeCount: count, disagreeCount: 0, requiresAdminReview: count >= VOTERS.length });
 }
 
 /** The admin records a decision. */
@@ -308,7 +340,24 @@ describe('report review lifecycle - a report reaches the review queue', () => {
         expect(queued.flagged).toBe(false);
     });
 
-    it('flags the report once five passengers have agreed with it', async () => {
+    it('does not let other passengers vote on a PENDING issue they cannot see', async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        for (let index = 0; index < VOTERS.length; index += 1) {
+            const response = await agree(db, reportId, index);
+
+            expect(response.status).toBe(404);
+        }
+
+        const report = await stored(db, reportId);
+
+        expect(report.agreeCount).toBeUndefined();
+        expect(report.requiresAdminReview).toBeFalsy();
+        expect((await db.collection('votes').get()).docs).toHaveLength(0);
+    });
+
+    it('flags a report that holds five agreeing votes', async () => {
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
@@ -728,33 +777,29 @@ describe('report review lifecycle - the Verified Reports list', () => {
 // What a rejection does to the public feed
 // ==================================================================
 describe('report review lifecycle - a rejected report leaves the public feed', () => {
-    it('drops a rejected report out of All Reports', async () => {
+    it('keeps a rejected report out of All Reports', async () => {
         const db = emptyFirestore();
 
         const kept = await fileReport(db);
         const rejected = await fileReport(db);
 
-        // Both are browsable while both are pending.
-        const before = await list(db, 'all', AUTHOR_SESSION);
-
-        expect(idsIn(before.body)).toEqual(
-            expect.arrayContaining([kept.reportId, rejected.reportId])
-        );
-
+        await review(db, kept.reportId, { action: 'VERIFY' });
         await review(db, rejected.reportId, { action: 'REJECT' });
 
         const after = await list(db, 'all', AUTHOR_SESSION);
 
         expect(idsIn(after.body)).not.toContain(rejected.reportId);
-        expect(idsIn(after.body)).toContain(kept.reportId);
+        expect(idsIn(after.body)).toEqual([kept.reportId]);
     });
 
     it('counts only what it shows', async () => {
         const db = emptyFirestore();
 
-        await fileReport(db);
+        const verified = await fileReport(db);
         const rejected = await fileReport(db);
+        await fileReport(db); // still pending
 
+        await review(db, verified.reportId, { action: 'VERIFY' });
         await review(db, rejected.reportId, { action: 'REJECT' });
 
         const { body } = await list(db, 'all', AUTHOR_SESSION);
@@ -777,13 +822,18 @@ describe('report review lifecycle - a rejected report leaves the public feed', (
         expect(body.reports[0].status).toBe('VERIFIED');
     });
 
-    it('keeps a pending report in All Reports', async () => {
+    it('keeps a pending report out of All Reports — even for its author — until it is verified', async () => {
+        // All Reports is the public community feed. The author follows their
+        // pending report under My Reports instead.
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
-        const { body } = await list(db, 'all', AUTHOR_SESSION);
+        expect(idsIn((await list(db, 'all', AUTHOR_SESSION)).body)).toEqual([]);
+        expect(idsIn((await list(db, 'my', AUTHOR_SESSION)).body)).toEqual([reportId]);
 
-        expect(idsIn(body)).toEqual([reportId]);
+        await review(db, reportId, { action: 'VERIFY' });
+
+        expect(idsIn((await list(db, 'all', AUTHOR_SESSION)).body)).toEqual([reportId]);
     });
 
     it('still shows the author their own rejected report', async () => {

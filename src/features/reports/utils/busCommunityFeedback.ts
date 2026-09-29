@@ -129,7 +129,7 @@ function sortableTime(value: unknown): number {
  *   1. VERIFIED only. A PENDING report is one passenger's unchecked account and
  *      a REJECTED one is an account an admin found did not hold — neither is
  *      something to tell a passenger about the bus they are choosing. Compared
- *      against the stored status exactly as `tallyVerifiedCommunityReports`
+ *      against the stored status exactly as `tallyCommunityReports`
  *      does, so the list a passenger reads and the evidence the score weighs
  *      agree on what "verified" means.
  *   2. This bus only. Matched on `busId`, the bus DOCUMENT id, which is the same

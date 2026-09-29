@@ -1,20 +1,22 @@
 // Positive accessibility feedback through the existing report API (MOV-301).
 //
 // Positive feedback is not a second API. It is a second TYPE of report, filed
-// through POST /api/reports with `type: 'POSITIVE'`, stored in the same
-// `reports` collection under the same REP- counter, and taken through the same
-// PENDING → VERIFIED / REJECTED lifecycle by the same admin review route. So
-// every step below is a real request through a real handler, and the same
-// Firestore double the rest of the report suites use.
+// through POST /api/reports with `type: 'POSITIVE'` and stored in the same
+// `reports` collection under the same REP- counter. Unlike an issue report it
+// needs NO admin review: it is filed PUBLISHED and counts as filed. So every
+// step below is a real request through a real handler, and the same Firestore
+// double the rest of the report suites use.
 //
 // What this file holds the backend to:
-//   - only an authenticated passenger can submit it, and it always starts
-//     PENDING whatever the body claims;
+//   - only an authenticated passenger can submit it, and it is always filed
+//     PUBLISHED whatever the body claims — never VERIFIED, which would claim an
+//     admin review that did not happen, and never PENDING, which would leave it
+//     waiting for one that is not coming;
 //   - it is stored as { type: 'POSITIVE', category, description, … } and never
 //     carries an `issueCategory`, so nothing that reads issues can mistake it
 //     for one — while issue reports are stored exactly as they were;
-//   - an admin verifies or rejects it with the existing review route, and the
-//     listing scopes treat it by the same visibility rules as any report.
+//   - the review route refuses to VERIFY or REJECT it (409), while an admin can
+//     still open it, and issue reports are reviewed exactly as before.
 
 import {
     GET as getReport,
@@ -230,13 +232,18 @@ describe('POST /api/reports - positive feedback submission', () => {
         expect(json.report.reportId).toBe('REP-00001');
     });
 
-    it('starts the feedback at PENDING', async () => {
+    it('files the feedback PUBLISHED: no admin review, and never VERIFIED', async () => {
         const db = seededFirestore();
 
         const { json } = await submit(db, positivePayload());
+        const record = await stored(db, json.report.reportId);
 
-        expect(json.report.status).toBe('PENDING');
-        expect((await stored(db, json.report.reportId)).status).toBe('PENDING');
+        expect(json.report.status).toBe('PUBLISHED');
+        expect(record.status).toBe('PUBLISHED');
+        expect(record.status).not.toBe('VERIFIED');
+        // Nothing claims an admin looked at it.
+        expect(record).not.toHaveProperty('reviewedBy');
+        expect(record).not.toHaveProperty('reviewedAt');
     });
 
     it('stores the feedback in the reports collection in the positive shape', async () => {
@@ -268,7 +275,7 @@ describe('POST /api/reports - positive feedback submission', () => {
             },
             routeId: ROUTE_ID,
             route: { routeNumber: '138', routeName: 'Colombo - Kandy', direction: 'OUTBOUND' },
-            status: 'PENDING',
+            status: 'PUBLISHED',
             createdAt: expect.any(Date),
             updatedAt: expect.any(Date),
         });
@@ -332,8 +339,8 @@ describe('POST /api/reports - positive feedback cannot arrive decided', () => {
         const { response, json } = await submit(db, positivePayload({ status: 'VERIFIED' }));
 
         expect(response.status).toBe(201);
-        expect(json.report.status).toBe('PENDING');
-        expect((await stored(db, json.report.reportId)).status).toBe('PENDING');
+        expect(json.report.status).toBe('PUBLISHED');
+        expect((await stored(db, json.report.reportId)).status).toBe('PUBLISHED');
     });
 
     it('ignores a REJECTED status in the body', async () => {
@@ -341,7 +348,7 @@ describe('POST /api/reports - positive feedback cannot arrive decided', () => {
 
         const { json } = await submit(db, positivePayload({ status: 'REJECTED' }));
 
-        expect((await stored(db, json.report.reportId)).status).toBe('PENDING');
+        expect((await stored(db, json.report.reportId)).status).toBe('PUBLISHED');
     });
 
     it('ignores review fields in the body, so it cannot claim an admin verified it', async () => {
@@ -379,7 +386,7 @@ describe('POST /api/reports - positive feedback cannot arrive decided', () => {
         );
 
         expect(response.status).toBe(403);
-        expect((await stored(db, json.report.reportId)).status).toBe('PENDING');
+        expect((await stored(db, json.report.reportId)).status).toBe('PUBLISHED');
     });
 });
 
@@ -585,11 +592,31 @@ describe('POST /api/reports - issue reports still work', () => {
     });
 });
 
+/**
+ * Positive feedback stored under the workflow that existed before this change,
+ * when it was filed PENDING and could be verified or rejected. The API can no
+ * longer produce these, so they are seeded as they would sit in Firestore.
+ */
+function legacyPositive(reportId: string, status: string, overrides: Record<string, any> = {}) {
+    return {
+        id: reportId,
+        reportId,
+        passengerId: AUTHOR,
+        type: 'POSITIVE',
+        category: 'HELPFUL_DRIVER',
+        description: DESCRIPTION,
+        status,
+        createdAt: new Date('2026-09-01T08:00:00.000Z'),
+        updatedAt: new Date('2026-09-01T08:00:00.000Z'),
+        ...overrides,
+    };
+}
+
 // ==================================================================
-// Admin review — the existing route, unchanged
+// Admin review — positive feedback has no Verify/Reject workflow
 // ==================================================================
 describe('admin review of positive feedback', () => {
-    it('shows PENDING positive feedback in the review queue', async () => {
+    it('shows positive feedback in the review queue as PUBLISHED, with no review and no flag', async () => {
         const db = seededFirestore();
         const { json: created } = await submit(db, positivePayload());
 
@@ -597,8 +624,35 @@ describe('admin review of positive feedback', () => {
         const entry = json.reports.find((report: any) => report.reportId === created.report.reportId);
 
         expect(response.status).toBe(200);
-        expect(entry).toMatchObject({ type: 'POSITIVE', category: 'HELPFUL_DRIVER', status: 'PENDING' });
+        expect(entry).toMatchObject({ type: 'POSITIVE', category: 'HELPFUL_DRIVER', status: 'PUBLISHED' });
         expect(entry.review).toBeNull();
+        expect(entry.flagged).toBe(false);
+    });
+
+    it('keeps positive feedback out of the Pending review queue', async () => {
+        const db = seededFirestore();
+        const positive = (await submit(db, positivePayload())).json.report.reportId;
+        const issue = (await submit(db, issuePayload())).json.report.reportId;
+        mockGetAdminDb.mockReturnValue(db);
+
+        const response = await listReports(
+            jsonRequest('/api/reports?scope=review&status=PENDING', 'GET', { token: ADMIN_SESSION })
+        );
+        const ids = (await response.json()).reports.map((report: any) => report.reportId);
+
+        expect(ids).toEqual([issue]);
+        expect(ids).not.toContain(positive);
+    });
+
+    it('never flags positive feedback for admin review, however many passengers agree', async () => {
+        const db = seededFirestore({
+            reports: [legacyPositive('REP-00050', 'PUBLISHED', { agreeCount: 12, requiresAdminReview: true })],
+        });
+
+        const { json } = await list(db, 'review', ADMIN_SESSION);
+
+        expect(json.reports[0].flagged).toBe(false);
+        expect(json.flaggedCount).toBe(0);
     });
 
     it('lets an admin read positive feedback for review', async () => {
@@ -618,59 +672,45 @@ describe('admin review of positive feedback', () => {
         expect(json.report).toMatchObject({ type: 'POSITIVE', category: 'HELPFUL_DRIVER' });
     });
 
-    it('lets an admin VERIFY positive feedback', async () => {
+    it.each(['VERIFY', 'REJECT'])('refuses to %s positive feedback, leaving it untouched', async (action) => {
         const db = seededFirestore();
         const { json: created } = await submit(db, positivePayload({ busId: BUS_ID, routeId: ROUTE_ID }));
         const reportId = created.report.reportId;
+        const before = await stored(db, reportId);
 
-        const { response, json } = await review(db, reportId, {
-            action: 'VERIFY',
-            adminRemark: 'Confirmed with the depot.',
-        });
+        const { response, json } = await review(db, reportId, { action, adminRemark: 'Looks fine.' });
+
+        expect(response.status).toBe(409);
+        expect(json.success).toBe(false);
+        expect(json.message).toBe(
+            'Positive feedback does not require admin review and cannot be verified or rejected.'
+        );
+        // Nothing was written: no status change, and no claim of a review.
+        expect(await stored(db, reportId)).toEqual(before);
+    });
+
+    it.each(['VERIFY', 'REJECT'])(
+        'refuses to %s legacy positive feedback still stored PENDING',
+        async (action) => {
+            const db = seededFirestore({ reports: [legacyPositive('REP-00050', 'PENDING')] });
+
+            const { response } = await review(db, 'REP-00050', { action });
+
+            expect(response.status).toBe(409);
+            expect((await stored(db, 'REP-00050')).status).toBe('PENDING');
+        }
+    );
+
+    it('still lets an admin leave a remark on positive feedback, without deciding it', async () => {
+        const db = seededFirestore();
+        const reportId = (await submit(db, positivePayload())).json.report.reportId;
+
+        const { response } = await review(db, reportId, { action: 'REMARK', adminRemark: 'Thanks, noted.' });
         const record = await stored(db, reportId);
 
         expect(response.status).toBe(200);
-        expect(json.message).toBe('Report marked VERIFIED.');
-        expect(record).toMatchObject({
-            reportId,
-            passengerId: AUTHOR,
-            type: 'POSITIVE',
-            category: 'HELPFUL_DRIVER',
-            description: DESCRIPTION,
-            busId: BUS_ID,
-            routeId: ROUTE_ID,
-            status: 'VERIFIED',
-            reviewedBy: ADMIN_UID,
-            reviewedAt: expect.any(String),
-            adminRemark: 'Confirmed with the depot.',
-        });
-        // The review writes its own keys and nothing else: the feedback's
-        // content is exactly as it was filed, ready for MOV-302 to read.
-        expect(record).not.toHaveProperty('issueCategory');
-    });
-
-    it('lets an admin REJECT positive feedback', async () => {
-        const db = seededFirestore();
-        const { json: created } = await submit(db, positivePayload());
-        const reportId = created.report.reportId;
-
-        const { response, json } = await review(db, reportId, { action: 'REJECT' });
-
-        expect(response.status).toBe(200);
-        expect(json.message).toBe('Report marked REJECTED.');
-        expect((await stored(db, reportId)).status).toBe('REJECTED');
-    });
-
-    it('does not decide positive feedback twice', async () => {
-        const db = seededFirestore();
-        const { json: created } = await submit(db, positivePayload());
-        const reportId = created.report.reportId;
-
-        await review(db, reportId, { action: 'VERIFY' });
-        const { response } = await review(db, reportId, { action: 'REJECT' });
-
-        expect(response.status).toBe(409);
-        expect((await stored(db, reportId)).status).toBe('VERIFIED');
+        expect(record.status).toBe('PUBLISHED');
+        expect(record.adminRemark).toBe('Thanks, noted.');
     });
 
     it('still reviews issue reports the same way', async () => {
@@ -690,46 +730,113 @@ describe('admin review of positive feedback', () => {
 
 // ==================================================================
 // Visibility — the existing scope rules, applied as they are
+//
+// The listing scopes themselves are unchanged. `scope=verified` still means
+// "an admin verified it", so PUBLISHED feedback is not in it.
 // ==================================================================
-describe('GET /api/reports - positive feedback visibility', () => {
-    async function threeFeedbacks() {
+describe('GET /api/reports?scope=all - the public community feed', () => {
+    async function mixedFeed() {
         const db = seededFirestore();
-        const pending = (await submit(db, positivePayload())).json.report.reportId;
-        const verified = (await submit(db, positivePayload({ category: 'CLEAR_STOP_ANNOUNCEMENT' })))
-            .json.report.reportId;
-        const rejected = (await submit(db, positivePayload({ category: 'GOOD_PRIORITY_SEATING' })))
-            .json.report.reportId;
+        const verifiedIssue = (await submit(db, issuePayload())).json.report.reportId;
+        const pendingIssue = (await submit(db, issuePayload())).json.report.reportId;
+        const rejectedIssue = (await submit(db, issuePayload())).json.report.reportId;
+        const feedback = (await submit(db, positivePayload())).json.report.reportId;
 
-        await review(db, verified, { action: 'VERIFY' });
-        await review(db, rejected, { action: 'REJECT' });
+        await review(db, verifiedIssue, { action: 'VERIFY' });
+        await review(db, rejectedIssue, { action: 'REJECT' });
 
-        return { db, pending, verified, rejected };
+        return { db, verifiedIssue, pendingIssue, rejectedIssue, feedback };
     }
 
-    it('shows the author all of their own feedback, PENDING and REJECTED included', async () => {
-        const { db, pending, verified, rejected } = await threeFeedbacks();
+    it('shows another passenger only VERIFIED issues and positive feedback', async () => {
+        const { db, verifiedIssue, pendingIssue, rejectedIssue, feedback } = await mixedFeed();
+
+        const { ids, json } = await list(db, 'all', OTHER_SESSION);
+
+        expect(ids).toEqual(expect.arrayContaining([verifiedIssue, feedback]));
+        expect(ids).not.toContain(pendingIssue);
+        expect(ids).not.toContain(rejectedIssue);
+        expect(json.count).toBe(2);
+    });
+
+    it('is the same public feed for the author: pending issues are followed under My Reports', async () => {
+        const { db, pendingIssue, rejectedIssue } = await mixedFeed();
+
+        expect((await list(db, 'all', AUTHOR_SESSION)).ids).not.toContain(pendingIssue);
+        expect((await list(db, 'my', AUTHOR_SESSION)).ids).toEqual(
+            expect.arrayContaining([pendingIssue, rejectedIssue])
+        );
+    });
+
+    it('treats a request with no scope as the public feed, never the full collection', async () => {
+        const { db, pendingIssue } = await mixedFeed();
+        mockGetAdminDb.mockReturnValue(db);
+
+        const response = await listReports(jsonRequest('/api/reports', 'GET', { token: OTHER_SESSION }));
+        const ids = (await response.json()).reports.map((report: any) => report.reportId);
+
+        expect(ids).not.toContain(pendingIssue);
+    });
+
+    it("never shows another passenger somebody else's pending issue under my", async () => {
+        const { db } = await mixedFeed();
+
+        expect((await list(db, 'my', OTHER_SESSION)).ids).toEqual([]);
+    });
+
+    it('still gives an admin every report through the review scope', async () => {
+        const { db, verifiedIssue, pendingIssue, rejectedIssue, feedback } = await mixedFeed();
+
+        const { ids } = await list(db, 'review', ADMIN_SESSION);
+
+        expect(ids).toEqual(expect.arrayContaining([verifiedIssue, pendingIssue, rejectedIssue, feedback]));
+    });
+
+    it('leaves positive feedback stored PUBLISHED', async () => {
+        const { db, feedback } = await mixedFeed();
+
+        expect((await stored(db, feedback)).status).toBe('PUBLISHED');
+    });
+});
+
+describe('GET /api/reports - positive feedback visibility', () => {
+    async function threeFeedbacks() {
+        const db = seededFirestore({
+            reports: [
+                legacyPositive('REP-00090', 'VERIFIED', { category: 'CLEAR_STOP_ANNOUNCEMENT' }),
+                legacyPositive('REP-00091', 'REJECTED', { category: 'GOOD_PRIORITY_SEATING' }),
+            ],
+            counters: [{ id: 'reports', lastNumber: 91 }],
+        });
+        const published = (await submit(db, positivePayload())).json.report.reportId;
+
+        return { db, published, verified: 'REP-00090', rejected: 'REP-00091' };
+    }
+
+    it('shows the author all of their own feedback, REJECTED included', async () => {
+        const { db, published, verified, rejected } = await threeFeedbacks();
 
         const { ids } = await list(db, 'my', AUTHOR_SESSION);
 
-        expect(ids).toEqual(expect.arrayContaining([pending, verified, rejected]));
+        expect(ids).toEqual(expect.arrayContaining([published, verified, rejected]));
     });
 
-    it('keeps PENDING feedback out of the verified scope until an admin verifies it', async () => {
-        const { db, pending, verified, rejected } = await threeFeedbacks();
+    it('keeps the verified scope to what an admin actually verified', async () => {
+        const { db, published, verified, rejected } = await threeFeedbacks();
 
         const { ids } = await list(db, 'verified', OTHER_SESSION);
 
         expect(ids).toEqual([verified]);
-        expect(ids).not.toContain(pending);
+        expect(ids).not.toContain(published);
         expect(ids).not.toContain(rejected);
     });
 
-    it('drops REJECTED feedback from the all scope, as it does for issues', async () => {
-        const { db, pending, verified, rejected } = await threeFeedbacks();
+    it('shows PUBLISHED feedback in the all scope straight away, and drops REJECTED', async () => {
+        const { db, published, verified, rejected } = await threeFeedbacks();
 
         const { ids } = await list(db, 'all', OTHER_SESSION);
 
-        expect(ids).toEqual(expect.arrayContaining([pending, verified]));
+        expect(ids).toEqual(expect.arrayContaining([published, verified]));
         expect(ids).not.toContain(rejected);
     });
 
@@ -742,12 +849,12 @@ describe('GET /api/reports - positive feedback visibility', () => {
     });
 
     it('returns positive feedback from the single-report route in its stored shape', async () => {
-        const { db, pending } = await threeFeedbacks();
+        const { db, published } = await threeFeedbacks();
         mockGetAdminDb.mockReturnValue(db);
 
         const response = await getReport(
-            jsonRequest(`/api/reports/${pending}`, 'GET', { token: AUTHOR_SESSION }),
-            params(pending)
+            jsonRequest(`/api/reports/${published}`, 'GET', { token: AUTHOR_SESSION }),
+            params(published)
         );
         const json = await response.json();
 
@@ -760,7 +867,7 @@ describe('GET /api/reports - positive feedback visibility', () => {
 // Editing — PUT keeps the type fixed
 // ==================================================================
 describe('PUT /api/reports/[reportId] - positive feedback', () => {
-    it('lets the author edit PENDING positive feedback, keeping its shape', async () => {
+    it('lets the author edit PUBLISHED positive feedback, keeping its shape and status', async () => {
         const db = seededFirestore();
         const reportId = (await submit(db, positivePayload())).json.report.reportId;
 
@@ -778,7 +885,7 @@ describe('PUT /api/reports/[reportId] - positive feedback', () => {
             category: 'EASY_WHEELCHAIR_BOARDING',
             description: 'Updated: the ramp deployed first time.',
             routeId: ROUTE_ID,
-            status: 'PENDING',
+            status: 'PUBLISHED',
             passengerId: AUTHOR,
         });
         expect(record).not.toHaveProperty('issueCategory');
@@ -828,16 +935,17 @@ describe('PUT /api/reports/[reportId] - positive feedback', () => {
         expect(json.message).toMatch(/invalid feedback category/i);
     });
 
-    it('refuses an edit once an admin has decided the feedback', async () => {
-        const db = seededFirestore();
-        const reportId = (await submit(db, positivePayload())).json.report.reportId;
-        await review(db, reportId, { action: 'VERIFY' });
+    it.each(['VERIFIED', 'REJECTED'])(
+        'still refuses an edit to legacy feedback an admin %s',
+        async (status) => {
+            const db = seededFirestore({ reports: [legacyPositive('REP-00050', status)] });
 
-        const { response } = await edit(db, reportId, positivePayload({ description: 'Changed' }));
+            const { response } = await edit(db, 'REP-00050', positivePayload({ description: 'Changed' }));
 
-        expect(response.status).toBe(409);
-        expect((await stored(db, reportId)).description).toBe(DESCRIPTION);
-    });
+            expect(response.status).toBe(409);
+            expect((await stored(db, 'REP-00050')).description).toBe(DESCRIPTION);
+        }
+    );
 
     it('does not let another passenger edit the feedback', async () => {
         const db = seededFirestore();
@@ -923,7 +1031,7 @@ describe('positive feedback from the screen client to Firestore', () => {
         return calls;
     }
 
-    it('sends the request and stores the feedback as a PENDING report', async () => {
+    it('sends the request and stores the feedback as a PUBLISHED report', async () => {
         const db = seededFirestore({ counters: [{ id: 'reports', lastNumber: 11 }] });
         const calls = routeFetchTo(db);
 
@@ -969,7 +1077,7 @@ describe('positive feedback from the screen client to Firestore', () => {
             },
             routeId: ROUTE_ID,
             route: { routeNumber: '138', routeName: 'Colombo - Kandy', direction: 'OUTBOUND' },
-            status: 'PENDING',
+            status: 'PUBLISHED',
             createdAt: expect.any(Date),
             updatedAt: expect.any(Date),
         });

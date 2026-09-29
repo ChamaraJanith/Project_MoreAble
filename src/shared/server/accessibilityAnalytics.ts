@@ -22,7 +22,7 @@
  * buses a booking screen shows and 2N round-trips for a fleet-wide figure.
  *
  * WHAT IS NOT DUPLICATED. The evidence this builds is assembled by MOV-79's own
- * `tallyVerifiedCommunityReports` and `tallyPassengerRatings`, fed from the two
+ * `tallyCommunityReports` and `tallyPassengerRatings`, fed from the two
  * collections `loadAccessibilityScoreEvidence` reads and mapped through the same
  * `readBusRating`. The score is `computeAccessibilityScore`, called as it is.
  * So a bus's analytics score is the same number the journey search and the
@@ -71,9 +71,10 @@ import {
     computeCommunityScore,
     computeFacilityScore,
     computeRatingScore,
+    isCountedCommunityReport,
     isFacilityEffectivelyAvailable,
     tallyPassengerRatings,
-    tallyVerifiedCommunityReports,
+    tallyCommunityReports,
 } from '../utils/accessibility';
 import { ACCESSIBILITY_SCORE_HISTORY_COLLECTION } from './accessibilityScoreHistory';
 import { BUS_RATINGS_COLLECTION, busRatingSummaryFromTally, readBusRating } from './busRating';
@@ -191,7 +192,7 @@ export function scoreBuses(records: AccessibilityAnalyticsRecords): ScoredBus[] 
         const busId = typeof bus.busId === 'string' ? bus.busId : '';
 
         const evidence: AccessibilityScoreEvidence = {
-            community: tallyVerifiedCommunityReports(records.reports, busId),
+            community: tallyCommunityReports(records.reports, busId),
             ratings: tallyPassengerRatings(records.ratings, busId),
         };
 
@@ -256,7 +257,7 @@ export function summarizeBusAccessibility(
     const facilities = bus.accessibilityFacilities;
 
     const evidence: AccessibilityScoreEvidence = {
-        community: tallyVerifiedCommunityReports(reports, busId),
+        community: tallyCommunityReports(reports, busId),
         ratings: tallyPassengerRatings(ratings, busId),
     };
 
@@ -425,9 +426,10 @@ export async function loadBusAccessibilityDetail(
         ratings
     );
 
-    // The same filter tallyVerifiedCommunityReports applies: VERIFIED, about this bus.
-    const verified = reportDocs.filter(
-        (doc) => doc.data.status === 'VERIFIED' && doc.data.busId === key
+    // Exactly the reports tallyCommunityReports counts: verified issues and
+    // positive feedback, about this bus.
+    const counted = reportDocs.filter(
+        (doc) => doc.data.busId === key && isCountedCommunityReport(doc.data)
     );
 
     const ratingDistribution: RatingDistributionEntry[] = RATING_STARS.map((stars) => ({
@@ -442,10 +444,10 @@ export async function loadBusAccessibilityDetail(
             ...summary,
             manufactureYear: finiteNumber(bus.manufactureYear),
             seatCapacity: finiteNumber(bus.seatCapacity),
-            verifiedIssues: verified
+            verifiedIssues: counted
                 .filter((doc) => reportTypeOf(doc.data) === 'ISSUE')
                 .map((doc) => evidenceReport(doc.data, doc.id)),
-            verifiedPositiveFeedback: verified
+            positiveFeedback: counted
                 .filter((doc) => reportTypeOf(doc.data) === 'POSITIVE')
                 .map((doc) => evidenceReport(doc.data, doc.id)),
             ratingDistribution,

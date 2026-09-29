@@ -25,8 +25,11 @@ import {
     REPORT_REVIEW_REQUIRED_STATUS,
     ReportReviewAction,
     isReportDecided,
+    ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS,
     reportDecisionStatus,
+    adminReportDisplayStatus,
     reportTypeOf,
+    requiresAdminReview,
 } from '../../../entities/report/model/types';
 import { VERIFIED_REPORT_STATUS } from '../../admin/utils/systemStatistics';
 import { formatCommentCount } from './reportFeedback';
@@ -155,13 +158,32 @@ export function reviewStatusOf(report: { status?: unknown } | null | undefined):
 /**
  * Whether Verify and Reject should be offered.
  *
- * Only from PENDING. On a report that has already been decided the API answers
- * 409, so drawing the buttons would be offering an action that cannot succeed —
- * and the decision, once made, is a record rather than a setting.
+ * Only on an accessibility issue, and only from PENDING. Positive feedback has
+ * no Verify/Reject workflow at all, and on a report that has already been
+ * decided the API answers 409 — so drawing the buttons in either case would be
+ * offering an action that cannot succeed.
  */
-export function canDecideReport(report: { status?: unknown } | null | undefined): boolean {
-    return !!report && reviewStatusOf(report) === REPORT_REVIEW_REQUIRED_STATUS;
+export function canDecideReport(
+    report: { status?: unknown; type?: unknown } | null | undefined
+): boolean {
+    return (
+        !!report &&
+        requiresAdminReview(report) &&
+        reviewStatusOf(report) === REPORT_REVIEW_REQUIRED_STATUS
+    );
 }
+
+/**
+ * Shown on positive feedback in place of Verify and Reject.
+ *
+ * The admin screens badge accepted positive feedback "Verified"; this is what
+ * stops that word implying an administrator reviewed it.
+ */
+export const POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE =
+    'Positive feedback is automatically accepted and does not require review. It shows as Verified here, but no administrator reviewed it, and it counts toward the bus\'s accessibility score as submitted. There is nothing to verify or reject.';
+
+/** The short form of that message, under a queue card's badge. */
+export const POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE = 'Automatically accepted · no review required';
 
 /**
  * Whether an admin has already decided this report.
@@ -211,21 +233,30 @@ export const NEEDS_REVIEW_LABEL = 'Needs Review';
  * something an admin could already see — while hiding the reports they had
  * actually come to decide. Nothing else changed about flagging; only the tab.
  */
-export type AdminReviewFilter = 'ALL' | 'PENDING' | 'VERIFIED';
+export type AdminReviewFilter = 'ALL' | 'PENDING' | 'VERIFIED' | 'POSITIVE';
 
+/**
+ * Pending and Verified are the issue review workflow and hold issue reports
+ * only. Positive is positive feedback, which is accepted without review.
+ */
 export const ADMIN_REVIEW_FILTERS: { value: AdminReviewFilter; label: string }[] = [
     { value: 'ALL', label: 'All' },
     { value: 'PENDING', label: 'Pending' },
     { value: 'VERIFIED', label: 'Verified' },
+    { value: 'POSITIVE', label: 'Positive' },
 ];
 
 /**
  * The request for one filter, relative to the API base URL.
  *
- * Every narrowing is a parameter on the existing review scope rather than a
- * filter applied to a wider list here: `flagged` and `status` are what
- * GET /api/reports already accepts alongside `scope=review`, so the queue asks
- * for what it means to show.
+ * Pending and Verified are asked of the API by status (`status` is what
+ * GET /api/reports already accepts alongside `scope=review`), so the queue
+ * does not download every report to show the pending ones. The API filters by
+ * status alone, so `reportsForReviewFilter` then keeps the issue reports —
+ * legacy positive feedback may still be stored PENDING or VERIFIED.
+ *
+ * Positive asks for the whole queue: positive feedback is stored PUBLISHED, or
+ * PENDING / VERIFIED on a legacy record, so no single stored status finds it.
  */
 export function adminReviewRequestPath(filter: AdminReviewFilter): string {
     if (filter === 'PENDING') {
@@ -242,10 +273,52 @@ export function adminReviewRequestPath(filter: AdminReviewFilter): string {
     return adminReportsRequestPath();
 }
 
+/**
+ * Whether a report belongs on a tab — by its type AND its status, never its
+ * status alone.
+ *
+ *   All        every report
+ *   Pending    issue reports waiting for an admin
+ *   Verified   issue reports an admin verified
+ *   Positive   accepted positive feedback (no review), legacy statuses
+ *              included; feedback an admin REJECTED under the old workflow is
+ *              only under All
+ */
+export function isInReviewFilter(
+    report: { type?: unknown; status?: unknown } | null | undefined,
+    filter: AdminReviewFilter
+): boolean {
+    if (!report) return false;
+
+    switch (filter) {
+        case 'ALL':
+            return true;
+        case 'PENDING':
+            return requiresAdminReview(report) && reportDecisionStatus(report) === REPORT_REVIEW_REQUIRED_STATUS;
+        case 'VERIFIED':
+            return requiresAdminReview(report) && reportDecisionStatus(report) === VERIFIED_REPORT_STATUS;
+        case 'POSITIVE':
+            return (
+                !requiresAdminReview(report) &&
+                adminReportDisplayStatus(report) === ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS
+            );
+    }
+}
+
+/** The reports that belong on a tab, in the order they arrived. */
+export function reportsForReviewFilter<T extends AccessibilityReport>(
+    reports: T[],
+    filter: AdminReviewFilter
+): T[] {
+    return filter === 'ALL' ? reports : reports.filter((report) => isInReviewFilter(report, filter));
+}
+
 export interface AdminReviewCardSummary extends ReportCardSummary {
-    /** The stored status, for the badge. */
+    /** The status to badge: `adminReportDisplayStatus`. */
     status: string;
     statusLabel: string;
+    /** Under the badge on accepted positive feedback, so "Verified" is not read as a review. */
+    statusNote: string | null;
     /** Whether to draw the "Needs Review" flag on this card. */
     needsReview: boolean;
 }
@@ -260,8 +333,13 @@ export interface AdminReviewCardSummary extends ReportCardSummary {
  */
 export function adminReviewCardSummary(report: AdminReviewReport): AdminReviewCardSummary {
     const summary = reportCardSummary(report);
-    const status = reviewStatusOf(report);
+    // Type and status together: accepted positive feedback reads "Verified"
+    // through its own display key — never "Pending", and never the VERIFIED an
+    // admin's decision stores.
+    const status = adminReportDisplayStatus(report);
     const statusLabel = reportStatusLabel(status);
+    const statusNote =
+        status === ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS ? POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE : null;
     const needsReview = report.flagged;
 
     // One label for the whole card, because the whole card is one control.
@@ -269,6 +347,7 @@ export function adminReviewCardSummary(report: AdminReviewReport): AdminReviewCa
     const parts = [
         `Review accessibility report: ${summary.title}`,
         `status ${statusLabel}`,
+        ...(statusNote ? [statusNote] : []),
         ...(needsReview ? [NEEDS_REVIEW_LABEL.toLowerCase()] : []),
         formatCommentCount(summary.feedbackCounts.commentCount),
         `${summary.feedbackCounts.agreeCount} agree`,
@@ -279,6 +358,7 @@ export function adminReviewCardSummary(report: AdminReviewReport): AdminReviewCa
         ...summary,
         status,
         statusLabel,
+        statusNote,
         needsReview,
         accessibilityLabel: parts.join(', '),
     };
@@ -371,43 +451,44 @@ export function filterReportsByType<T extends AccessibilityReport>(
 /**
  * How the queue divides, for the summary above it.
  *
- * Four numbers: how much of each kind there is, and how much of each an admin
- * has upheld. Derived from the reports already on the device — the review queue
- * is one request that answers with every report and the status each carries, so
- * none of this is worth asking the API a second time, and a second answer could
- * disagree with the list underneath it.
+ * Four numbers: how much positive feedback there is, and how many issue
+ * reports — in total, still waiting for an admin, and upheld. Derived from the
+ * reports already on the device — the review queue is one request that answers
+ * with every report and the status each carries, so none of this is worth
+ * asking the API a second time, and a second answer could disagree with the
+ * list underneath it.
  *
- * "Verified" is the one stored status an admin's VERIFY decision produces, read
- * through the same constant the dashboard statistics use. A report with no
- * stored status reads as PENDING everywhere in this project, so it counts
- * towards its kind's total and never towards its verified count.
+ * Positive feedback has no "verified" count: it is never reviewed. "Verified"
+ * is the one stored status an admin's VERIFY decision produces, read through
+ * the same constant the dashboard statistics use. An issue with no stored
+ * status reads as PENDING everywhere in this project.
  */
 export interface AdminReportTypeCounts {
     positive: number;
-    verifiedPositive: number;
     issue: number;
+    pendingIssue: number;
     verifiedIssue: number;
 }
 
 export function adminReportTypeCounts(reports: AccessibilityReport[]): AdminReportTypeCounts {
     const counts: AdminReportTypeCounts = {
         positive: 0,
-        verifiedPositive: 0,
         issue: 0,
+        pendingIssue: 0,
         verifiedIssue: 0,
     };
 
     for (const report of reports) {
-        const isPositive = reportTypeOf(report) === 'POSITIVE';
-        const isVerified = reportDecisionStatus(report) === VERIFIED_REPORT_STATUS;
-
-        if (isPositive) {
+        if (reportTypeOf(report) === 'POSITIVE') {
             counts.positive += 1;
-            if (isVerified) counts.verifiedPositive += 1;
-        } else {
-            counts.issue += 1;
-            if (isVerified) counts.verifiedIssue += 1;
+            continue;
         }
+
+        const status = reportDecisionStatus(report);
+
+        counts.issue += 1;
+        if (status === REPORT_REVIEW_REQUIRED_STATUS) counts.pendingIssue += 1;
+        if (status === VERIFIED_REPORT_STATUS) counts.verifiedIssue += 1;
     }
 
     return counts;

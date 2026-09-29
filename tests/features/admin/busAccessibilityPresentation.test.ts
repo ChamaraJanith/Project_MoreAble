@@ -212,10 +212,21 @@ describe('the bus detail', () => {
         ]);
     });
 
-    it('explains a community factor with no verified reports as neutral', () => {
+    it('explains a community factor with no evidence as neutral', () => {
         expect(communityEvidenceView({ issueCount: 0, positiveCount: 0 }).note).toContain('neutral 50');
         expect(communityEvidenceView({ issueCount: 2, positiveCount: 8 })).toEqual(
             expect.objectContaining({ issueCount: 2, positiveCount: 8 })
+        );
+    });
+
+    it('calls issues verified and positive feedback just positive feedback', () => {
+        const { note } = communityEvidenceView({ issueCount: 2, positiveCount: 8 });
+
+        expect(note).toContain('8 positive feedback against 2 verified issues');
+        // Positive feedback is never reviewed, so it is never called verified.
+        expect(note).not.toMatch(/verified positive/i);
+        expect(communityEvidenceView({ issueCount: 0, positiveCount: 0 }).note).not.toMatch(
+            /verified positive/i
         );
     });
 

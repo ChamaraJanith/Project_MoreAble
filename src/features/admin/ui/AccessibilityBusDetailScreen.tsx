@@ -264,24 +264,25 @@ function BusDetail({ bus }: { bus: BusAccessibilityDetail }) {
                         <StatTile
                             icon="happy-outline"
                             tint={adminColors.success}
-                            label="Verified Positive Feedback"
+                            label="Positive Feedback"
                             value={String(community.positiveCount)}
                         />
                     </View>
                     <Text style={styles.cardNote}>
-                        Only reports an administrator has verified count toward the score. {community.note}
+                        Issue reports count once an administrator verifies them. Positive feedback
+                        counts as submitted and does not need admin review. {community.note}
                     </Text>
                 </View>
 
                 <ReportList
-                    title="Issues"
+                    title="Verified Issues"
                     emptyText="No verified issue reports about this bus."
                     reports={bus.verifiedIssues}
                 />
                 <ReportList
                     title="Positive Feedback"
-                    emptyText="No verified positive feedback about this bus."
-                    reports={bus.verifiedPositiveFeedback}
+                    emptyText="No positive feedback about this bus."
+                    reports={bus.positiveFeedback}
                 />
 
                 {/* Passenger ratings */}
@@ -423,9 +424,13 @@ function ReportList({
                                     {report.description}
                                 </Text>
                             )}
-                            <Text style={styles.reportVerified}>
-                                Verified{report.reviewedAt ? ` ${formatReportDateTime(report.reviewedAt)}` : ''}
-                            </Text>
+                            {report.type === 'POSITIVE' ? (
+                                <Text style={styles.reportNoReview}>No admin review required</Text>
+                            ) : (
+                                <Text style={styles.reportVerified}>
+                                    Verified{report.reviewedAt ? ` ${formatReportDateTime(report.reviewedAt)}` : ''}
+                                </Text>
+                            )}
                             {!!report.adminRemark && (
                                 <Text style={styles.reportRemark} numberOfLines={2}>
                                     Admin remark: {report.adminRemark}
@@ -561,6 +566,7 @@ const styles = StyleSheet.create({
     reportMeta: { fontSize: 12, color: adminColors.textMuted, marginTop: 2 },
     reportDescription: { fontSize: 13, color: adminColors.textSecondary, marginTop: 6, lineHeight: 18 },
     reportVerified: { fontSize: 12, color: adminColors.success, marginTop: 6, fontWeight: '600' },
+    reportNoReview: { fontSize: 12, color: adminColors.textMuted, marginTop: 6, fontWeight: '600' },
     reportRemark: { fontSize: 12, color: adminColors.textSecondary, marginTop: 4, fontStyle: 'italic' },
     showAll: { paddingTop: 12, alignItems: 'center' },
     showAllText: { fontSize: 13, fontWeight: '700', color: adminColors.primary },

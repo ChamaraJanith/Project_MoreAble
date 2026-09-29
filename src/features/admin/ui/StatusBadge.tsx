@@ -15,6 +15,7 @@ type BadgeStatus =
     | 'REVIEWED'
     | 'RESOLVED'
     | 'REJECTED'
+    | 'PUBLISHED'
     | 'ASSIGNED'
     | 'IN_PROGRESS'
     | string;
@@ -96,6 +97,25 @@ const BADGE_CONFIG: Record<
         color: adminColors.danger,
         background: adminColors.dangerSoft,
         icon: 'close-circle',
+    },
+    // Admin screens only: positive feedback, accepted as filed with no admin
+    // review. Reads "Verified", with an outline mark rather than VERIFIED's
+    // solid one — a display key, never a stored status. The screens that use
+    // it say beside it that nobody reviewed the feedback.
+    AUTO_VERIFIED: {
+        label: 'Verified',
+        color: adminColors.success,
+        background: adminColors.successSoft,
+        icon: 'checkmark-circle-outline',
+    },
+    // The stored status of positive feedback. No screen badges it any more
+    // (admins see AUTO_VERIFIED, passengers no status at all); kept so a raw
+    // PUBLISHED can never render as an unstyled database value.
+    PUBLISHED: {
+        label: 'Published',
+        color: adminColors.primary,
+        background: adminColors.primarySoft,
+        icon: 'megaphone',
     },
 
     // Complaint workflow states (MOV-176). PENDING and RESOLVED above are

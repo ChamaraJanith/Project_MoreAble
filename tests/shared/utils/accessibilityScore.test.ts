@@ -17,13 +17,14 @@ import {
     computeFacilityScore,
     computeRatingScore,
     FACILITY_WEIGHT,
+    isCountedCommunityReport,
     isFacilityConfigured,
     isFacilityEffectivelyAvailable,
     RATING_NEUTRAL_VALUE,
     RATING_PRIOR_WEIGHT,
     RATING_WEIGHT,
     tallyPassengerRatings,
-    tallyVerifiedCommunityReports,
+    tallyCommunityReports,
 } from '../../../src/shared/utils/accessibility';
 
 const NONE: BusAccessibilityFacilities = {
@@ -208,26 +209,70 @@ describe('community score', () => {
     describe('which reports count', () => {
         const BUS = 'BUS-A';
 
-        it('counts VERIFIED reports only; PENDING, REJECTED and others are ignored', () => {
-            const tally = tallyVerifiedCommunityReports(
+        it('counts an issue only once an admin has VERIFIED it', () => {
+            const tally = tallyCommunityReports(
                 [
-                    { busId: BUS, status: 'VERIFIED', type: 'POSITIVE' },
                     { busId: BUS, status: 'VERIFIED' },
-                    { busId: BUS, status: 'PENDING', type: 'POSITIVE' },
                     { busId: BUS, status: 'PENDING' },
-                    { busId: BUS, status: 'REJECTED', type: 'POSITIVE' },
                     { busId: BUS, status: 'REJECTED' },
                     { busId: BUS, status: 'REVIEWED' },
                     { busId: BUS, status: 'RESOLVED' },
+                    // An issue cannot become counted by carrying the positive status.
+                    { busId: BUS, status: 'PUBLISHED' },
                     { busId: BUS },
                 ],
                 BUS
             );
-            expect(tally).toEqual({ positiveCount: 1, issueCount: 1 });
+            expect(tally).toEqual({ positiveCount: 0, issueCount: 1 });
+        });
+
+        it('counts positive feedback without admin verification', () => {
+            const tally = tallyCommunityReports(
+                [
+                    // As filed now: PUBLISHED, never reviewed.
+                    { busId: BUS, status: 'PUBLISHED', type: 'POSITIVE' },
+                    // Legacy feedback filed under the old workflow still counts.
+                    { busId: BUS, status: 'PENDING', type: 'POSITIVE' },
+                    { busId: BUS, status: 'VERIFIED', type: 'POSITIVE' },
+                    // Feedback an admin rejected under the old workflow does not.
+                    { busId: BUS, status: 'REJECTED', type: 'POSITIVE' },
+                ],
+                BUS
+            );
+            expect(tally).toEqual({ positiveCount: 3, issueCount: 0 });
+        });
+
+        it.each([
+            [{ status: 'PENDING' }, false],
+            [{ status: 'VERIFIED' }, true],
+            [{ status: 'REJECTED' }, false],
+            [{ status: 'PUBLISHED', type: 'POSITIVE' }, true],
+            [{ status: 'PENDING', type: 'POSITIVE' }, true],
+            [{ status: 'REJECTED', type: 'POSITIVE' }, false],
+        ] as const)('isCountedCommunityReport(%o) is %s', (report, expected) => {
+            expect(isCountedCommunityReport(report as any)).toBe(expected);
+        });
+
+        it('feeds the factor with verified issues and positive feedback together', () => {
+            // 8 positive (none reviewed) against 2 verified issues, the worked
+            // example in docs/accessibility-score.md: 10/15*80 + 5/15*50 = 70.
+            const reports = [
+                ...Array.from({ length: 8 }, () => ({ busId: BUS, status: 'PUBLISHED', type: 'POSITIVE' as const })),
+                { busId: BUS, status: 'VERIFIED' },
+                { busId: BUS, status: 'VERIFIED' },
+                // None of these may move it.
+                { busId: BUS, status: 'PENDING' },
+                { busId: BUS, status: 'REJECTED' },
+            ];
+
+            const tally = tallyCommunityReports(reports, BUS);
+
+            expect(tally).toEqual({ positiveCount: 8, issueCount: 2 });
+            expect(computeCommunityScore(tally)).toBeCloseTo(70, 10);
         });
 
         it('ignores reports with no bus, or about another bus', () => {
-            const tally = tallyVerifiedCommunityReports(
+            const tally = tallyCommunityReports(
                 [
                     { status: 'VERIFIED', type: 'POSITIVE' },
                     { busId: '', status: 'VERIFIED' },
@@ -247,14 +292,14 @@ describe('community score', () => {
                 { busId: BUS, status: 'VERIFIED' },
                 { busId: BUS, status: 'VERIFIED', type: 'positive' as any },
             ];
-            const tally = tallyVerifiedCommunityReports(reports, BUS);
+            const tally = tallyCommunityReports(reports, BUS);
 
             expect(tally).toEqual({ positiveCount: 1, issueCount: 3 });
             expect(tally.positiveCount).toBe(reports.filter((r) => reportTypeOf(r) === 'POSITIVE').length);
         });
 
         it('has nothing to count for a bus with no id', () => {
-            expect(tallyVerifiedCommunityReports([{ busId: BUS, status: 'VERIFIED' }], '')).toEqual({
+            expect(tallyCommunityReports([{ busId: BUS, status: 'VERIFIED' }], '')).toEqual({
                 positiveCount: 0,
                 issueCount: 0,
             });

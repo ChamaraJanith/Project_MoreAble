@@ -222,16 +222,64 @@ describe('GET /api/reports/[reportId]', () => {
         expect(json.isOwner).toBe(true);
     });
 
-    it('lets another passenger read it, but not own it', async () => {
-        // All Reports already shows every passenger's reports, so viewing one
-        // in full is no new access — editing and deleting are what is gated.
-        mockGetAdminDb.mockReturnValue(firestoreWith());
+    it('lets another passenger read a VERIFIED issue, but not own it', async () => {
+        // A verified issue is in the public feed, so viewing it in full is no
+        // new access — editing and deleting are what is gated.
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'VERIFIED' })));
 
         const response = await getReport(request('GET', { token: OTHER_SESSION }), params());
         const json = await response.json();
 
         expect(response.status).toBe(200);
         expect(json.isOwner).toBe(false);
+    });
+
+    it('lets another passenger read positive feedback', async () => {
+        mockGetAdminDb.mockReturnValue(
+            firestoreWith(
+                storedReport({ status: 'PUBLISHED', type: 'POSITIVE', category: 'HELPFUL_DRIVER', issueCategory: undefined })
+            )
+        );
+
+        const response = await getReport(request('GET', { token: OTHER_SESSION }), params());
+
+        expect(response.status).toBe(200);
+    });
+
+    it.each(['PENDING', 'REJECTED'])(
+        "hides another passenger's %s issue exactly as a report that does not exist",
+        async (status) => {
+            mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status })));
+
+            const response = await getReport(request('GET', { token: OTHER_SESSION }), params());
+            const json = await response.json();
+
+            expect(response.status).toBe(404);
+            expect(json).toEqual({ success: false, message: 'Report not found.' });
+            expect(json.report).toBeUndefined();
+        }
+    );
+
+    it.each(['PENDING', 'REJECTED'])('still lets the author read their own %s issue', async (status) => {
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status })));
+
+        const response = await getReport(request('GET', { token: OWNER_SESSION }), params());
+
+        expect(response.status).toBe(200);
+        expect((await response.json()).isOwner).toBe(true);
+    });
+
+    it("lets an admin read another passenger's PENDING issue", async () => {
+        mockVerifyToken.mockImplementation(async (token: string) =>
+            token === 'session-admin'
+                ? { uid: 'UID-ADMIN', passengerId: 'ADM-2026-00001', role: 'ADMIN' }
+                : SESSIONS[token] ?? null
+        );
+        mockGetAdminDb.mockReturnValue(firestoreWith(storedReport({ status: 'PENDING' })));
+
+        const response = await getReport(request('GET', { token: 'session-admin' }), params());
+
+        expect(response.status).toBe(200);
     });
 
     it('serialises the Firestore timestamps the screen formats', async () => {

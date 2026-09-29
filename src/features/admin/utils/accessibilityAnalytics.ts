@@ -747,13 +747,13 @@ export interface BusAccessibilitySummary {
     /** All eight, in ACCESSIBILITY_FACILITY_KEYS order. */
     facilities: BusFacilityAvailability[];
     availableFacilityCount: number;
-    /** Verified reports only — the tally the score weighs. */
+    /** Verified issues and positive feedback — the tally the score weighs. */
     community: { issueCount: number; positiveCount: number };
     /** Valid 1–5 ratings only. `average` is the plain mean on 1–5, null when there are none. */
     ratings: { count: number; average: number | null };
 }
 
-/** One verified report about a bus, as evidence behind its community factor. */
+/** One counted report about a bus (a verified issue or positive feedback), as community evidence. */
 export interface BusEvidenceReport {
     reportId: string;
     type: ReportType;
@@ -778,8 +778,8 @@ export interface BusAccessibilityDetail extends BusAccessibilitySummary {
     seatCapacity: number | null;
     /** VERIFIED issue reports about this bus, newest first. */
     verifiedIssues: BusEvidenceReport[];
-    /** VERIFIED positive feedback about this bus, newest first. */
-    verifiedPositiveFeedback: BusEvidenceReport[];
+    /** Positive feedback about this bus that counts (no admin review needed), newest first. */
+    positiveFeedback: BusEvidenceReport[];
     /** Five entries, 5 stars first. The counts add up to `ratings.count`. */
     ratingDistribution: RatingDistributionEntry[];
 }
