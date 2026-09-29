@@ -177,7 +177,9 @@ beforeEach(() => {
                 passengerId: AUTHOR,
                 issueCategory: 'BROKEN_RAMP',
                 description: 'The wheelchair ramp would not fold down at Pettah station.',
-                status: 'PENDING',
+                // VERIFIED: another passenger may only vote on or comment on a
+                // report in the public feed.
+                status: 'VERIFIED',
                 createdAt: new Date('2026-08-20T14:05:00.000Z'),
                 updatedAt: new Date('2026-08-20T14:05:00.000Z'),
             },
@@ -361,7 +363,7 @@ describe('the five-agree flag', () => {
 
         // The report's own status is the admin's to change, and voting does
         // not touch it.
-        expect(report.status).toBe('PENDING');
+        expect(report.status).toBe('VERIFIED');
     });
 });
 

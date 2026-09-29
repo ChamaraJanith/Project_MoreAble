@@ -16,7 +16,7 @@
 import {
     AccessibilityReport,
     ReportType,
-    reportDecisionStatus,
+    passengerReportStatusBadge,
     reportTypeOf,
 } from '../../../entities/report/model/types';
 import {
@@ -239,8 +239,10 @@ export function reportMatchesFilters(
     if (filters.category && reportCategoryValue(report) !== filters.category) return false;
     if (filters.routeId && report.routeId !== filters.routeId) return false;
 
-    // Read the way the review is: a report with no stored status is PENDING.
-    if (filters.status !== 'ALL' && reportDecisionStatus(report) !== filters.status) {
+    // Matched against the status the card shows (type and status together).
+    // Positive feedback has no status on the passenger side, so a status
+    // filter narrows to issues; an issue with no stored status reads as PENDING.
+    if (filters.status !== 'ALL' && passengerReportStatusBadge(report) !== filters.status) {
         return false;
     }
 

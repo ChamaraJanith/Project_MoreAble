@@ -47,7 +47,9 @@ function storedReport(reportId: string, overrides: Record<string, any> = {}) {
         passengerId: PASSENGER,
         issueCategory: 'BROKEN_RAMP',
         description: 'The wheelchair ramp would not fold down at Pettah station.',
-        status: 'PENDING',
+        // VERIFIED: another passenger may only see, vote on or comment on a report
+        // in the public feed (a pending issue is visible to its author and admins).
+        status: 'VERIFIED',
         createdAt: new Date('2026-08-20T14:05:00.000Z'),
         updatedAt: new Date('2026-08-20T14:05:00.000Z'),
         ...overrides,
@@ -288,7 +290,7 @@ describe('the counts the list already carried', () => {
             reportId: 'REP-00001',
             passengerId: PASSENGER,
             issueCategory: 'BROKEN_RAMP',
-            status: 'PENDING',
+            status: 'VERIFIED',
             documentId: 'REP-00001',
         });
     });

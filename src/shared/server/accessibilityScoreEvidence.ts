@@ -4,7 +4,7 @@
 // and hands them to the pure tallies in shared/utils/accessibility. All the
 // arithmetic lives there; this only decides what is read.
 //
-//     reports     where busId == <bus document id>   -> VERIFIED only, POSITIVE vs ISSUE
+//     reports     where busId == <bus document id>   -> VERIFIED issues + positive feedback (isCountedCommunityReport)
 //     busRatings  where busId == <bus document id>   -> each passenger's rating of a run
 //
 // Each is a single-field equality query, so neither needs a composite index;
@@ -17,7 +17,7 @@
 import {
     AccessibilityScoreEvidence,
     tallyPassengerRatings,
-    tallyVerifiedCommunityReports,
+    tallyCommunityReports,
 } from '../utils/accessibility';
 import { BUS_RATINGS_COLLECTION, readBusRating } from './busRating';
 
@@ -63,7 +63,7 @@ export async function loadAccessibilityScoreEvidence(
         read(adminDb.collection(REPORTS_COLLECTION).where('busId', '==', key)),
         read(adminDb.collection(BUS_RATINGS_COLLECTION).where('busId', '==', key)),
     ]).then(([reportsSnap, ratingsSnap]: any[]) => ({
-        community: tallyVerifiedCommunityReports(
+        community: tallyCommunityReports(
             (reportsSnap?.docs ?? []).map((doc: any) => doc.data()),
             key
         ),

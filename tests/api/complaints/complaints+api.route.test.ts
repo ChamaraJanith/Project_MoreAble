@@ -410,6 +410,27 @@ describe('POST /api/complaints', () => {
             expect((await response.json()).message).toContain(status);
         });
 
+        it('answers 409 for PUBLISHED positive feedback, the status it is filed in, creating nothing', async () => {
+            const db = seedFirestore({
+                reports: [
+                    verifiedReport({
+                        type: 'POSITIVE',
+                        status: 'PUBLISHED',
+                        issueCategory: undefined,
+                        category: 'HELPFUL_DRIVER',
+                    }),
+                ],
+            });
+
+            const response = await create({ reportId: REPORT_ID });
+
+            expect(response.status).toBe(409);
+            expect((await response.json()).message).toBe(
+                'A complaint can only be created from an accessibility issue report.'
+            );
+            expect((await db.collection('complaints').get()).docs).toHaveLength(0);
+        });
+
         it('answers 409 for VERIFIED positive feedback', async () => {
             seedFirestore({
                 reports: [

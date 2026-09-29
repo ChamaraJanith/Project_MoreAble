@@ -226,7 +226,7 @@ export async function fetchBusAccessibility(
                 factors: listOf(bus.factors),
                 facilities: listOf(bus.facilities),
                 verifiedIssues: listOf(bus.verifiedIssues),
-                verifiedPositiveFeedback: listOf(bus.verifiedPositiveFeedback),
+                positiveFeedback: listOf(bus.positiveFeedback),
                 ratingDistribution: listOf(bus.ratingDistribution),
             } as BusAccessibilityDetail,
         };

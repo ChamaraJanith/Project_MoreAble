@@ -8,8 +8,9 @@
 //    route and through GET /api/booking/seats/:tripId, which scores the
 //    canonical way, and the two must agree — as must the three factors, checked
 //    against MOV-79's own factor functions.
-// 3. ONLY VERIFIED REPORTS ARE EVIDENCE. Pending and rejected reports about the
-//    bus are neither counted nor listed.
+// 3. ONLY VERIFIED ISSUES AND POSITIVE FEEDBACK ARE EVIDENCE. Pending and
+//    rejected issues are neither counted nor listed; positive feedback counts
+//    with no admin review.
 // 4. ONE BUS, THREE READS, NOTHING WRITTEN.
 
 import { GET as getBusAccessibility, OPTIONS } from '../../../app/api/analytics/buses/[busId]+api';
@@ -94,7 +95,8 @@ function issueReport(reportId: string, busId: string, status: string, createdAt:
     };
 }
 
-function positiveReport(reportId: string, busId: string, status = 'VERIFIED') {
+/** Positive feedback as filed now: PUBLISHED, with no admin review. */
+function positiveReport(reportId: string, busId: string, status = 'PUBLISHED') {
     return {
         id: reportId,
         reportId,
@@ -159,7 +161,8 @@ function platform() {
             positiveReport('REP-00005', 'BUS-00001'),
             positiveReport('REP-00006', 'BUS-00001'),
             positiveReport('REP-00007', 'BUS-00001'),
-            positiveReport('REP-00008', 'BUS-00001', 'PENDING'),
+            // Legacy feedback an admin rejected under the old workflow: excluded.
+            positiveReport('REP-00008', 'BUS-00001', 'REJECTED'),
             // Another bus's evidence never reaches this one.
             issueReport('REP-00009', 'BUS-00002', 'VERIFIED', '2026-09-18T08:00:00.000Z'),
         ],
@@ -341,18 +344,23 @@ describe('the detail', () => {
         expect(body.bus.availableFacilityCount).toBe(4);
     });
 
-    it('counts and lists only VERIFIED reports about this bus, newest first', async () => {
+    it('counts and lists verified issues and unreviewed positive feedback, newest first', async () => {
         seed(platform());
 
         const { body } = await detail();
 
+        // Issues: VERIFIED only (PENDING and REJECTED excluded).
+        // Positive: PUBLISHED counts with no admin review; a legacy REJECTED one does not.
         expect(body.bus.community).toEqual({ issueCount: 2, positiveCount: 3 });
         expect(body.bus.verifiedIssues.map((report: any) => report.reportId)).toEqual(['REP-00002', 'REP-00001']);
-        expect(body.bus.verifiedPositiveFeedback.map((report: any) => report.reportId)).toEqual([
+        expect(body.bus.positiveFeedback.map((report: any) => report.reportId)).toEqual([
             'REP-00005',
             'REP-00006',
             'REP-00007',
         ]);
+        expect(body.bus).not.toHaveProperty('verifiedPositiveFeedback');
+        // Nothing claims a review of the feedback.
+        expect(body.bus.positiveFeedback.every((report: any) => report.reviewedAt === null)).toBe(true);
         expect(body.bus.verifiedIssues[0]).toEqual({
             reportId: 'REP-00002',
             type: 'ISSUE',
@@ -362,7 +370,7 @@ describe('the detail', () => {
             reviewedAt: '2026-09-20T09:00:00.000Z',
             adminRemark: 'Confirmed on inspection.',
         });
-        expect(body.bus.verifiedPositiveFeedback[0]).toEqual(
+        expect(body.bus.positiveFeedback[0]).toEqual(
             expect.objectContaining({ type: 'POSITIVE', category: 'HELPFUL_DRIVER' })
         );
     });

@@ -31,7 +31,7 @@ import {
     narrowReportList,
     reportRouteFilterOptions,
 } from '../utils/reportSearch';
-import { reportCardSummary } from '../utils/reportSummary';
+import { reportCardSummary, reportListStatusBadge } from '../utils/reportSummary';
 import { ReportFilterSheet } from './ReportFilterSheet';
 import { ReportListCard } from './ReportListCard';
 
@@ -338,7 +338,9 @@ export const AccessibilityReportsScreen = () => {
                             // so a card reads the same wherever it appears.
                             isOwnReport: isReportOwnedBy(report, user?.passengerId),
                         })}
-                        status={typeof report.status === 'string' ? report.status : 'PENDING'}
+                        // No status on the public feed; an issue's review
+                        // status on My Reports (see reportListStatusBadge).
+                        status={reportListStatusBadge(report, scope)}
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something the
                         // passenger is asked to read. Editing and deleting live

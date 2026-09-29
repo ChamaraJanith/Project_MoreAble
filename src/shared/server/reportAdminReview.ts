@@ -36,6 +36,7 @@ import {
     ReportStatus,
     isReportReviewAction,
     reportDecisionStatus,
+    requiresAdminReview,
 } from '../../entities/report/model/types';
 import { authenticateRequest, unauthorizedResponse } from '../api/authMiddleware';
 import { getAdminDb } from '../config/firebaseAdmin';
@@ -311,6 +312,16 @@ export function canApplyReview(
 ): { ok: true } | { ok: false; status: number; message: string } {
     if (instruction.status === null) return { ok: true };
 
+    // Positive feedback has no Verify/Reject workflow, whatever status it is
+    // stored in — including one filed PENDING before that rule existed.
+    if (!requiresAdminReview(report)) {
+        return {
+            ok: false,
+            status: 409,
+            message: 'Positive feedback does not require admin review and cannot be verified or rejected.',
+        };
+    }
+
     const current = reportDecisionStatus(report);
 
     if (current !== REPORT_REVIEW_REQUIRED_STATUS) {
@@ -478,8 +489,14 @@ export function buildReviewUpdate(
 // The admin review view
 // ------------------------------------------------------------------
 
-/** Whether this report is one an admin is being asked to look at. */
+/**
+ * Whether this report is one an admin is being asked to look at.
+ *
+ * Never positive feedback: it has no admin review to be flagged for.
+ */
 export function isReportFlagged(report: Record<string, any>): boolean {
+    if (!requiresAdminReview(report)) return false;
+
     if (report?.requiresAdminReview === true) return true;
 
     const agreeCount = Number(report?.agreeCount);

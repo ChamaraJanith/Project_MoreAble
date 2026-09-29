@@ -10,7 +10,11 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { ReportReviewAction } from '../../../entities/report/model/types';
+import {
+    ReportReviewAction,
+    adminReportDisplayStatus,
+    requiresAdminReview,
+} from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { createComplaint, getComplaints } from '../../admin/api/complaintAdminApi';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
@@ -36,6 +40,7 @@ import { fetchReportForReview, submitReportReview } from '../api/reportReviewApi
 import {
     MAX_ADMIN_REMARK_LENGTH,
     NEEDS_REVIEW_LABEL,
+    POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REJECT_ACTION,
     REMARK_ACTION,
     VERIFY_ACTION,
@@ -375,6 +380,9 @@ export const AdminReportReviewScreen = () => {
         const photos = reportGalleryPhotos(report);
 
         const status = reviewStatusOf(report);
+        // What the badge says: accepted positive feedback reads "Verified"
+        // (display only; its stored status stays PUBLISHED).
+        const displayStatus = adminReportDisplayStatus(report);
         const isDecidable = canDecideReport(report);
         const busy = isReviewBusy(state);
 
@@ -385,7 +393,7 @@ export const AdminReportReviewScreen = () => {
                     icon={summary.icon}
                     reportType={summary.reportType}
                     title={summary.title}
-                    status={status}
+                    status={displayStatus}
                     submittedLabel={summary.submittedLabel}
                 >
                     {report.flagged && (
@@ -654,6 +662,13 @@ export const AdminReportReviewScreen = () => {
                                     : 'Reject Report'}
                             </Text>
                         </TouchableOpacity>
+                    </View>
+                ) : !requiresAdminReview(report) ? (
+                    // Positive feedback has no Verify/Reject workflow; it counts
+                    // as submitted. Said plainly, and never as "verified".
+                    <View style={styles.decidedNotice} accessibilityLiveRegion="polite">
+                        <Ionicons name="happy-outline" size={20} color={adminColors.success} />
+                        <Text style={styles.decidedText}>{POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE}</Text>
                     </View>
                 ) : (
                     // No Verify or Reject on a decided report. The API answers

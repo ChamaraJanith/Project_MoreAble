@@ -243,6 +243,7 @@ describe('opening a complaint from a report', () => {
 
     it.each([
         ['VERIFIED positive feedback', { status: 'VERIFIED', type: 'POSITIVE' }],
+        ['PUBLISHED positive feedback', { status: 'PUBLISHED', type: 'POSITIVE' }],
         ['a PENDING issue report', { status: 'PENDING' }],
         ['a REJECTED issue report', { status: 'REJECTED' }],
         ['a report with no status', {}],

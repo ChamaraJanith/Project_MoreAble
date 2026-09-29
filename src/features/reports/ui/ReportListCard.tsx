@@ -11,8 +11,11 @@ import { REPORT_TYPE_TONES, ReportTypeBadge } from './ReportTypeBadge';
 
 interface ReportListCardProps {
     summary: ReportCardSummary;
-    /** The stored status, for the badge. */
-    status: string;
+    /**
+     * The status to badge, or null / absent for none — the public feed shows
+     * no status, and positive feedback has none on the passenger side.
+     */
+    status?: string | null;
     onOpen: () => void;
     /** Overrides the summary's label, e.g. the admin queue's review wording. */
     accessibilityLabel?: string;
@@ -68,7 +71,8 @@ export function ReportListCard({
 
     const defaultLabel = [
         summary.accessibilityLabel,
-        `Status: ${reportStatusLabel(status)}`,
+        // Announced only when it is drawn: the public feed shows no status.
+        ...(status ? [`Status: ${reportStatusLabel(status)}`] : []),
         ...(summary.isOwnReport ? ['Your report'] : []),
     ].join(', ');
 
@@ -110,7 +114,7 @@ export function ReportListCard({
                             {summary.title}
                         </Text>
 
-                        <StatusBadge status={status} size="small" />
+                        {!!status && <StatusBadge status={status} size="small" />}
                     </View>
 
                     <View style={styles.badgeRow}>

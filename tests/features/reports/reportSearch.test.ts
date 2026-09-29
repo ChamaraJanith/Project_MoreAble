@@ -13,6 +13,7 @@ import {
     activeReportFilterCount,
     narrowReportList,
     reportCategoryFilterOptions,
+    REPORT_STATUS_FILTERS,
     reportMatchesFilters,
     reportRouteFilterOptions,
     sortReports,
@@ -231,6 +232,25 @@ describe('reportMatchesFilters', () => {
         expect(
             reportMatchesFilters(report({ routeId: undefined }), filters({ routeId: 'ROUTE-177' }))
         ).toBe(false);
+    });
+
+    it('never matches positive feedback to a status: it has none on the passenger side', () => {
+        for (const status of ['PUBLISHED', 'PENDING', 'VERIFIED']) {
+            const feedback = positive({ status });
+
+            expect(reportMatchesFilters(feedback, filters({ status: 'PENDING' }))).toBe(false);
+            expect(reportMatchesFilters(feedback, filters({ status: 'VERIFIED' }))).toBe(false);
+            expect(reportMatchesFilters(feedback, filters({ status: 'ALL' }))).toBe(true);
+        }
+    });
+
+    it('offers no Published status filter', () => {
+        expect(REPORT_STATUS_FILTERS.map((option) => option.value)).toEqual([
+            'ALL',
+            'PENDING',
+            'VERIFIED',
+            'REJECTED',
+        ]);
     });
 
     it('filters by status, reading a missing status as pending', () => {

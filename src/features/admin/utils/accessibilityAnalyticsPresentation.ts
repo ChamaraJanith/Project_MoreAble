@@ -740,8 +740,8 @@ export function communityEvidenceView(
         positiveCount,
         note:
             total === 0
-                ? 'No verified reports yet, so the community factor sits at the neutral 50.'
-                : `${positiveCount} of ${countLabel(total, 'verified report', 'verified reports')} ${positiveCount === 1 ? 'is' : 'are'} positive. While there are few reports, the factor is pulled toward the neutral 50.`,
+                ? 'No verified issues or positive feedback yet, so the community factor sits at the neutral 50.'
+                : `${countLabel(positiveCount, 'positive feedback', 'positive feedback')} against ${countLabel(issueCount, 'verified issue', 'verified issues')}. While there is little evidence, the factor is pulled toward the neutral 50.`,
     };
 }
 

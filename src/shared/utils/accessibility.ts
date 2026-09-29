@@ -77,7 +77,7 @@ export function isFacilityConfigured(
     return facilities[key] === true;
 }
 
-/** Verified positive and issue reports about one bus. */
+/** Counted positive feedback and verified issue reports about one bus. */
 export interface CommunityReportTally {
     positiveCount: number;
     issueCount: number;
@@ -193,12 +193,33 @@ export function computeAccessibilityScore(
 }
 
 /**
- * Verified community reports about `busId`, split by the report system's own
- * reading of type: an explicit POSITIVE is positive, anything else is an issue
- * (`reportTypeOf`). PENDING, REJECTED and every other status are ignored, as is
- * a report naming another bus or none.
+ * Whether a report counts toward the community factor.
+ *
+ * - An accessibility ISSUE counts only once an admin has VERIFIED it. PENDING
+ *   and REJECTED issues, and any other status, do not.
+ * - POSITIVE feedback needs no admin review and counts as filed (PUBLISHED).
+ *   The one exception is feedback an admin REJECTED under the old workflow:
+ *   that was found not to hold and stays out.
+ *
+ * The type is read through `reportTypeOf`, so a report with no `type` field is
+ * an issue, as it always has been.
  */
-export function tallyVerifiedCommunityReports(
+export function isCountedCommunityReport(
+    report: Partial<Pick<AccessibilityReport, 'status' | 'type'>> | null | undefined
+): boolean {
+    if (!report) return false;
+
+    if (reportTypeOf(report) === 'POSITIVE') return report.status !== 'REJECTED';
+
+    return report.status === 'VERIFIED';
+}
+
+/**
+ * The community evidence about `busId`: counted positive feedback and verified
+ * issue reports (`isCountedCommunityReport`), split by the report system's own
+ * reading of type. A report naming another bus or none is ignored.
+ */
+export function tallyCommunityReports(
     reports: readonly (Partial<Pick<AccessibilityReport, 'busId' | 'status' | 'type'>> | null | undefined)[],
     busId: string
 ): CommunityReportTally {
@@ -206,7 +227,7 @@ export function tallyVerifiedCommunityReports(
     if (typeof busId !== 'string' || !busId) return tally;
 
     for (const report of reports) {
-        if (!report || report.status !== 'VERIFIED' || report.busId !== busId) continue;
+        if (!report || report.busId !== busId || !isCountedCommunityReport(report)) continue;
 
         if (reportTypeOf(report) === 'POSITIVE') tally.positiveCount += 1;
         else tally.issueCount += 1;
