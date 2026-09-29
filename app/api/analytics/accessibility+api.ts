@@ -20,6 +20,11 @@ import {
 // vehicle is, and which ones passengers complain about most, is the reviewer's
 // view of the platform rather than a passenger's, and is gated like one.
 //
+// It also answers `buses`: every bus in the fleet, whatever its status, with its
+// own canonical score, factor breakdown and evidence counts. That list is what
+// the bus-focused Analytics page draws; the fleet figures above remain in the
+// response for existing callers but are no longer shown on that page.
+//
 // Nothing is written, nothing is stored and no collection is created: every
 // figure is derived per request from the records other features already own,
 // which is the same rule the accessibility score itself follows (MOV-111) —

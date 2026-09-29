@@ -22,9 +22,12 @@
 
 import {
     ANALYTICS_FALLBACK_MESSAGE,
+    BUS_ACCESSIBILITY_FALLBACK_MESSAGE,
     accessibilityAnalyticsPath,
     analyticsErrorMessage,
+    busAccessibilityPath,
     fetchAccessibilityAnalytics,
+    fetchBusAccessibility,
 } from '../../../src/features/admin/api/accessibilityAnalyticsApi';
 
 // Hoisted above the imports by ts-jest, so the module graph never pulls in
@@ -328,5 +331,76 @@ describe('retry', () => {
         expect(mockFetch).toHaveBeenCalledTimes(2);
         // And it carries the session the second time too.
         expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe(`Bearer ${ADMIN_TOKEN}`);
+    });
+});
+
+// ==================================================================
+// 5. Every bus, and one bus
+// ==================================================================
+describe('the bus list', () => {
+    it('carries every bus the API sent', async () => {
+        const buses = [{ busId: 'BUS-00001', accessibilityScore: 78 }, { busId: 'BUS-00002', accessibilityScore: 40 }];
+
+        mockFetch.mockResolvedValueOnce(jsonResponse(analyticsPayload({ buses })));
+
+        const result = await fetchAccessibilityAnalytics(ADMIN_TOKEN);
+
+        expect(result.ok && result.value.buses).toEqual(buses);
+    });
+
+    it('answers a response without a bus list with an empty one', async () => {
+        mockFetch.mockResolvedValueOnce(jsonResponse(analyticsPayload()));
+
+        const result = await fetchAccessibilityAnalytics(ADMIN_TOKEN);
+
+        expect(result.ok && result.value.buses).toEqual([]);
+    });
+});
+
+describe('one bus', () => {
+    it('asks for the bus by its encoded id, with the session', async () => {
+        mockFetch.mockResolvedValueOnce(
+            jsonResponse({ success: true, bus: { busId: 'BUS-00001', accessibilityScore: 78 } })
+        );
+
+        const result = await fetchBusAccessibility(ADMIN_TOKEN, ' BUS-00001 ');
+
+        expect(busAccessibilityPath('BUS 1')).toBe('/api/analytics/buses/BUS%201');
+        expect(mockFetch).toHaveBeenCalledWith('/api/analytics/buses/BUS-00001', {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+        });
+        expect(result.ok).toBe(true);
+        // Missing lists arrive as empty ones, never undefined.
+        expect(result.ok && result.value.verifiedIssues).toEqual([]);
+        expect(result.ok && result.value.facilities).toEqual([]);
+    });
+
+    it('does not ask about a blank id', async () => {
+        const result = await fetchBusAccessibility(ADMIN_TOKEN, '  ');
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(result).toEqual({ ok: false, status: 400, message: 'This is not a valid bus ID.' });
+    });
+
+    it.each([
+        [404, 'This bus could not be found. It may have been removed from the fleet.'],
+        [403, 'Only an administrator can view accessibility analytics.'],
+        [401, 'Your session has expired. Please sign in again.'],
+        [500, BUS_ACCESSIBILITY_FALLBACK_MESSAGE],
+    ])('words a %i refusal for the admin', async (status, message) => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ success: false, message: 'server words' }, status));
+
+        const result = await fetchBusAccessibility(ADMIN_TOKEN, 'BUS-00001');
+
+        expect(result).toEqual({ ok: false, status, message });
+    });
+
+    it('answers a network failure with the fallback message', async () => {
+        mockFetch.mockRejectedValueOnce(new Error('offline'));
+
+        const result = await fetchBusAccessibility(ADMIN_TOKEN, 'BUS-00001');
+
+        expect(result).toEqual({ ok: false, message: BUS_ACCESSIBILITY_FALLBACK_MESSAGE });
     });
 });

@@ -23,6 +23,8 @@
 import {
     AccessibilityTrendPoint,
     AverageAccessibilityScore,
+    BusAccessibilityDetail,
+    BusAccessibilitySummary,
     RankedRouteAccessibilityScore,
     ReportedVehicleSummary,
 } from '../utils/accessibilityAnalytics';
@@ -45,6 +47,8 @@ export interface AccessibilityAnalyticsResponse {
     generatedAt: string;
     /** How many weekly buckets `trend` holds. */
     trendWeeks: number;
+    /** Every bus in the fleet, each with its own canonical score. */
+    buses: BusAccessibilitySummary[];
 }
 
 /**
@@ -148,11 +152,87 @@ export async function fetchAccessibilityAnalytics(
                     typeof result.trendWeeks === 'number' && Number.isFinite(result.trendWeeks)
                         ? result.trendWeeks
                         : 0,
+                buses: listOf<BusAccessibilitySummary>(result.buses),
             },
         };
     } catch (error) {
         console.error('Fetch Accessibility Analytics Error:', error);
 
         return { ok: false, message: ANALYTICS_FALLBACK_MESSAGE };
+    }
+}
+
+// ------------------------------------------------------------------
+// One bus (GET /api/analytics/buses/:busId)
+// ------------------------------------------------------------------
+
+/** Where one bus's accessibility lives, relative to the API base URL. */
+export function busAccessibilityPath(busId: string): string {
+    return `/api/analytics/buses/${encodeURIComponent(busId)}`;
+}
+
+export const BUS_ACCESSIBILITY_FALLBACK_MESSAGE = 'Unable to load this bus\'s accessibility.';
+
+/** The detail endpoint's refusals, in the words an admin can act on. */
+export const BUS_ACCESSIBILITY_ERROR_MESSAGES: Record<number, string> = {
+    ...ANALYTICS_ERROR_MESSAGES,
+    400: 'This is not a valid bus ID.',
+    404: 'This bus could not be found. It may have been removed from the fleet.',
+};
+
+export function busAccessibilityErrorMessage(status?: number): string {
+    return (
+        (status !== undefined && BUS_ACCESSIBILITY_ERROR_MESSAGES[status]) ||
+        BUS_ACCESSIBILITY_FALLBACK_MESSAGE
+    );
+}
+
+/**
+ * GET /api/analytics/buses/:busId
+ *
+ * One request for one bus: its score, factors, facilities and the verified
+ * reports and ratings behind them. Admin only, like the list.
+ */
+export async function fetchBusAccessibility(
+    token: string,
+    busId: string
+): Promise<AnalyticsResult<BusAccessibilityDetail>> {
+    const id = typeof busId === 'string' ? busId.trim() : '';
+
+    if (!id) return { ok: false, status: 400, message: busAccessibilityErrorMessage(400) };
+
+    try {
+        const response = await fetch(`${API_BASE_URL}${busAccessibilityPath(id)}`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result?.success || !result?.bus || typeof result.bus !== 'object') {
+            return {
+                ok: false,
+                status: response.status,
+                message: busAccessibilityErrorMessage(response.ok ? undefined : response.status),
+            };
+        }
+
+        const bus = result.bus;
+
+        return {
+            ok: true,
+            value: {
+                ...bus,
+                factors: listOf(bus.factors),
+                facilities: listOf(bus.facilities),
+                verifiedIssues: listOf(bus.verifiedIssues),
+                verifiedPositiveFeedback: listOf(bus.verifiedPositiveFeedback),
+                ratingDistribution: listOf(bus.ratingDistribution),
+            } as BusAccessibilityDetail,
+        };
+    } catch (error) {
+        console.error('Fetch Bus Accessibility Error:', error);
+
+        return { ok: false, message: BUS_ACCESSIBILITY_FALLBACK_MESSAGE };
     }
 }
