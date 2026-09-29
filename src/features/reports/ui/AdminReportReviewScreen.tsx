@@ -45,7 +45,6 @@ import {
 } from '../utils/reportReview';
 import { formatReportDateTime } from '../utils/reportFormat';
 import {
-    initialRemarkDraft,
     initialReviewState,
     isActionPending,
     isReviewBusy,
@@ -119,12 +118,8 @@ export const AdminReportReviewScreen = () => {
 
     const [state, dispatch] = useReducer(reportReviewReducer, initialReviewState);
 
+    // Starts empty on every visit; the saved remark is displayed separately.
     const [remark, setRemark] = useState('');
-
-    // Whether the stored remark has already been put in the box. A ref rather
-    // than state because nothing renders from it, and it has to be up to date
-    // by the time the next load reads it rather than after the next commit.
-    const hasLoadedRemark = useRef(false);
 
     /** The decision awaiting confirmation, or null when no dialog is open. */
     const [confirming, setConfirming] = useState<'VERIFY' | 'REJECT' | null>(null);
@@ -167,14 +162,8 @@ export const AdminReportReviewScreen = () => {
                 comments: result.value.comments,
             });
 
-            // The stored remark fills the box the first time only. Refilling it
-            // on every reload would wipe out whatever the admin had started
-            // typing when the page refreshed underneath them.
-            if (!hasLoadedRemark.current) {
-                hasLoadedRemark.current = true;
-                setRemark(initialRemarkDraft(result.value.report));
-            }
-
+            // The composer is not prefilled: the saved remark is shown above it
+            // as "Current remark", and the box is for writing a new one.
             return;
         }
 
