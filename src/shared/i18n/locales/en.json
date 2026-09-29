@@ -154,6 +154,11 @@
     "busUnavailable": "Bus details unavailable",
     "bookBtn": "Book",
     "viewDetailsBtn": "View details",
+    "exactTimeHeading": "At your requested time ({{time}})",
+    "nearbyHeading": "Nearby alternatives within an hour",
+    "noExactNotice": "No journey at exactly {{time}}. These journeys depart within an hour of it.",
+    "noSuitableTitle": "No journeys near this time",
+    "noSuitableDesc": "No suitable journey between {{origin}} and {{destination}} departs within an hour of {{time}}, earlier or later.",
     "favourites": {
       "title": "Favourite Routes",
       "viewAll": "View all favourites",

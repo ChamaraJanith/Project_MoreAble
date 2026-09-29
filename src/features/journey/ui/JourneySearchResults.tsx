@@ -36,7 +36,11 @@ import {
 } from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
 import { goBackOrTo, JOURNEY_PLANNER_PATH } from '../utils/journeyNavigation';
-import { toRecommendedJourneys } from '../utils/journeyRecommendations';
+import {
+    isExactTimeMatch,
+    RecommendedJourney,
+    toRecommendedJourneys,
+} from '../utils/journeyRecommendations';
 import { AccessibilityFilterPanel } from './AccessibilityFilterPanel';
 import { JourneyOptionCard } from './JourneyOptionCard';
 
@@ -180,6 +184,26 @@ export const JourneySearchResults = () => {
         [journeyOptions, requirements]
     );
 
+    // Exact-time and nearby journeys, shown as separate groups (MOV-310).
+    //
+    // Split by the search's own measurement of how far each boards from the
+    // requested time, never recomputed here. Filtering keeps the recommended
+    // order, so each group is already in the order MOV-312 gave it.
+    const exactJourneys = useMemo(
+        () =>
+            visibleJourneys.filter((journey) =>
+                isExactTimeMatch(journey.option.minutesFromRequestedTime)
+            ),
+        [visibleJourneys]
+    );
+    const nearbyJourneys = useMemo(
+        () =>
+            visibleJourneys.filter(
+                (journey) => !isExactTimeMatch(journey.option.minutesFromRequestedTime)
+            ),
+        [visibleJourneys]
+    );
+
     /**
      * Applies a selection and remembers it (MOV-93).
      *
@@ -245,6 +269,28 @@ export const JourneySearchResults = () => {
         saveFavouriteRoute(journeyPair);
         setFavouriteAnnouncement(favouriteChangeAnnouncement(true, journeyPair));
     };
+
+    // One card per journey, whichever group it is shown in.
+    const renderJourneyCard = ({
+        key,
+        route,
+        option,
+        timing,
+        display,
+        accessibilityScore,
+    }: RecommendedJourney) => (
+        <JourneyOptionCard
+            key={key}
+            route={route}
+            option={option}
+            timing={timing}
+            display={display}
+            accessibilityScore={accessibilityScore}
+            geo={geo}
+            travelDate={travelDate}
+            travelTime={travelTime}
+        />
+    );
 
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
     const friendlyTime = travelTime ? formatFriendlyTime(parseApiTimeString(travelTime)) : '';
@@ -359,11 +405,24 @@ export const JourneySearchResults = () => {
                             />
                         </View>
                         <Text style={styles.stateTitle}>
-                            {hasMatchedRoutes ? 'No departures left' : 'No routes found'}
+                            {hasMatchedRoutes
+                                ? t('journey.noSuitableTitle', 'No journeys near this time')
+                                : 'No routes found'}
                         </Text>
                         <Text style={styles.stateDescription}>
+                            {/*
+                              The search looks an hour either side of the requested
+                              time (MOV-308), so there is no "earlier time" left to
+                              suggest: both directions were already searched.
+                            */}
                             {hasMatchedRoutes
-                                ? `Buses do run between ${origin} and ${destination}, but none are scheduled to depart at or after ${friendlyTime}. Try an earlier time.`
+                                ? t('journey.noSuitableDesc', {
+                                      origin,
+                                      destination,
+                                      time: friendlyTime,
+                                      defaultValue:
+                                          'No suitable journey between {{origin}} and {{destination}} departs within an hour of {{time}}, earlier or later.',
+                                  })
                                 : `We couldn't find a route from ${origin} to ${destination}. Try a nearby stop or check the spelling.`}
                         </Text>
                         <TouchableOpacity
@@ -431,27 +490,68 @@ export const JourneySearchResults = () => {
                     <>
                         <Text style={styles.resultsCountText}>
                             {visibleJourneys.length} journey option{visibleJourneys.length > 1 ? 's' : ''}
-                            {isFiltering ? ' match your requirements' : ''} · most accessible first
+                            {isFiltering ? ' match your requirements' : ''} · closest to your time first,
+                            then most accessible
                         </Text>
-                        {visibleJourneys.map(({ key, route, option, timing, display, accessibilityScore }) => (
-                            <JourneyOptionCard
-                                key={key}
-                                route={route}
-                                option={option}
-                                timing={timing}
-                                display={display}
-                                accessibilityScore={accessibilityScore}
-                                geo={geo}
-                                travelDate={travelDate}
-                                travelTime={travelTime}
-                            />
-                        ))}
+
+                        {exactJourneys.length > 0 && (
+                            <>
+                                <SectionHeading
+                                    icon="checkmark-circle-outline"
+                                    title={t('journey.exactTimeHeading', {
+                                        time: friendlyTime,
+                                        defaultValue: 'At your requested time ({{time}})',
+                                    })}
+                                />
+                                {exactJourneys.map(renderJourneyCard)}
+                            </>
+                        )}
+
+                        {/* No exact match: say so before offering the alternatives. */}
+                        {exactJourneys.length === 0 && nearbyJourneys.length > 0 && (
+                            <View
+                                style={styles.noExactNotice}
+                                accessible
+                                accessibilityLiveRegion="polite"
+                            >
+                                <Ionicons name="information-circle-outline" size={18} color="#0066CC" />
+                                <Text style={styles.noExactNoticeText}>
+                                    {t('journey.noExactNotice', {
+                                        time: friendlyTime,
+                                        defaultValue:
+                                            'No journey at exactly {{time}}. These journeys depart within an hour of it.',
+                                    })}
+                                </Text>
+                            </View>
+                        )}
+
+                        {nearbyJourneys.length > 0 && (
+                            <>
+                                <SectionHeading
+                                    icon="time-outline"
+                                    title={t('journey.nearbyHeading', 'Nearby alternatives within an hour')}
+                                />
+                                {nearbyJourneys.map(renderJourneyCard)}
+                            </>
+                        )}
                     </>
                 )}
             </ScrollView>
         </View>
     );
 };
+
+// The section heading pattern the activities screens use, kept local as they do.
+function SectionHeading({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
+    return (
+        <View style={styles.sectionHeadingRow}>
+            <Ionicons name={icon} size={16} color="#0F172A" />
+            <Text style={styles.sectionHeadingText} accessibilityRole="header">
+                {title}
+            </Text>
+        </View>
+    );
+}
 
 const styles = StyleSheet.create({
     container: {
@@ -554,6 +654,36 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#64748B',
         marginBottom: 12,
+    },
+    sectionHeadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        marginBottom: 12,
+        gap: 6,
+    },
+    sectionHeadingText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#0F172A',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    noExactNotice: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        backgroundColor: '#E8F1FB',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 16,
+    },
+    noExactNoticeText: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#0F172A',
+        lineHeight: 20,
     },
     stateContainer: {
         alignItems: 'center',

@@ -154,6 +154,11 @@
     "busUnavailable": "බස් රථයේ විස්තර නොමැත",
     "bookBtn": "වෙන්කරන්න",
     "viewDetailsBtn": "විස්තර බලන්න",
+    "exactTimeHeading": "ඔබ ඉල්ලූ වේලාවට ({{time}})",
+    "nearbyHeading": "පැයක් ඇතුළත ආසන්න ගමන්",
+    "noExactNotice": "{{time}} ට හරියටම ගමනක් නොමැත. මෙම ගමන් එම වේලාවට පැයකට පෙර හෝ පසු පිටත් වේ.",
+    "noSuitableTitle": "මෙම වේලාවට ආසන්න ගමන් නොමැත",
+    "noSuitableDesc": "{{origin}} සිට {{destination}} දක්වා {{time}} ට පැයකට පෙර හෝ පසු පිටත් වන සුදුසු ගමනක් නොමැත.",
     "favourites": {
       "title": "ප්‍රියතම මාර්ග",
       "viewAll": "සියලු ප්‍රියතම මාර්ග බලන්න",
