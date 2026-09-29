@@ -47,6 +47,11 @@ interface ReportHeroProps {
     /** The status to badge, or null for none (positive feedback on the passenger side). */
     status?: string | null;
     submittedLabel: string;
+    /**
+     * A reference line between the badges and the date, e.g. "Report ID:
+     * REP-00014". Only the admin review screen passes one; omitted, nothing is drawn.
+     */
+    referenceLabel?: string | null;
     /** Anything the screen needs under the date, e.g. a review flag. */
     children?: React.ReactNode;
 }
@@ -62,6 +67,7 @@ export function ReportHero({
     title,
     status,
     submittedLabel,
+    referenceLabel,
     children,
 }: ReportHeroProps) {
     const tone = REPORT_TYPE_TONES[reportType];
@@ -84,6 +90,12 @@ export function ReportHero({
                 <ReportTypeBadge type={reportType} size="medium" />
                 {!!status && <StatusBadge status={status} />}
             </View>
+
+            {!!referenceLabel && (
+                <Text style={reportDetailStyles.heroReference} selectable>
+                    {referenceLabel}
+                </Text>
+            )}
 
             <Text style={reportDetailStyles.heroDate}>{submittedLabel}</Text>
 
@@ -389,6 +401,13 @@ export const reportDetailStyles = StyleSheet.create({
         fontWeight: '600',
         color: adminColors.textMuted,
         marginTop: 12,
+    },
+    heroReference: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.textSecondary,
+        marginTop: 10,
+        letterSpacing: 0.3,
     },
 
     descriptionText: {

@@ -42,6 +42,7 @@ import {
     NEEDS_REVIEW_LABEL,
     POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REJECT_ACTION,
+    adminReportIdLabel,
     REMARK_ACTION,
     VERIFY_ACTION,
     canDecideReport,
@@ -394,6 +395,7 @@ export const AdminReportReviewScreen = () => {
                     reportType={summary.reportType}
                     title={summary.title}
                     status={displayStatus}
+                    referenceLabel={adminReportIdLabel(report)}
                     submittedLabel={summary.submittedLabel}
                 >
                     {report.flagged && (
