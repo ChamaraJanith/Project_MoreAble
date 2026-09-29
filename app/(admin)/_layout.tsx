@@ -38,6 +38,7 @@ export default function AdminLayout() {
       <Stack.Screen name="fare-policy/index" options={{ title: 'Fare Policy & Pricing' }} />
 
       <Stack.Screen name="analytics/index" options={{ title: 'Accessibility Analytics' }} />
+      <Stack.Screen name="analytics/[busId]" options={{ title: 'Bus Accessibility' }} />
     </Stack>
   );
 }
