@@ -187,6 +187,15 @@ describe('when nothing is offered', () => {
         expect(results).toMatch(/Try a nearby stop or check the spelling\./);
     });
 
+    it('tells a passenger whose route matched about the time window, and one with no route about the route', () => {
+        expect(results).toMatch(
+            /(?<!!)hasMatchedRoutes\s*\?\s*t\('journey\.noSuitableTitle'[^?]*?:\s*'No routes found'/
+        );
+        expect(results).toMatch(
+            /(?<!!)hasMatchedRoutes\s*\?\s*t\('journey\.noSuitableDesc'[^?]*?:\s*`We couldn't find a route/
+        );
+    });
+
     it('keeps the empty state for requirements nothing meets, unchanged', () => {
         expect(results).toMatch(/\{isFilteredEmpty && \(/);
         expect(results).toMatch(/t\('journey\.noMatchesTitle', 'No matching journeys'\)/);
