@@ -17,7 +17,10 @@ import {
     JourneySearchMatch,
     JourneySearchOption,
 } from '../../../src/entities/route/model/types';
-import { toRecommendedJourneys } from '../../../src/features/journey/utils/journeyRecommendations';
+import {
+    isExactTimeMatch,
+    toRecommendedJourneys,
+} from '../../../src/features/journey/utils/journeyRecommendations';
 
 // ------------------------------------------------------------------
 // Fixtures
@@ -453,5 +456,41 @@ describe('transfers on a recommended option', () => {
             'Rajagiriya',
             'Borella',
         ]);
+    });
+});
+
+// ==================================================================
+// Exact or nearby (MOV-310), read from the search's own measurement
+// ==================================================================
+describe('isExactTimeMatch', () => {
+    it('treats a journey boarding at the requested time as exact', () => {
+        expect(isExactTimeMatch(0)).toBe(true);
+    });
+
+    it('treats a journey a minute away as nearby, not exact', () => {
+        expect(isExactTimeMatch(1)).toBe(false);
+    });
+
+    it('treats a journey inside the window as nearby, not exact', () => {
+        expect(isExactTimeMatch(30)).toBe(false);
+    });
+
+    it('treats a journey at the edge of the window as nearby, not exact', () => {
+        expect(isExactTimeMatch(60)).toBe(false);
+    });
+
+    it('never presents a missing figure as exact', () => {
+        expect(isExactTimeMatch(null)).toBe(false);
+        expect(isExactTimeMatch(undefined)).toBe(false);
+        expect(isExactTimeMatch(Number.NaN)).toBe(false);
+    });
+
+    it('never presents a journey the search did not measure as exact', () => {
+        // Built without `minutesFromRequestedTime`, as a response predating it
+        // would arrive.
+        const [journey] = toRecommendedJourneys([match({ trips: [{ tripId: 'T1' }] })]);
+
+        expect(journey.option).not.toHaveProperty('minutesFromRequestedTime');
+        expect(isExactTimeMatch(journey.option.minutesFromRequestedTime)).toBe(false);
     });
 });

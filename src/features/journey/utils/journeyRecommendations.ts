@@ -192,6 +192,20 @@ function usableProximity(journey: RecommendedJourney): number | null {
 }
 
 /**
+ * Whether a journey boards at exactly the requested time (MOV-310), read from
+ * the `minutesFromRequestedTime` the search measured (MOV-308) — never
+ * re-derived here, since only the search knows the boarding time it selected on.
+ *
+ * Only 0 is exact. Every other search result is a nearby alternative, and a
+ * missing or unreadable figure is never presented as exact.
+ */
+export function isExactTimeMatch(
+    minutesFromRequestedTime: JourneySearchOption['minutesFromRequestedTime']
+): boolean {
+    return minutesFromRequestedTime === 0;
+}
+
+/**
  * The recommended routes, in recommended order (MOV-308 R3).
  *
  *   1. Closeness to the requested time, measured by the search at the
