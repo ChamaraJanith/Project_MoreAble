@@ -31,6 +31,7 @@ import {
     POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REVIEW_FALLBACK_MESSAGE,
     VERIFY_ACTION,
+    adminReportIdLabel,
     adminReportTypeCounts,
     adminReportTypeFilterLabel,
     adminReviewCardSummary,
@@ -1016,5 +1017,33 @@ describe('positive feedback in the review queue', () => {
             expect(canDecideReport(byId('ISS-P'))).toBe(true);
             expect(canDecideReport(byId('ISS-V'))).toBe(false);
         });
+    });
+});
+
+// ==================================================================
+// The report id on the review DETAIL screen
+//
+// Shown there (and only there) under the status badges, read from the stored
+// reportId. Queue cards still never show it — see adminReviewCardVisibleText.
+// ==================================================================
+describe('the report id on the review detail screen', () => {
+    it('shows the stored report id', () => {
+        expect(adminReportIdLabel(mapAdminReviewReport(apiReport()))).toBe(`Report ID: ${REPORT_ID}`);
+        expect(adminReportIdLabel({ reportId: 'REP-00014' })).toBe('Report ID: REP-00014');
+    });
+
+    it('falls back to the document id, as the queue maps a report', () => {
+        expect(adminReportIdLabel({ reportId: '', documentId: 'REP-00014' })).toBe('Report ID: REP-00014');
+    });
+
+    it('invents nothing when there is no id', () => {
+        expect(adminReportIdLabel({})).toBeNull();
+        expect(adminReportIdLabel(null)).toBeNull();
+    });
+
+    it('still keeps the id off the queue card', () => {
+        const summary = adminReviewCardSummary(mapAdminReviewReport(apiReport()));
+
+        expect(adminReviewCardVisibleText(summary).join(' ')).not.toContain(REPORT_ID);
     });
 });

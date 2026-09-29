@@ -221,6 +221,24 @@ export { reportStatusLabel };
 // The queue
 // ------------------------------------------------------------------
 
+/**
+ * The report's own id, as the admin review DETAIL screen shows it:
+ * "Report ID: REP-00014". Read from the stored `reportId` (the document id as
+ * a fallback, as the queue maps it) — never generated. Null when there is none.
+ *
+ * Detail screen only: queue cards still never show the id.
+ */
+export function adminReportIdLabel(
+    report: { reportId?: unknown; documentId?: unknown } | null | undefined
+): string | null {
+    const id =
+        (typeof report?.reportId === 'string' && report.reportId.trim()) ||
+        (typeof report?.documentId === 'string' && report.documentId.trim()) ||
+        '';
+
+    return id ? `Report ID: ${id}` : null;
+}
+
 /** Said on the card, and announced with it. One wording, in one place. */
 export const NEEDS_REVIEW_LABEL = 'Needs Review';
 
