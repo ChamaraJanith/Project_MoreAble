@@ -53,6 +53,8 @@ export interface ComplaintListFilters {
     status?: ComplaintStatusFilter;
     /** A user document id, e.g. ADM-2026-00001. */
     assignedTo?: string | null;
+    /** The report a complaint was opened from, e.g. REP-00007. */
+    reportId?: string | null;
 }
 
 const COMPLAINTS_PATH = '/api/complaints';
