@@ -206,7 +206,7 @@ describe('when nothing is offered', () => {
 });
 
 // ------------------------------------------------------------------
-// The card itself is untouched
+// The card: booking and details unchanged, time match announced
 // ------------------------------------------------------------------
 describe('each journey card', () => {
     it('still books and opens details the way it did', () => {
@@ -214,6 +214,30 @@ describe('each journey card', () => {
         expect(card).toMatch(/`View details for route \$\{route\.routeNumber\}`/);
         expect(card).toMatch(/pathname: JOURNEY_ROUTE_DETAILS_PATH/);
         expect(card).toMatch(/pathname: '\/booking\/seats\/\[tripId\]'/);
+    });
+
+    it('classifies itself with the shared helper, from the search own measurement', () => {
+        expect(card).toMatch(/import \{[^}]*isExactTimeMatch[^}]*\} from '\.\.\/utils\/journeyRecommendations'/);
+        expect(card).toMatch(
+            /const isExactTime = isExactTimeMatch\(option\.minutesFromRequestedTime\)/
+        );
+    });
+
+    it('tells a screen reader when the journey is at the requested time', () => {
+        expect(card).toMatch(
+            /const summaryLabel =\s*`\$\{isExactTime \? 'At your requested time\. '/
+        );
+    });
+
+    it('tells a screen reader when the journey is a nearby alternative', () => {
+        expect(card).toMatch(
+            /const summaryLabel =\s*`\$\{isExactTime \? '[^']*' : 'Nearby alternative, within an hour of your requested time\. '\}`/
+        );
+    });
+
+    it('never works the time relation out again on the device', () => {
+        expect(card).not.toMatch(/minutesFromRequestedTime\s*(===|<=|>=|<|>)/);
+        expect(card).not.toMatch(/timing\.boardingTime/);
     });
 });
 

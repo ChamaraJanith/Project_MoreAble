@@ -19,6 +19,7 @@ import { ACCESSIBILITY_REQUIREMENTS, meetsAccessibilityRequirement } from '../ut
 import {
     buildJourneyLegs,
     describeJourneyForDisplay,
+    isExactTimeMatch,
     JourneyDisplay,
     knownAccessibilityScore,
 } from '../utils/journeyRecommendations';
@@ -171,7 +172,13 @@ export function JourneyOptionCard({
         });
     };
 
+    // Which results group this journey sits in (MOV-310), said first so a
+    // screen-reader user moving card to card hears it without the heading.
+    // Read from the search's own measurement through the shared helper.
+    const isExactTime = isExactTimeMatch(option.minutesFromRequestedTime);
+
     const summaryLabel =
+        `${isExactTime ? 'At your requested time. ' : 'Nearby alternative, within an hour of your requested time. '}` +
         `Route ${route.routeNumber}, ${route.routeName}. ` +
         `${hasMeasuredScore ? `Accessibility score ${accessibilityScore} percent. ` : 'Accessibility score not available. '}` +
         `${departureLabel ? `Departs ${departureLabel}` : 'Departure time from this stop not available'}, ` +
