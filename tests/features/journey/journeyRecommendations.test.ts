@@ -375,6 +375,59 @@ describe('the journey time carried on each option', () => {
 });
 
 // ==================================================================
+// What a partial journey on an incompletely timed route displays.
+//
+// Moved here from tests/api/journeys/passengerJourneyDisplay.test.ts: since
+// MOV-308 the search no longer offers a journey whose boarding time it cannot
+// derive, so these display rules are exercised on the view model directly.
+// The trip leaves Kaduwela at 09:00 and reaches Borella, the last stop, at 09:41.
+// ==================================================================
+describe('a partial journey on an incompletely timed route', () => {
+    it('still shows the arrival when the passenger alights at the last stop', () => {
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Rajagiriya',
+                segmentDurationsMinutes: null,
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.arrivalLabel).toBe('9:41 AM');
+        expect(journey.display.departureLabel).toBeNull();
+        expect(journey.display.durationLabel).toBeNull();
+    });
+
+    it('shows neither time for a journey between two middle stops', () => {
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Malabe',
+                destination: 'Rajagiriya',
+                segmentDurationsMinutes: null,
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.departureLabel).toBeNull();
+        expect(journey.display.arrivalLabel).toBeNull();
+        expect(journey.display.durationLabel).toBeNull();
+    });
+
+    it('reports no duration when only one crossed segment is untimed', () => {
+        // Battaramulla -> Rajagiriya unmeasured, so Malabe -> Borella crosses a
+        // gap nobody has timed. A partial sum would understate the journey.
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Malabe',
+                segmentDurationsMinutes: [8, 6, null, 15],
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.durationLabel).toBeNull();
+    });
+});
+
+// ==================================================================
 // E. TRANSFERS
 // ==================================================================
 describe('transfers on a recommended option', () => {
