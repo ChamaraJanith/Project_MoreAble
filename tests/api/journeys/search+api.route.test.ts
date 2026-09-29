@@ -601,7 +601,8 @@ describe('POST /api/journeys/search', () => {
                 routes: [forwardRoute],
                 trips: [
                     trip({ tripId: 'TRIP-00003', routeId: forwardRoute.routeId, departureTime: '09:00', estimatedArrivalTime: '10:10', turnNumber: 3, busId: 'BUS-00001' }),
-                    trip({ tripId: 'TRIP-00007', routeId: forwardRoute.routeId, departureTime: '13:00', estimatedArrivalTime: '14:10', turnNumber: 7, busId: 'BUS-00001' }),
+                    // A later turn still within ±60 minutes of the 08:30 request (MOV-308).
+                    trip({ tripId: 'TRIP-00007', routeId: forwardRoute.routeId, departureTime: '09:30', estimatedArrivalTime: '10:40', turnNumber: 7, busId: 'BUS-00001' }),
                 ],
                 buses: [bus1],
             });
@@ -641,9 +642,15 @@ describe('POST /api/journeys/search', () => {
         });
 
         it('resolves trips for the reverse-direction route independently', async () => {
+            // Battaramulla is mid-route on the reverse direction, so the passenger's
+            // boarding time needs the stop timings before it (MOV-308 R1). These
+            // add up to the trip's own 70-minute schedule, putting the 07:30
+            // departure at Battaramulla at 08:15.
+            const timedReverseRoute = { ...reverseRoute, segmentDurationsMinutes: [12, 18, 15, 10, 15] };
+
             mockGetAdminDb.mockReturnValue(
                 createFakeFirestore({
-                    routes: [forwardRoute, reverseRoute],
+                    routes: [forwardRoute, timedReverseRoute],
                     trips: [
                         trip({ tripId: 'TRIP-00001', routeId: forwardRoute.routeId, departureTime: '06:00', estimatedArrivalTime: '07:10', turnNumber: 1 }),
                         trip({ tripId: 'TRIP-00002', routeId: reverseRoute.routeId, departureTime: '07:30', estimatedArrivalTime: '08:40', turnNumber: 2 }),
@@ -656,7 +663,7 @@ describe('POST /api/journeys/search', () => {
                 origin: 'Battaramulla',
                 destination: 'Kaduwela',
                 travelDate: '2026-08-13',
-                travelTime: '07:00',
+                travelTime: '08:00',
             }));
             const json = await response.json();
 
@@ -694,7 +701,7 @@ describe('POST /api/journeys/search', () => {
                 createFakeFirestore({
                     routes: [forwardRoute],
                     trips: [
-                        trip({ tripId: 'TRIP-00005', routeId: forwardRoute.routeId, departureTime: '11:00', estimatedArrivalTime: '12:10', turnNumber: 5, busId: 'BUS-00002' }),
+                        trip({ tripId: 'TRIP-00005', routeId: forwardRoute.routeId, departureTime: '09:30', estimatedArrivalTime: '10:40', turnNumber: 5, busId: 'BUS-00002' }),
                         trip({ tripId: 'TRIP-00001', routeId: forwardRoute.routeId, departureTime: '06:00', turnNumber: 1 }),
                         trip({ tripId: 'TRIP-00003', routeId: forwardRoute.routeId, departureTime: '09:00', estimatedArrivalTime: '10:10', turnNumber: 3 }),
                     ],
@@ -707,8 +714,9 @@ describe('POST /api/journeys/search', () => {
 
             const options = json.routes[0].trips;
 
-            // The 06:00 trip already departed; the other two remain as distinct
-            // options and are distinguishable by their times and bus.
+            // The 06:00 trip boards more than 60 minutes before the 08:30 request
+            // (MOV-308); the other two remain as distinct options and are
+            // distinguishable by their times and bus.
             expect(options).toHaveLength(2);
             expect(options.map((option: any) => option.trip.tripId)).toEqual(['TRIP-00003', 'TRIP-00005']);
             expect(options[0].bus.numberPlate).toBe('NB-1234');

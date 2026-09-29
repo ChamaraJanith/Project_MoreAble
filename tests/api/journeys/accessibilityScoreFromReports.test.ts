@@ -173,7 +173,8 @@ async function searchScore(db: FakeDb, tripId: string): Promise<number> {
             origin: 'Kaduwela',
             destination: 'Borella',
             travelDate: '2026-09-22',
-            travelTime: '08:00',
+            // Every departure here (09:00-09:30) boards within ±60 minutes (MOV-308).
+            travelTime: '09:00',
         })
     );
 

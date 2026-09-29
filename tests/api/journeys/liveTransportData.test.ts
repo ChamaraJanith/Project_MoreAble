@@ -284,7 +284,8 @@ describe('vehicle location reads', () => {
         const db = createFakeFirestore({
             routes: [route],
             buses: [bus(BUS_A, 'NB-1234')],
-            trips: [trip('TRIP-00001', BUS_A, '09:00'), trip('TRIP-00002', BUS_A, '11:00')],
+            // Both turns board within ±60 minutes of the 08:30 request (MOV-308).
+            trips: [trip('TRIP-00001', BUS_A, '09:00'), trip('TRIP-00002', BUS_A, '09:30')],
             vehicleLocations: [POSITION_A],
         });
 

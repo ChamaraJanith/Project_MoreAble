@@ -117,7 +117,7 @@ async function searchWith(fleet: Fleet) {
                 origin: 'Kaduwela',
                 destination: 'Borella',
                 travelDate: '2026-08-25',
-                travelTime: '05:00',
+                travelTime: '08:30', // every departure here (08:00-09:00) is within ±60 minutes (MOV-308)
             }),
         })
     );
@@ -253,7 +253,7 @@ describe('each stored facility reaches the passenger', () => {
                     origin: 'Kaduwela',
                     destination: 'Borella',
                     travelDate: '2026-08-25',
-                    travelTime: '05:00',
+                    travelTime: '08:30', // every departure here (08:00-09:00) is within ±60 minutes (MOV-308)
                 }),
             })
         );
@@ -431,7 +431,7 @@ describe('what the delivered facilities feed', () => {
                     origin: 'Kaduwela',
                     destination: 'Borella',
                     travelDate: '2026-08-25',
-                    travelTime: '05:00',
+                    travelTime: '08:30', // every departure here (08:00-09:00) is within ±60 minutes (MOV-308)
                     accessibilityRequirements: ['wheelchairRamp'],
                 }),
             })

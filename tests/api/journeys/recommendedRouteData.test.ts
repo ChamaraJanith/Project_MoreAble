@@ -156,7 +156,8 @@ const SEARCH = {
     origin: 'Kaduwela',
     destination: 'Borella',
     travelDate: '2026-08-20',
-    travelTime: '08:00',
+    // The departures in this suite (09:00-10:15) board within ±60 minutes (MOV-308).
+    travelTime: '09:30',
 };
 
 /** Runs the real search endpoint against the given fleet. */
@@ -333,7 +334,7 @@ describe('the accessibility score on a journey option', () => {
             buses: [bus('BUS-00001', 'NB-1234', PARTLY_EQUIPPED)],
             trips: [
                 trip('TRIP-A', 'BUS-00001', '09:00'),
-                trip('TRIP-B', 'BUS-00001', '11:00'),
+                trip('TRIP-B', 'BUS-00001', '10:15'),
             ],
         });
 
@@ -447,7 +448,7 @@ describe('the response feeds the MOV-87 ranking layer', () => {
                 // The least accessible bus leaves first, so departure order and
                 // recommended order genuinely differ.
                 trip('TRIP-EARLY', 'BUS-WORST', '09:00'),
-                trip('TRIP-LATER', 'BUS-BEST', '17:00'),
+                trip('TRIP-LATER', 'BUS-BEST', '10:00'),
             ],
         });
 
@@ -486,7 +487,7 @@ describe('the response feeds the MOV-87 ranking layer', () => {
                 bus('BUS-B', 'NB-2222', PARTLY_EQUIPPED),
             ],
             trips: [
-                trip('TRIP-LATE', 'BUS-A', '16:00'),
+                trip('TRIP-LATE', 'BUS-A', '10:00'),
                 trip('TRIP-EARLY', 'BUS-B', '09:00'),
             ],
         });
@@ -512,7 +513,7 @@ describe('the rest of journey search is untouched', () => {
                 bus('BUS-WORST', 'NB-3333', NOT_EQUIPPED),
             ],
             trips: [
-                trip('TRIP-LATER', 'BUS-BEST', '17:00'),
+                trip('TRIP-LATER', 'BUS-BEST', '10:00'),
                 trip('TRIP-EARLY', 'BUS-WORST', '09:00'),
             ],
         });
@@ -525,7 +526,7 @@ describe('the rest of journey search is untouched', () => {
         expect(order).toEqual(['TRIP-EARLY', 'TRIP-LATER']);
     });
 
-    it('still filters out departures before the requested time', async () => {
+    it('still filters out departures more than 60 minutes from the requested time', async () => {
         const db = createFakeFirestore({
             routes: [route],
             buses: [bus('BUS-00001', 'NB-1234', FULLY_EQUIPPED)],
@@ -537,6 +538,8 @@ describe('the rest of journey search is untouched', () => {
 
         const ids = optionsOf(await search(db)).map((o: any) => o.trip.tripId);
 
+        // 06:00 is 3h30m before the 09:30 request; 09:00 is inside the window
+        // even though it is earlier than requested (MOV-308).
         expect(ids).toEqual(['TRIP-UPCOMING']);
     });
 

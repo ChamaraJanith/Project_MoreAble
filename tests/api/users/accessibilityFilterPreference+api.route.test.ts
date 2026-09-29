@@ -190,7 +190,8 @@ async function runJourneySearch(accessibilityRequirements: string[]) {
                 origin: 'Kaduwela',
                 destination: 'Borella',
                 travelDate: '2026-08-25',
-                travelTime: '05:00',
+                // Both departures (07:00, 07:30) board within ±60 minutes (MOV-308).
+                travelTime: '07:00',
                 accessibilityRequirements,
             }),
         })
