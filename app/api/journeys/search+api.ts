@@ -466,6 +466,25 @@ export const JOURNEY_SEARCH_WINDOW_MINUTES = 60;
 export type BoardingTimeMatch = 'EXACT' | 'NEARBY' | 'OUTSIDE';
 
 /**
+ * Whole minutes between a passenger's boarding time and the time they asked
+ * for, earlier or later alike, or null when either is unreadable. Compared as
+ * minutes since midnight and never wrapped (see `classifyBoardingTime`).
+ *
+ * The one definition of "how close" MOV-308 uses: the ±60 window and EXACT are
+ * decided from it, and recommendations are ordered by it (R3).
+ */
+export function minutesFromRequestedTime(
+  boardingTime: string | null,
+  travelTime: string
+): number | null {
+  const boarding = apiTimeToMinutes(boardingTime);
+  const requested = apiTimeToMinutes(travelTime);
+  if (boarding === null || requested === null) return null;
+
+  return Math.abs(boarding - requested);
+}
+
+/**
  * How close a passenger's boarding time is to the time they asked for (MOV-308).
  *
  * Both values are 'HH:MM' times of day on the same travel date. They are
@@ -478,11 +497,9 @@ export function classifyBoardingTime(
   boardingTime: string | null,
   travelTime: string
 ): BoardingTimeMatch | null {
-  const boarding = apiTimeToMinutes(boardingTime);
-  const requested = apiTimeToMinutes(travelTime);
-  if (boarding === null || requested === null) return null;
+  const difference = minutesFromRequestedTime(boardingTime, travelTime);
+  if (difference === null) return null;
 
-  const difference = Math.abs(boarding - requested);
   if (difference === 0) return 'EXACT';
   return difference <= JOURNEY_SEARCH_WINDOW_MINUTES ? 'NEARBY' : 'OUTSIDE';
 }
@@ -704,6 +721,13 @@ async function attachUpcomingTrips(
             }
           : null,
         liveStatus: buildLiveStatus(vehicleLocation, now),
+        // MOV-308 R3: measured from the very boarding time this trip was
+        // selected on, so the screen can order by closeness without repeating
+        // the timing (0 is an exact match).
+        minutesFromRequestedTime: minutesFromRequestedTime(
+          resolvePassengerBoardingTime(match, trip),
+          travelTime
+        ),
       };
     })
   );
