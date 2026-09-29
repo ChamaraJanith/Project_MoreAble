@@ -159,10 +159,12 @@ export const JourneySearchResults = () => {
 
     // Every trip on every matched route, in recommended order (MOV-88).
     //
-    // Ordering is MOV-87's `rankJourneyOptions` reading MOV-89's accessibility
-    // score — not a sort written here. It reorders and never filters, so the
-    // passenger can still compare every departure the search returned; the most
-    // accessible suitable one is simply first.
+    // Ordering is decided in `toRecommendedJourneys`, not by a sort written here.
+    // MOV-87's `rankJourneyOptions`, reading MOV-89's accessibility score, gives
+    // the accessibility order; MOV-312 then puts exact-time journeys first and
+    // nearby ones by distance from the requested time, and journeys equally close
+    // keep that accessibility order. It reorders and never filters, so the
+    // passenger can still compare every departure the search returned.
     const journeyOptions = useMemo(() => toRecommendedJourneys(routes), [routes]);
 
     // The same requirements applied again to what came back (MOV-91).

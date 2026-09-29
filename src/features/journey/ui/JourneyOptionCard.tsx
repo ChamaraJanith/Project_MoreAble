@@ -20,6 +20,7 @@ import {
     buildJourneyLegs,
     describeJourneyForDisplay,
     JourneyDisplay,
+    knownAccessibilityScore,
 } from '../utils/journeyRecommendations';
 import { formatDisplayDate } from '../utils/dateTime';
 import { JourneyTiming, resolveJourneyTiming } from '../utils/journeyTiming';
@@ -154,7 +155,7 @@ export function JourneyOptionCard({
             busModel: bus.busModel,
             departureTime: departureLabel || trip.departureTime || '',
             estimatedArrivalTime: arrivalLabel || trip.estimatedArrivalTime || '',
-            accessibilityScore: typeof accessibilityScore === 'number' ? accessibilityScore : (bus as any)?.accessibilityScore ?? 100,
+            accessibilityScore: knownAccessibilityScore(accessibilityScore, (bus as any)?.accessibilityScore),
             origin: route.origin,
             destination: route.destination,
             selectedAt: Date.now(),

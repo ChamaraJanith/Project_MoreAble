@@ -143,6 +143,12 @@ export interface JourneySearchOption {
      * from "not implemented" without guessing.
      */
     liveStatus: JourneyLiveStatus;
+    /**
+     * Minutes between the passenger's boarding time at their own origin and
+     * the time they asked for, earlier or later alike (MOV-308). 0 is an exact
+     * match. Optional because only the journey search sets it.
+     */
+    minutesFromRequestedTime?: number | null;
 }
 
 // ------------------------------------------------------------------
