@@ -393,10 +393,24 @@ describe('a partial journey on a route with no configured timings', () => {
         expect(display.distanceLabel).not.toBe('20 km');
     });
 
-    // "No duration when only one crossed segment is untimed" (Malabe -> Borella
-    // across an untimed Battaramulla -> Rajagiriya gap) is covered at the display
-    // level in tests/features/journey/journeyRecommendations.test.ts: the search
-    // reports no boarding time for that journey, so it no longer offers it.
+    it('reports no duration when only one crossed segment is untimed', async () => {
+        // Battaramulla -> Rajagiriya unmeasured, so Malabe -> Borella crosses a
+        // gap nobody has timed. A partial sum would understate the journey.
+        const { journeys, display } = await view(
+            'Malabe',
+            'Borella',
+            routeDoc({ segmentDurationsMinutes: [8, 6, null, 15, 9] })
+        );
+
+        // Still offered: the timings up to Malabe fix its 06:08 boarding time,
+        // which is what the search selects on (MOV-308).
+        expect(journeys).toHaveLength(1);
+        expect(display.durationLabel).toBeNull();
+        // What the screen shows is unchanged by that: the shared timing helper
+        // still reports no clock times for a ride it cannot fully measure.
+        expect(display.departureLabel).toBeNull();
+        expect(display.arrivalLabel).toBeNull();
+    });
 
     it('still measures a journey that avoids the untimed segment', async () => {
         const { display } = await view(

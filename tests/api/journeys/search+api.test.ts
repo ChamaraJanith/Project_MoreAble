@@ -445,6 +445,103 @@ describe('selectUpcomingTrips', () => {
         });
     });
 
+    describe('an untimed segment AFTER the passenger origin', () => {
+        // Kaduwela -(10)- Malabe -(?)- Battaramulla -(7)- Rajagiriya -(12)- Borella -(15)- Kollupitiya
+        // Everything up to Malabe is timed; the gap straight after it is not.
+        const gapAfterMalabe: Route = {
+            ...forwardRoute,
+            segmentDurationsMinutes: [10, null, 7, 12, 15],
+        };
+        const [malabeOnGap] = findMatchingRoutes([gapAfterMalabe], 'Malabe', 'Borella');
+        const [battaramullaOnGap] = findMatchingRoutes([gapAfterMalabe], 'Battaramulla', 'Borella');
+
+        const idsOnGap = (trips: Trip[], travelTime: string, travelDate = FUTURE_DATE) =>
+            selectUpcomingTrips(trips, malabeOnGap, travelTime, travelDate, NOW).map(
+                (trip) => trip.tripId
+            );
+
+        it('A: still derives the boarding time from the timings before the origin', () => {
+            const trip = buildTrip({ departureTime: '08:00' });
+
+            expect(resolvePassengerBoardingTime(malabeOnGap, trip)).toBe('08:10');
+            // The same figure a fully timed route gives, so nothing is estimated.
+            expect(resolvePassengerBoardingTime(malabeMatch, trip)).toBe('08:10');
+        });
+
+        it('A: ignores an untimed gap further down the route as well', () => {
+            const lateGap: Route = { ...forwardRoute, segmentDurationsMinutes: [10, 8, 7, null, 15] };
+            const [match] = findMatchingRoutes([lateGap], 'Battaramulla', 'Borella');
+
+            expect(resolvePassengerBoardingTime(match, buildTrip({ departureTime: '08:00' }))).toBe(
+                '08:18'
+            );
+        });
+
+        it('B: stays unavailable when a gap BEFORE the origin is untimed, with no first-stop fallback', () => {
+            // Battaramulla needs Malabe -> Battaramulla, which is the untimed gap.
+            const trip = buildTrip({ tripId: 'GAP-BEFORE', departureTime: '08:10' });
+
+            expect(resolvePassengerBoardingTime(battaramullaOnGap, trip)).toBeNull();
+            expect(
+                selectUpcomingTrips([trip], battaramullaOnGap, '08:10', FUTURE_DATE, NOW)
+            ).toEqual([]);
+        });
+
+        it('C: leaves a fully timed journey exactly as it was', () => {
+            const trips = [
+                buildTrip({ tripId: 'T1', departureTime: '07:30' }),
+                buildTrip({ tripId: 'T2', departureTime: '08:00' }),
+            ];
+
+            expect(selectedIds(trips, '08:10')).toEqual(['T1', 'T2']);
+            expect(resolvePassengerBoardingTime(malabeMatch, trips[1])).toBe('08:10');
+        });
+
+        it('D: classifies on the Malabe boarding time, not the first-stop departure', () => {
+            // Leaves Kaduwela 07:05 (65 min early) but boards Malabe 07:15 (55 min early).
+            // Leaves Kaduwela 09:05 (55 min late) but boards Malabe 09:15 (65 min late).
+            const trips = [
+                buildTrip({ tripId: 'IN', departureTime: '07:05' }),
+                buildTrip({ tripId: 'OUT', departureTime: '09:05' }),
+            ];
+
+            expect(idsOnGap(trips, '08:10')).toEqual(['IN']);
+            expect(
+                classifyBoardingTime(
+                    resolvePassengerBoardingTime(malabeOnGap, buildTrip({ departureTime: '08:00' })),
+                    '08:10'
+                )
+            ).toBe('EXACT');
+        });
+
+        it('E: keeps the inclusive ±60-minute boundaries', () => {
+            const trips = [
+                buildTrip({ tripId: 'TOO-EARLY', departureTime: '06:59' }), // boards 07:09
+                buildTrip({ tripId: 'EDGE-EARLY', departureTime: '07:00' }), // boards 07:10
+                buildTrip({ tripId: 'EDGE-LATE', departureTime: '09:00' }), // boards 09:10
+                buildTrip({ tripId: 'TOO-LATE', departureTime: '09:01' }), // boards 09:11
+            ];
+
+            expect(idsOnGap(trips, '08:10')).toEqual(['EDGE-EARLY', 'EDGE-LATE']);
+        });
+
+        it('F: applies the Colombo today check at the origin, and never to a future date', () => {
+            // Now is 08:15 in Colombo.
+            const trips = [
+                buildTrip({ tripId: 'DEPARTED', departureTime: '07:55' }), // boards 08:05
+                buildTrip({ tripId: 'BOARDING-NOW', departureTime: '08:05' }), // boards 08:15
+                buildTrip({ tripId: 'LEFT-FIRST-STOP', departureTime: '08:10' }), // boards 08:20
+            ];
+
+            expect(idsOnGap(trips, '08:10', TODAY)).toEqual(['BOARDING-NOW', 'LEFT-FIRST-STOP']);
+            expect(idsOnGap(trips, '08:10', FUTURE_DATE)).toEqual([
+                'DEPARTED',
+                'BOARDING-NOW',
+                'LEFT-FIRST-STOP',
+            ]);
+        });
+    });
+
     describe('behaviour outside the time window is unchanged', () => {
         it('excludes inactive trips', () => {
             const trips = [buildTrip({ tripId: 'TRIP-INACTIVE', departureTime: '08:00', status: 'INACTIVE' })];
