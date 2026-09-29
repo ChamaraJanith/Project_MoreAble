@@ -26,6 +26,9 @@ import {
     filterComplaintsBySearch,
     hasComplaintActions,
     isComplaintIdParam,
+    REPORT_COMPLAINT_LOOKUP_ERROR,
+    reportComplaintLookupFromResult,
+    reportComplaintView,
     resolutionNoteError,
     shouldReloadComplaintAfterFailure,
 } from '../../../src/features/admin/utils/complaintWorkflow';
@@ -301,5 +304,87 @@ describe('labels and paths', () => {
         expect(isComplaintIdParam('CMP-123456')).toBe(true);
         expect(isComplaintIdParam('REP-00001')).toBe(false);
         expect(isComplaintIdParam(undefined)).toBe(false);
+    });
+});
+
+// ------------------------------------------------------------------
+// The complaint a report already has (Review Report screen)
+//
+// The screen draws the complaint section from reportComplaintView, fed by the
+// lookup of GET /api/complaints?reportId=. The status shown is the complaint's
+// own, never the report's.
+// ------------------------------------------------------------------
+describe('the complaint section of the Review Report screen', () => {
+    const view = (result: Parameters<typeof reportComplaintLookupFromResult>[0]) =>
+        reportComplaintView(reportComplaintLookupFromResult(result));
+
+    it('offers Create Complaint when the report has no complaint', () => {
+        expect(view({ ok: true, value: [] })).toEqual({
+            showLoading: false,
+            showCreate: true,
+            error: null,
+            summary: null,
+        });
+    });
+
+    it.each([
+        ['PENDING', 'Pending'],
+        ['ASSIGNED', 'Assigned'],
+        ['IN_PROGRESS', 'In Progress'],
+        ['RESOLVED', 'Resolved'],
+    ])('shows a %s complaint as "%s" with View Complaint, never Create Complaint', (status, label) => {
+        const shown = view({ ok: true, value: [complaint({ complaintId: 'CMP-00002', status: status as any })] });
+
+        expect(shown.showCreate).toBe(false);
+        expect(shown.summary).toEqual({ complaintId: 'CMP-00002', status, statusLabel: label });
+        // View Complaint goes to the existing detail screen.
+        expect(complaintDetailsPath(shown.summary!.complaintId)).toBe('/(admin)/complaints/CMP-00002');
+    });
+
+    it('reads the complaint status, not the report status (REP-00007 → CMP-00002 RESOLVED)', () => {
+        // The report stays VERIFIED; the complaint it opened is RESOLVED.
+        const shown = view({
+            ok: true,
+            value: [complaint({ complaintId: 'CMP-00002', reportId: 'REP-00007', status: 'RESOLVED' })],
+        });
+
+        expect(shown.summary).toEqual({ complaintId: 'CMP-00002', status: 'RESOLVED', statusLabel: 'Resolved' });
+        expect(shown.showCreate).toBe(false);
+    });
+
+    it('never shows Create Complaint while the lookup is still loading', () => {
+        expect(reportComplaintView({ kind: 'loading' })).toEqual({
+            showLoading: true,
+            showCreate: false,
+            error: null,
+            summary: null,
+        });
+    });
+
+    it('shows an error rather than implying there is no complaint when the lookup fails', () => {
+        const shown = view({ ok: false, status: 500, message: 'Failed to load complaints.' });
+
+        expect(shown).toEqual({
+            showLoading: false,
+            showCreate: false,
+            error: REPORT_COMPLAINT_LOOKUP_ERROR,
+            summary: null,
+        });
+        expect(view({ ok: false, message: 'offline' }).showCreate).toBe(false);
+    });
+
+    it('words an expired session as such', () => {
+        expect(view({ ok: false, status: 401 }).error).toBe('Your session has expired. Please sign in again.');
+    });
+
+    it('never offers Create Complaint whenever a complaint is found, whatever its status', () => {
+        for (const status of ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED', 'SOMETHING_NEW']) {
+            expect(view({ ok: true, value: [complaint({ status: status as any })] }).showCreate).toBe(false);
+        }
+    });
+
+    it('asks the list API for the one report', () => {
+        expect(complaintListQuery({ reportId: 'REP-00007' })).toBe('?reportId=REP-00007');
+        expect(complaintListQuery({ reportId: 'REP 7' })).toBe('?reportId=REP%207');
     });
 });
