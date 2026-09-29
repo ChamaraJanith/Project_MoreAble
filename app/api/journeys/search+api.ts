@@ -492,15 +492,34 @@ export function classifyBoardingTime(
  * when it cannot be derived from stored data.
  *
  * Measured by `resolveJourneyTiming` over the same legs the passenger screens
- * build, so the time a trip is selected on is exactly the departure time the
- * passenger is later shown. Never the trip's first-stop `departureTime` standing
- * in for a mid-route stop.
+ * build. Never the trip's first-stop `departureTime` standing in for a
+ * mid-route stop.
+ *
+ * That helper only reports a mid-route boarding time when the passenger's
+ * whole ride is timed, so one untimed gap AFTER the origin would hide a boarding
+ * time the timings BEFORE the origin fully determine. In that case the same
+ * helper measures the ride from the route's first stop to the origin instead:
+ * its arrival there is the boarding time — the same departure-plus-timings sum,
+ * reading no segment after the origin. When those earlier timings are
+ * incomplete too, the result is still null and the trip is not a candidate.
  */
 export function resolvePassengerBoardingTime(match: JourneySearchMatch, trip: Trip): string | null {
   // Only `trip` is read when the legs are built; bus and live status play no
   // part in timing.
   const option = { trip } as Pick<JourneySearchOption, 'trip'> as JourneySearchOption;
-  return resolveJourneyTiming(buildJourneyLegs(match, option)).boardingTime;
+  const [leg] = buildJourneyLegs(match, option);
+
+  const boardingTime = resolveJourneyTiming([leg]).boardingTime;
+  if (boardingTime !== null) return boardingTime;
+
+  // The route's own end-of-line arrival plays no part in reaching the origin.
+  const toOrigin = {
+    ...leg,
+    boardStop: leg.stops[0],
+    alightStop: leg.boardStop,
+    scheduledArrivalTime: null,
+  };
+  return resolveJourneyTiming([toOrigin]).alightingTime;
 }
 
 // MoreAble's travel dates and HH:MM times are Sri Lanka wall-clock values, so
