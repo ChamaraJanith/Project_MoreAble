@@ -98,7 +98,7 @@ export default function TabLayout() {
                   </Text>
               ),
               tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="accessibility-outline" size={size} color={color} />
+                  <Ionicons name="document-text-outline" size={size} color={color} />
               ),
           }}
           listeners={{
