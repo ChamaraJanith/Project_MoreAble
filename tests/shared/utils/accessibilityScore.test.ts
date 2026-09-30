@@ -9,10 +9,12 @@ import { BusAccessibilityFacilities } from '../../../src/entities/bus/model/type
 import { reportTypeOf } from '../../../src/entities/report/model/types';
 import {
     ACCESSIBILITY_FACILITY_KEYS,
+    AccessibilityScoreEvidence,
     COMMUNITY_NEUTRAL_SCORE,
     COMMUNITY_PRIOR_WEIGHT,
     COMMUNITY_WEIGHT,
     computeAccessibilityScore,
+    computeAccessibilityScoreBreakdown,
     computeCommunityScore,
     computeFacilityScore,
     computeRatingScore,
@@ -474,5 +476,80 @@ describe('computeAccessibilityScore', () => {
                 computeAccessibilityScore(withAvailable(k), evidence)
             );
         }
+    });
+});
+
+describe('computeAccessibilityScoreBreakdown', () => {
+    const cases: [string, BusAccessibilityFacilities, AccessibilityScoreEvidence | undefined][] = [
+        ['the specification example', withAvailable(6), { community: community(8, 2), ratings: ratings(20, 84) }],
+        ['no facilities and no evidence', NONE, undefined],
+        ['every facility, poor evidence', ALL, { community: community(2, 8), ratings: ratings(5, 10) }],
+        ['an active facility issue', ALL, { unavailableFacilities: ['wheelchairRamp'] }],
+    ];
+
+    it('is the specification example, factor by factor', () => {
+        // 75 * 0.5 = 37.5;  70 * 0.3 = 21;  74 * 0.2 = 14.8
+        const factors = computeAccessibilityScoreBreakdown(withAvailable(6), {
+            community: community(8, 2),
+            ratings: ratings(20, 84),
+        });
+
+        expect(factors.map((factor) => factor.key)).toEqual(['FACILITIES', 'COMMUNITY', 'RATINGS']);
+        expect(factors.map((factor) => factor.weight)).toEqual([0.5, 0.3, 0.2]);
+        expect(factors[0].score).toBeCloseTo(75);
+        expect(factors[1].score).toBeCloseTo(70);
+        expect(factors[2].score).toBeCloseTo(74);
+        expect(factors[0].contribution).toBeCloseTo(37.5);
+        expect(factors[1].contribution).toBeCloseTo(21);
+        expect(factors[2].contribution).toBeCloseTo(14.8);
+    });
+
+    it.each(cases)('uses the canonical factor functions and weights: %s', (_label, facilities, evidence) => {
+        expect(computeAccessibilityScoreBreakdown(facilities, evidence)).toEqual([
+            {
+                key: 'FACILITIES',
+                score: computeFacilityScore(facilities, evidence?.unavailableFacilities),
+                weight: FACILITY_WEIGHT,
+                contribution: computeFacilityScore(facilities, evidence?.unavailableFacilities) * FACILITY_WEIGHT,
+            },
+            {
+                key: 'COMMUNITY',
+                score: computeCommunityScore(evidence?.community),
+                weight: COMMUNITY_WEIGHT,
+                contribution: computeCommunityScore(evidence?.community) * COMMUNITY_WEIGHT,
+            },
+            {
+                key: 'RATINGS',
+                score: computeRatingScore(evidence?.ratings),
+                weight: RATING_WEIGHT,
+                contribution: computeRatingScore(evidence?.ratings) * RATING_WEIGHT,
+            },
+        ]);
+    });
+
+    it.each(cases)('adds up to computeAccessibilityScore once rounded: %s', (_label, facilities, evidence) => {
+        const total = computeAccessibilityScoreBreakdown(facilities, evidence).reduce(
+            (sum, factor) => sum + factor.contribution,
+            0
+        );
+
+        expect(Math.round(total)).toBe(computeAccessibilityScore(facilities, evidence));
+    });
+
+    it('reads missing evidence as neutral, never zero, exactly as the score does', () => {
+        for (const evidence of [undefined, null, {}]) {
+            const factors = computeAccessibilityScoreBreakdown(undefined, evidence);
+
+            expect(factors.map((factor) => factor.score)).toEqual([0, 50, 50]);
+            expect(factors.map((factor) => factor.contribution)).toEqual([0, 15, 10]);
+        }
+    });
+
+    it('treats unusable counts as no evidence', () => {
+        const junk: any = { positiveCount: NaN, issueCount: -3 };
+
+        expect(
+            computeAccessibilityScoreBreakdown(ALL, { community: junk, ratings: { count: -1, total: 5 } as any })
+        ).toEqual(computeAccessibilityScoreBreakdown(ALL));
     });
 });

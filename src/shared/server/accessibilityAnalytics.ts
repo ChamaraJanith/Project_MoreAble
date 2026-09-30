@@ -45,7 +45,6 @@ import { BusRating } from '../../entities/rating/model/types';
 import { reportTypeOf } from '../../entities/report/model/types';
 import {
     AccessibilityAnalytics,
-    AccessibilityFactorBreakdown,
     AnalyticsHistoryEntry,
     AnalyticsReport,
     AnalyticsRoute,
@@ -64,13 +63,8 @@ import { accessibilityScoreBand } from '../../features/admin/utils/accessibility
 import {
     ACCESSIBILITY_FACILITY_KEYS,
     AccessibilityScoreEvidence,
-    COMMUNITY_WEIGHT,
-    FACILITY_WEIGHT,
-    RATING_WEIGHT,
     computeAccessibilityScore,
-    computeCommunityScore,
-    computeFacilityScore,
-    computeRatingScore,
+    computeAccessibilityScoreBreakdown,
     isCountedCommunityReport,
     isFacilityEffectivelyAvailable,
     tallyPassengerRatings,
@@ -212,8 +206,9 @@ export function scoreBuses(records: AccessibilityAnalyticsRecords): ScoredBus[] 
 //
 // The same evidence `scoreBuses` builds, handed to the same MOV-79 functions.
 // The total is `computeAccessibilityScore` called as it is; the three factors
-// are MOV-79's own `computeFacilityScore`, `computeCommunityScore` and
-// `computeRatingScore` with its own weight constants — the calls the score
+// are MOV-79's own `computeAccessibilityScoreBreakdown` — `computeFacilityScore`,
+// `computeCommunityScore` and `computeRatingScore` with its own weight
+// constants, the calls the score
 // history (MOV-113) already makes to record the components. So the figures the
 // admin reads are the figures the score was made of, and there is no second
 // formula anywhere in this file.
@@ -263,15 +258,7 @@ export function summarizeBusAccessibility(
 
     const accessibilityScore = computeAccessibilityScore(facilities, evidence);
 
-    const factors: AccessibilityFactorBreakdown[] = [
-        {
-            key: 'FACILITIES' as const,
-            score: computeFacilityScore(facilities, evidence.unavailableFacilities),
-            weight: FACILITY_WEIGHT,
-        },
-        { key: 'COMMUNITY' as const, score: computeCommunityScore(evidence.community), weight: COMMUNITY_WEIGHT },
-        { key: 'RATINGS' as const, score: computeRatingScore(evidence.ratings), weight: RATING_WEIGHT },
-    ].map((factor) => ({ ...factor, contribution: factor.score * factor.weight }));
+    const factors = computeAccessibilityScoreBreakdown(facilities, evidence);
 
     const facilityList: BusFacilityAvailability[] = ACCESSIBILITY_FACILITY_KEYS.map((key) => ({
         key,
