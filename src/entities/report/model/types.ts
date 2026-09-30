@@ -134,6 +134,15 @@ export function isReportStatus(value: unknown): value is ReportStatus {
 /** Enough evidence to describe an issue without making the form unwieldy. */
 export const MAX_REPORT_PHOTOS = 5;
 
+/**
+ * Long enough for a short account, short enough to stay a report.
+ *
+ * The number both forms cap typing at (the issue form and positive feedback),
+ * enforced again by the API on create and on edit — so a request that skips
+ * the form cannot store what the form would never have let through.
+ */
+export const MAX_REPORT_DESCRIPTION_LENGTH = 600;
+
 /** Which slice of the reports collection the list screen is showing. */
 export type ReportScope = 'all' | 'my' | 'verified';
 
@@ -374,6 +383,11 @@ export interface ReportCommentRecord {
     text: string;
     /** ISO 8601, so it formats through the same helper as every other date. */
     createdAt: string;
+    /**
+     * When its author last edited it (ISO 8601). Absent on a comment that has
+     * never been edited, which is what tells the two apart.
+     */
+    editedAt?: string;
 }
 
 /** How a report stands with the community, and where this session sits in it. */
@@ -478,7 +492,10 @@ export function isPubliclyVisibleReport(
 }
 
 /** The role that sees every report, for the admin review workflow. */
-const REPORT_ADMIN_ROLE = 'ADMIN';
+export const REPORT_ADMIN_ROLE = 'ADMIN';
+
+/** The role a passenger's own session carries. */
+export const REPORT_PASSENGER_ROLE = 'PASSENGER';
 
 /**
  * Whether a session may see a report at all: an admin sees everything, an

@@ -20,6 +20,8 @@
 import {
     MAX_REPORT_COMMENT_LENGTH,
     REPORT_ADMIN_REVIEW_AGREE_THRESHOLD,
+    REPORT_ADMIN_ROLE,
+    REPORT_PASSENGER_ROLE,
     ReportCommentRecord,
     ReportVoteChoice,
     canViewReport,
@@ -27,6 +29,7 @@ import {
 } from '../../entities/report/model/types';
 import { authenticateRequest, unauthorizedResponse } from '../api/authMiddleware';
 import { getAdminDb } from '../config/firebaseAdmin';
+import { JwtPayload } from '../config/jwt';
 
 // Re-exported so a route takes the cap and the threshold from the module that
 // enforces them rather than restating either number.
@@ -42,10 +45,27 @@ export const feedbackCorsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-export function feedbackErrorResponse(status: number, message: string): Response {
+/**
+ * The headers for one comment's own route, which edits and removes it.
+ *
+ * Kept apart from feedbackCorsHeaders because the vote route and the thread
+ * route answer GET and POST only, and advertising PATCH or DELETE on them would
+ * describe methods they do not have.
+ */
+export const commentCorsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export function feedbackErrorResponse(
+    status: number,
+    message: string,
+    headers: Record<string, string> = feedbackCorsHeaders
+): Response {
     return Response.json(
         { success: false, message },
-        { status, headers: feedbackCorsHeaders }
+        { status, headers }
     );
 }
 
@@ -102,9 +122,36 @@ export function reportVoteDocumentId(reportId: string, passengerId: string): str
     return `${reportId}__${passengerId}`;
 }
 
+/**
+ * The comment id out of /api/reports/:reportId/comments/:commentId.
+ *
+ * Read the same way as the report id: from the router's params where they are
+ * given, and from the path otherwise — here the segment straight after
+ * `comments`.
+ */
+export function extractFeedbackCommentId(request: Request, context: any): string {
+    if (context?.params?.commentId) return String(context.params.commentId).trim();
+    if (context?.commentId) return String(context.commentId).trim();
+
+    try {
+        const url = new URL(request.url);
+        const parts = url.pathname.split('/').filter(Boolean);
+        const segmentIndex = parts.lastIndexOf('comments');
+        const candidate = segmentIndex >= 0 ? parts[segmentIndex + 1] : '';
+
+        if (candidate) return decodeURIComponent(candidate).trim();
+    } catch {
+        // A malformed url simply yields no id, and the caller answers 400.
+    }
+
+    return '';
+}
+
 export interface FeedbackContext {
     /** The verified passenger. Never a value taken from the request body. */
     passengerId: string;
+    /** Whether the verified session is an admin's. Never read from the body. */
+    isAdmin: boolean;
     reportId: string;
     reportRef: any;
     report: Record<string, any>;
@@ -112,36 +159,97 @@ export interface FeedbackContext {
 }
 
 /**
+ * What a feedback request is about to do, which decides who may make it.
+ *
+ *   read      any session that can see the report — unchanged since MOV-145
+ *   write     a genuine passenger only: casting a vote, writing a comment,
+ *             editing one's own comment
+ *   moderate  a genuine passenger (for their own comment) or an admin (for
+ *             any comment) — removing a comment
+ */
+export type FeedbackAccess = 'read' | 'write' | 'moderate';
+
+/**
+ * Whether this session is a passenger speaking for themselves.
+ *
+ * Community feedback is one passenger's voice, attributed by the passengerId on
+ * the verified token. A bus device session carries no passenger at all, a
+ * journey-sharing credential is narrowed (`scope`) to reporting one bus's
+ * position and carries the bus's id where a passenger's would be, and an admin
+ * decides reports rather than taking a side on them — none of them is a
+ * passenger whose vote or comment it would be.
+ */
+export function isPassengerSession(user: JwtPayload | null | undefined): boolean {
+    return (
+        user?.role === REPORT_PASSENGER_ROLE &&
+        !user.scope &&
+        typeof user.passengerId === 'string' &&
+        user.passengerId.trim().length > 0
+    );
+}
+
+/** Whether this session is an unscoped admin's. */
+export function isAdminSession(user: JwtPayload | null | undefined): boolean {
+    return user?.role === REPORT_ADMIN_ROLE && !user.scope;
+}
+
+function canTakeFeedbackAction(user: JwtPayload, access: FeedbackAccess): boolean {
+    if (access === 'read') return true;
+    if (access === 'write') return isPassengerSession(user);
+
+    return isPassengerSession(user) || isAdminSession(user);
+}
+
+/**
  * Authenticates the caller and loads the report they are addressing.
  *
- * Shared by all four handlers so 401 / 400 / 404 mean the same thing on every
- * one of them, and so no route can forget to check that the report exists
- * before writing a vote or a comment against its id.
+ * Shared by every feedback handler so 401 / 400 / 403 / 404 mean the same thing
+ * on each, and so no route can forget to check that the report exists before
+ * writing a vote or a comment against its id.
  *
- * Reading and writing feedback are open to any authenticated passenger who can
- * see the report, matching GET /api/reports/[reportId]: a report in the public
- * feed, the caller's own report in any status, or any report for an admin.
- * Community feedback is the one part of a report that is explicitly not the
- * author's alone.
+ * Reading feedback is open to any authenticated session that can see the
+ * report, matching GET /api/reports/[reportId]: a report in the public feed,
+ * the caller's own report in any status, or any report for an admin. Community
+ * feedback is the one part of a report that is explicitly not the author's
+ * alone.
+ *
+ * Writing it is narrower (see `access`): only a genuine passenger votes or
+ * comments, and is refused with 403 before the report is even looked up — so a
+ * session that may not write learns nothing about which reports exist.
  */
 export async function loadFeedbackContext(
     request: Request,
     context: any,
-    segment: ReportSubrouteSegment
+    segment: ReportSubrouteSegment,
+    options: { access?: FeedbackAccess; headers?: Record<string, string> } = {}
 ): Promise<{ ok: true; value: FeedbackContext } | { ok: false; response: Response }> {
+    const access = options.access ?? 'read';
+    const headers = options.headers ?? feedbackCorsHeaders;
+
     const user = await authenticateRequest(request);
 
     if (!user) {
         return {
             ok: false,
-            response: unauthorizedResponse('Authentication required.', feedbackCorsHeaders),
+            response: unauthorizedResponse('Authentication required.', headers),
+        };
+    }
+
+    if (!canTakeFeedbackAction(user, access)) {
+        return {
+            ok: false,
+            response: feedbackErrorResponse(
+                403,
+                'Only passengers can vote on or comment on accessibility reports.',
+                headers
+            ),
         };
     }
 
     const reportId = extractFeedbackReportId(request, context, segment);
 
     if (!reportId) {
-        return { ok: false, response: feedbackErrorResponse(400, 'Report ID is required.') };
+        return { ok: false, response: feedbackErrorResponse(400, 'Report ID is required.', headers) };
     }
 
     const adminDb = getAdminDb();
@@ -155,13 +263,14 @@ export async function loadFeedbackContext(
     // are neither readable nor writable, the same visibility the report itself
     // has (`canViewReport`).
     if (!report || !canViewReport(report, user)) {
-        return { ok: false, response: feedbackErrorResponse(404, 'Report not found.') };
+        return { ok: false, response: feedbackErrorResponse(404, 'Report not found.', headers) };
     }
 
     return {
         ok: true,
         value: {
             passengerId: user.passengerId,
+            isAdmin: isAdminSession(user),
             reportId,
             reportRef,
             report,
@@ -360,6 +469,9 @@ export function serializeReportComment(
         authorName: data.authorName || 'Passenger',
         text: data.text,
         createdAt: toIsoString(data.createdAt),
+        // Only on a comment that has actually been edited, so an unedited one
+        // reads exactly as it always has.
+        ...(data.editedAt ? { editedAt: toIsoString(data.editedAt) } : {}),
     };
 }
 

@@ -23,6 +23,7 @@
  */
 
 import {
+    MAX_REPORT_DESCRIPTION_LENGTH,
     POSITIVE_FEEDBACK_CATEGORIES,
     PositiveFeedbackCategory,
     REPORT_TYPES,
@@ -88,13 +89,24 @@ export function readRequestedReportType(body: Record<string, any>): ReportConten
 /**
  * The description, trimmed, or why it cannot be stored. Shared wording with
  * the checks that have always guarded issue reports.
+ *
+ * The cap is measured after trimming, as the comment cap is, so padding that
+ * would be stripped anyway never pushes a description over it.
  */
 function readDescription(description: unknown): ReportContentValidation<string> {
     if (typeof description !== 'string' || !description.trim()) {
         return invalid('Description cannot be empty.');
     }
 
-    return { ok: true, value: description.trim() };
+    const trimmed = description.trim();
+
+    if (trimmed.length > MAX_REPORT_DESCRIPTION_LENGTH) {
+        return invalid(
+            `A description can be at most ${MAX_REPORT_DESCRIPTION_LENGTH} characters.`
+        );
+    }
+
+    return { ok: true, value: trimmed };
 }
 
 /**

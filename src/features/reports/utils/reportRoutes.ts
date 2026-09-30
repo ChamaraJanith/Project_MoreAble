@@ -97,6 +97,16 @@ export function reportCommentsApiPath(reportId: string): string {
 }
 
 /**
+ * One comment in that thread: `/api/reports/REP-00007/comments/CMT-00001`.
+ *
+ * PATCH rewords it (its author only) and DELETE removes it (its author, or an
+ * admin moderating the thread). Both ids are encoded rather than pasted in.
+ */
+export function reportCommentApiPath(reportId: string, commentId: string): string {
+    return `${reportCommentsApiPath(reportId)}/${encodeURIComponent(commentId)}`;
+}
+
+/**
  * This report's admin review: `/api/reports/REP-00007/review`.
  *
  * GET reads everything an admin needs to decide the report — the report, the

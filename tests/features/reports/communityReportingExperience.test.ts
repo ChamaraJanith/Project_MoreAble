@@ -77,9 +77,66 @@ describe('own comment indicator', () => {
             expect(admin).not.toContain('isOwn=');
         });
 
-        it('offers no edit, delete or moderation of comments', () => {
-            expect(comments).not.toMatch(/delete/i);
-            expect(comments).not.toMatch(/moderat/i);
+        // MOV-306 — comment management replaces the MOV-305 rule that the thread
+        // offered no edit, delete or moderation at all.
+        it('wires Edit and Delete in the passenger thread only under isOwnComment', () => {
+            // The actions are built by one helper that returns nothing at all
+            // unless the signed-in passenger wrote the comment...
+            expect(comments).toContain('const ownCommentActions = (comment: ReportCommentRecord) => {');
+            expect(comments).toContain(
+                'if (!isOwnComment(comment, viewerPassengerId)) return {};'
+            );
+            expect(comments).toContain('onEdit: onStartEdit ?');
+            expect(comments).toContain('onDelete: onRequestDelete ?');
+
+            // ...and that helper is the only way they reach a row.
+            expect(comments).toContain('{...ownCommentActions(comment)}');
+            expect(comments.match(/onEdit: /g)).toHaveLength(1);
+            expect(comments.match(/onDelete: /g)).toHaveLength(1);
+        });
+
+        it('keeps the "You" chip exactly as it was', () => {
+            expect(comments).toContain('{isOwn && (');
+            expect(comments).toContain('<Text style={styles.ownChipText}>{OWN_COMMENT_LABEL}</Text>');
+        });
+
+        it('gives the admin thread Remove, but no Edit and no "You" marker', () => {
+            expect(admin).toContain('onDelete={() => setCommentToRemove(comment)}');
+            expect(admin).toContain('deleteLabel="Remove"');
+            expect(admin).not.toContain('onEdit');
+            expect(admin).not.toContain('isOwn');
+        });
+
+        it('confirms a delete with ConfirmDialog on both screens', () => {
+            expect(community).toContain('<ConfirmDialog');
+            expect(community).toContain('title="Delete Comment"');
+            expect(community).toContain(
+                'message="Are you sure you want to delete this comment? This cannot be undone."'
+            );
+            expect(community).toContain('confirmLabel="Delete Comment"');
+
+            expect(admin).toContain('title="Remove Comment?"');
+            expect(admin).toContain(
+                `message="This permanently removes the comment from the report's discussion."`
+            );
+            expect(admin).toContain('confirmLabel="Remove Comment"');
+        });
+
+        it('marks both ConfirmDialogs destructive', () => {
+            const communityDialog = community.slice(community.indexOf('title="Delete Comment"'));
+            const adminDialog = admin.slice(admin.indexOf('title="Remove Comment?"'));
+
+            expect(communityDialog.slice(0, 400)).toContain('destructive');
+            expect(adminDialog.slice(0, 400)).toContain('destructive');
+        });
+
+        it('keeps a comment that failed to post reported under the votes, as before', () => {
+            expect(community).toContain(
+                '{state.submitError && <FeedbackError message={state.submitError} />}'
+            );
+            expect(comments).toContain(
+                '{commentActionError && <CommentsError message={commentActionError} />}'
+            );
         });
     });
 });

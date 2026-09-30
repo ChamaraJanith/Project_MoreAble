@@ -22,10 +22,11 @@ export async function OPTIONS() {
 //
 // Adds one comment to the report's thread. The passenger writing it comes from
 // the verified token, so a comment can only ever be attributed to whoever
-// actually sent the request.
+// actually sent the request — which is also why only a genuine passenger
+// session may write one (403 otherwise).
 export async function POST(request: Request, context: any) {
   try {
-    const loaded = await loadFeedbackContext(request, context, 'comments');
+    const loaded = await loadFeedbackContext(request, context, 'comments', { access: 'write' });
 
     if (!loaded.ok) return loaded.response;
 

@@ -48,9 +48,14 @@ async function readMyVote(
 // twice and the tally does not move, while Agree then Disagree replaces it.
 // That is the whole one-passenger-one-voice rule, and it is enforced by the key
 // rather than by the app remembering what it last sent.
+//
+// Passengers only (403 otherwise): a bus device, a journey-sharing credential
+// or an admin has no passenger voice to cast. Which reports a passenger may vote
+// on is unchanged — any report they can see, verified issues and positive
+// feedback included.
 export async function POST(request: Request, context: any) {
   try {
-    const loaded = await loadFeedbackContext(request, context, 'vote');
+    const loaded = await loadFeedbackContext(request, context, 'vote', { access: 'write' });
 
     if (!loaded.ok) return loaded.response;
 

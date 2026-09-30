@@ -1,6 +1,6 @@
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useReducer, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     StyleSheet,
@@ -8,14 +8,17 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { ReportType } from '../../../entities/report/model/types';
+import { ReportCommentRecord, ReportType } from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
+import { ConfirmDialog } from '../../admin/ui/AdminStates';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import {
+    deleteReportComment,
     fetchReportComments,
     fetchReportVotes,
     submitReportComment,
     submitReportVote,
+    updateReportComment,
 } from '../api/reportFeedbackApi';
 import {
     FeedbackVote,
@@ -29,6 +32,8 @@ import {
     initialFeedbackState,
     reportFeedbackReducer,
     shouldSendComment,
+    shouldSendCommentDelete,
+    shouldSendCommentEdit,
     shouldSendVote,
     votesLoadErrorMessage,
 } from '../utils/reportFeedbackState';
@@ -66,6 +71,20 @@ interface CommunityFeedbackProps {
 export function CommunityFeedback({ reportId, reportType, token }: CommunityFeedbackProps) {
     const [state, dispatch] = useReducer(reportFeedbackReducer, initialFeedbackState);
     const [draft, setDraft] = useState('');
+
+    // What is in the open editor. Which comment is open lives in the reducer
+    // (`editingCommentId`), so only one can ever be open at a time.
+    const [editDraft, setEditDraft] = useState('');
+
+    /** The comment awaiting delete confirmation, or null when no dialog is open. */
+    const [commentToDelete, setCommentToDelete] = useState<ReportCommentRecord | null>(null);
+
+    /** The report currently on screen, so a late reload cannot land on another. */
+    const currentReportId = useRef(reportId);
+
+    useEffect(() => {
+        currentReportId.current = reportId;
+    }, [reportId]);
 
     // Only to mark the viewer's own comments "You". Who is commenting is still
     // taken from the token by the API, never sent from here.
@@ -154,6 +173,93 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
         setDraft('');
     }, [reportId, token, state, draft]);
 
+    // --------------------------------
+    // The passenger's own comments (MOV-306)
+    //
+    // Offered only on comments the signed-in passenger wrote — FeedbackComments
+    // decides that with isOwnComment — and the API checks it again from the
+    // token. A 404 means the comment is gone, or the report is no longer
+    // visible to this passenger, so the thread is read again rather than left
+    // showing something that is not there.
+    // --------------------------------
+    const reloadComments = useCallback(async () => {
+        if (!reportId || !token) return;
+
+        const result = await fetchReportComments(reportId, token);
+
+        if (currentReportId.current !== reportId) return;
+
+        if (result.ok) dispatch({ type: 'commentsLoaded', comments: result.value });
+        else dispatch({ type: 'commentsFailed' });
+    }, [reportId, token]);
+
+    const handleStartEdit = useCallback((comment: ReportCommentRecord) => {
+        dispatch({ type: 'commentEditOpened', commentId: comment.commentId });
+        setEditDraft(comment.text);
+    }, []);
+
+    const handleCancelEdit = useCallback(() => {
+        dispatch({ type: 'commentEditCancelled' });
+        setEditDraft('');
+    }, []);
+
+    // The editor stays open with the passenger's words in it until the edit is
+    // stored; the row then shows the server's text and "Edited", in place.
+    const handleSaveEdit = useCallback(async () => {
+        const commentId = state.editingCommentId;
+
+        if (!token || !commentId || !shouldSendCommentEdit(state, commentId, editDraft)) return;
+
+        dispatch({ type: 'commentEditStarted', commentId });
+
+        const result = await updateReportComment(reportId, commentId, editDraft.trim(), token);
+
+        if (result.ok) {
+            dispatch({ type: 'commentEditSucceeded', comment: result.value });
+            setEditDraft('');
+            return;
+        }
+
+        dispatch({ type: 'commentEditFailed' });
+
+        if (result.status === 404) reloadComments();
+    }, [reportId, token, state, editDraft, reloadComments]);
+
+    const handleRequestDelete = useCallback(
+        (comment: ReportCommentRecord) => {
+            if (state.pendingCommentAction !== null) return;
+
+            setCommentToDelete(comment);
+        },
+        [state.pendingCommentAction]
+    );
+
+    // The dialog stays open and busy while the delete is in flight, then
+    // closes either way: a failure is said inside the comments card.
+    const confirmDeleteComment = useCallback(async () => {
+        const target = commentToDelete;
+
+        if (!token || !target || !shouldSendCommentDelete(state, target.commentId)) {
+            setCommentToDelete(null);
+            return;
+        }
+
+        dispatch({ type: 'commentDeleteStarted', commentId: target.commentId });
+
+        const result = await deleteReportComment(reportId, target.commentId, token);
+
+        setCommentToDelete(null);
+
+        if (result.ok) {
+            dispatch({ type: 'commentDeleteSucceeded', commentId: target.commentId });
+            return;
+        }
+
+        dispatch({ type: 'commentDeleteFailed' });
+
+        if (result.status === 404) reloadComments();
+    }, [reportId, token, state, commentToDelete, reloadComments]);
+
     const votesError = votesLoadErrorMessage(state);
     const commentsError = commentsLoadErrorMessage(state);
     const commentCount = commentCountLabelValue(state);
@@ -234,8 +340,29 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
                     onChangeDraft={setDraft}
                     onSubmit={handleSubmitComment}
                     viewerPassengerId={viewerPassengerId}
+                    editingCommentId={state.editingCommentId}
+                    editDraft={editDraft}
+                    onChangeEditDraft={setEditDraft}
+                    onStartEdit={handleStartEdit}
+                    onCancelEdit={handleCancelEdit}
+                    onSaveEdit={handleSaveEdit}
+                    onRequestDelete={handleRequestDelete}
+                    pendingCommentAction={state.pendingCommentAction}
+                    commentActionError={state.commentActionError}
                 />
             </View>
+
+            {/* A comment is not taken back without being confirmed first. */}
+            <ConfirmDialog
+                visible={commentToDelete !== null}
+                title="Delete Comment"
+                message="Are you sure you want to delete this comment? This cannot be undone."
+                confirmLabel="Delete Comment"
+                destructive
+                isBusy={state.pendingCommentAction?.kind === 'delete'}
+                onCancel={() => setCommentToDelete(null)}
+                onConfirm={confirmDeleteComment}
+            />
         </>
     );
 }

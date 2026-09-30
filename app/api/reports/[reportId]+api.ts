@@ -11,6 +11,7 @@ import {
 } from '../../../src/shared/api/authMiddleware';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
+import { withoutReviewerIdentity } from '../../../src/shared/server/reportAdminReview';
 import { readReportContent } from '../../../src/shared/server/reportContent';
 import { isCountedCommunityReport } from '../../../src/shared/utils/accessibility';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
@@ -75,11 +76,16 @@ function extractReportId(request: Request, context: any): string {
  *
  * Firestore hands back Timestamps, which do not survive JSON as dates — the
  * same conversion the list endpoint does, so a report reads identically whether
- * it arrived from the list or from here.
+ * it arrived from the list or from here — including leaving out the reviewing
+ * admin's uid for anybody but an admin (`withoutReviewerIdentity`).
  */
-function serializeReport(data: Record<string, any>, documentId: string) {
+function serializeReport(
+  data: Record<string, any>,
+  documentId: string,
+  viewer: { role?: unknown } | null | undefined
+) {
   return {
-    ...data,
+    ...withoutReviewerIdentity(data, viewer),
     documentId,
     createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
     updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
@@ -132,7 +138,14 @@ async function loadReport(
   context: any,
   options: { requireOwner: boolean }
 ): Promise<
-  | { ok: true; docRef: any; report: Record<string, any>; passengerId: string; isOwner: boolean }
+  | {
+      ok: true;
+      docRef: any;
+      report: Record<string, any>;
+      passengerId: string;
+      isOwner: boolean;
+      viewer: { role?: unknown };
+    }
   | { ok: false; response: Response }
 > {
   const user = await authenticateRequest(request);
@@ -178,7 +191,14 @@ async function loadReport(
     return { ok: false, response: errorResponse(404, 'Report not found.') };
   }
 
-  return { ok: true, docRef, report, passengerId: user.passengerId, isOwner };
+  return {
+    ok: true,
+    docRef,
+    report,
+    passengerId: user.passengerId,
+    isOwner,
+    viewer: { role: user.role },
+  };
 }
 
 // GET /api/reports/[reportId]
@@ -197,7 +217,7 @@ export async function GET(request: Request, context: any) {
       {
         success: true,
         message: 'Accessibility report retrieved successfully.',
-        report: serializeReport(loaded.report, loaded.docRef.id),
+        report: serializeReport(loaded.report, loaded.docRef.id, loaded.viewer),
         isOwner: loaded.isOwner,
       },
       {
@@ -244,9 +264,11 @@ export async function PUT(request: Request, context: any) {
     // --------------------------------
     // Read request body
     // --------------------------------
+    // A body that is not JSON, or not an object — a list included — is a
+    // malformed request, refused the way POST /api/reports refuses one.
     const body = await request.json().catch(() => null);
 
-    if (!body || typeof body !== 'object') {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return errorResponse(400, 'Invalid request body.');
     }
 
@@ -381,7 +403,7 @@ export async function PUT(request: Request, context: any) {
           reportType === 'POSITIVE'
             ? 'Positive accessibility feedback updated successfully.'
             : 'Accessibility report updated successfully.',
-        report: serializeReport(updatedReport, docRef.id),
+        report: serializeReport(updatedReport, docRef.id, loaded.viewer),
       },
       {
         status: 200,

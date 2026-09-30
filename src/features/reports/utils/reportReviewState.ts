@@ -47,6 +47,16 @@ export interface ReportReviewState {
     actionError: string | null;
     /** What just succeeded, in the API's own words. Cleared on the next action. */
     successMessage: string | null;
+    /**
+     * The comment an admin is removing, while the request is in flight (MOV-306).
+     *
+     * Deliberately NOT `pendingAction`: removing a comment moderates the
+     * thread, it does not decide the report. Tracking it apart means Verify,
+     * Reject and Save Remark neither wait on it nor are blocked by it.
+     */
+    removingCommentId: string | null;
+    /** Why the last comment removal failed, or null. Never a decision failure. */
+    commentRemovalError: string | null;
 }
 
 export const initialReviewState: ReportReviewState = {
@@ -57,6 +67,8 @@ export const initialReviewState: ReportReviewState = {
     pendingAction: null,
     actionError: null,
     successMessage: null,
+    removingCommentId: null,
+    commentRemovalError: null,
 };
 
 export type ReviewPageAction =
@@ -66,7 +78,10 @@ export type ReviewPageAction =
     | { type: 'reportMissing' }
     | { type: 'actionStarted'; action: ReportReviewAction }
     | { type: 'actionSucceeded'; report: AdminReviewReport; message: string }
-    | { type: 'actionFailed'; message: string };
+    | { type: 'actionFailed'; message: string }
+    | { type: 'commentRemovalStarted'; commentId: string }
+    | { type: 'commentRemovalSucceeded'; commentId: string }
+    | { type: 'commentRemovalFailed'; message: string };
 
 export function reportReviewReducer(
     state: ReportReviewState,
@@ -119,6 +134,7 @@ export function reportReviewReducer(
                 comments: [],
                 loadError: null,
                 pendingAction: null,
+                removingCommentId: null,
             };
 
         // The button goes busy and the report stays exactly as it was, so
@@ -154,9 +170,72 @@ export function reportReviewReducer(
                 successMessage: null,
             };
 
+        // ---- Removing a comment (MOV-306) ----
+        //
+        // None of these touch pendingAction, actionError or successMessage:
+        // what the admin decided about the report is a separate matter from
+        // what they removed from its discussion.
+
+        // Refused while another removal is in flight, and for a comment that is
+        // not on the page — there is nothing on screen for it to change.
+        case 'commentRemovalStarted':
+            if (
+                state.removingCommentId !== null ||
+                !state.comments.some((entry) => entry.commentId === action.commentId)
+            ) {
+                return state;
+            }
+
+            return {
+                ...state,
+                removingCommentId: action.commentId,
+                commentRemovalError: null,
+            };
+
+        // The comment leaves the thread, and the Comments tally is the length of
+        // the thread that remains — the same count the review route derives
+        // from the comments it returns. The screen reloads behind this to take
+        // the server's figures.
+        case 'commentRemovalSucceeded': {
+            const comments = state.comments.filter(
+                (entry) => entry.commentId !== action.commentId
+            );
+
+            return {
+                ...state,
+                comments,
+                report: state.report ? { ...state.report, commentCount: comments.length } : null,
+                removingCommentId: null,
+                commentRemovalError: null,
+            };
+        }
+
+        // The comment stays exactly where it was.
+        case 'commentRemovalFailed':
+            return {
+                ...state,
+                removingCommentId: null,
+                commentRemovalError: action.message,
+            };
+
         default:
             return state;
     }
+}
+
+/**
+ * Whether a confirmed comment removal should send anything.
+ *
+ * Not while another removal is in flight, not before there is a report on the
+ * page, and not for a comment that is no longer in the thread. Verify, Reject
+ * and Save Remark being busy is no reason to refuse: a removal is not one of
+ * them.
+ */
+export function shouldSendCommentRemoval(state: ReportReviewState, commentId: string): boolean {
+    if (state.removingCommentId !== null) return false;
+    if (!state.report || state.status === 'missing') return false;
+
+    return state.comments.some((entry) => entry.commentId === commentId);
 }
 
 // ------------------------------------------------------------------
