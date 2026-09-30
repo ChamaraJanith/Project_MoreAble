@@ -86,7 +86,13 @@ const STOP_DOCS = [
     makeStop('Borella', 6.9147, 79.8778),
 ];
 
-const route177 = makeRoute(R177, STOPS_177, { routeNumber: '177', distanceKm: 20 });
+// Timed, so a passenger boarding partway along has a derivable boarding time
+// (MOV-308 R1): Malabe is 8 minutes after Kaduwela.
+const route177 = makeRoute(R177, STOPS_177, {
+    routeNumber: '177',
+    distanceKm: 20,
+    segmentDurationsMinutes: [8, 6, 12, 15],
+});
 const route138 = makeRoute(R138, STOPS_138, { routeNumber: '138', distanceKm: 18 });
 
 /** Exactly one requirement recorded, on an otherwise unequipped vehicle. */
@@ -127,20 +133,21 @@ const buses: Stored<Bus>[] = [
     makeBus('BUS-NOFACILITIES', 'NB-1009', undefined),
 ];
 
-// Departure times are distinct so a trip is identifiable in a ranked list.
+// Departure times are distinct so a trip is identifiable in a ranked list, and
+// all of them board within ±60 minutes of the default 06:45 request (MOV-308).
 const trips = [
     makeTrip('T-FULL', R177, 'BUS-FULL', '06:00'),
-    makeTrip('T-RAMP', R177, 'BUS-RAMP', '06:30'),
-    makeTrip('T-PRIORITY', R177, 'BUS-PRIORITY', '07:00'),
-    makeTrip('T-AUDIO', R177, 'BUS-AUDIO', '07:30'),
-    makeTrip('T-LOWFLOOR', R177, 'BUS-LOWFLOOR', '08:00'),
-    makeTrip('T-WALKING', R177, 'BUS-WALKING', '08:30'),
-    makeTrip('T-NONE', R177, 'BUS-NONE', '09:00'),
-    makeTrip('T-MALFORMED', R177, 'BUS-MALFORMED', '09:30'),
-    makeTrip('T-NOFACILITIES', R177, 'BUS-NOFACILITIES', '10:00'),
+    makeTrip('T-RAMP', R177, 'BUS-RAMP', '06:10'),
+    makeTrip('T-PRIORITY', R177, 'BUS-PRIORITY', '06:20'),
+    makeTrip('T-AUDIO', R177, 'BUS-AUDIO', '06:30'),
+    makeTrip('T-LOWFLOOR', R177, 'BUS-LOWFLOOR', '06:40'),
+    makeTrip('T-WALKING', R177, 'BUS-WALKING', '06:50'),
+    makeTrip('T-NONE', R177, 'BUS-NONE', '07:00'),
+    makeTrip('T-MALFORMED', R177, 'BUS-MALFORMED', '07:10'),
+    makeTrip('T-NOFACILITIES', R177, 'BUS-NOFACILITIES', '07:20'),
     // Names a bus that is not in the fleet collection, so the option carries
     // `bus: null` exactly as production does for a deleted vehicle.
-    makeTrip('T-NOBUS', R177, 'BUS-DELETED', '10:30'),
+    makeTrip('T-NOBUS', R177, 'BUS-DELETED', '07:30'),
     makeTrip('T138-NONE', R138, 'BUS-NONE', '06:15'),
 ];
 
@@ -162,7 +169,7 @@ async function search(options: SearchOptions = {}) {
         origin: options.origin ?? 'Kaduwela',
         destination: options.destination ?? 'Borella',
         travelDate: '2026-08-25',
-        travelTime: options.travelTime ?? '05:00',
+        travelTime: options.travelTime ?? '06:45',
     };
 
     if (!options.omitRequirements) {
@@ -467,7 +474,8 @@ describe('a route left with no suitable departure', () => {
                     origin: 'Kaduwela',
                     destination: 'Borella',
                     travelDate: '2026-08-25',
-                    travelTime: '05:00',
+                    // The departure is in the window, so only the requirement removes it.
+                    travelTime: '06:15',
                     accessibilityRequirements: ['wheelchairRamp'],
                 }),
             })
@@ -554,13 +562,14 @@ describe('what filtering must leave alone', () => {
 // THE EXISTING SEARCH FILTERS STILL APPLY
 // ==================================================================
 describe('alongside the existing search criteria', () => {
-    it('still excludes departures before the requested travel time', async () => {
+    it('still excludes departures more than 60 minutes from the requested travel time', async () => {
         const { json } = await search({
             accessibilityRequirements: ['wheelchairRamp'],
-            travelTime: '06:15',
+            travelTime: '07:05',
         });
 
-        // T-FULL departs 06:00 and is in the past for this search; T-RAMP is not.
+        // MOV-308 searches ±60 minutes either side: T-FULL (06:00) is 65 minutes
+        // early and excluded; T-RAMP (06:10) is 55 minutes early and kept.
         expect(tripIdsOf(json)).toEqual(['T-RAMP']);
     });
 

@@ -55,7 +55,9 @@ function storedReport(overrides: Record<string, any> = {}) {
         passengerId: PASSENGER_A,
         issueCategory: 'BROKEN_RAMP',
         description: 'The wheelchair ramp would not fold down at Pettah station.',
-        status: 'PENDING',
+        // VERIFIED: another passenger may only see, vote on or comment on a report
+        // in the public feed (a pending issue is visible to its author and admins).
+        status: 'VERIFIED',
         createdAt: new Date('2026-08-20T14:05:00.000Z'),
         updatedAt: new Date('2026-08-20T14:05:00.000Z'),
         ...overrides,
@@ -303,6 +305,8 @@ describe('GET /api/reports?scope=my', () => {
             createFakeFirestore({
                 reports: [
                     storedReport({
+                        // The author's own report, still waiting for an admin.
+                        status: 'PENDING',
                         busId: 'BUS-00007',
                         vehicle: { numberPlate: 'NB-1234' },
                         routeId: 'R-138-OUT',

@@ -169,7 +169,9 @@ async function view(
                 origin,
                 destination,
                 travelDate: '2026-08-25',
-                travelTime: '05:00',
+                // The 06:00 departure boards every stop from 06:00 (Kaduwela) to
+                // 06:41 (Borella), all within ±60 minutes (MOV-308).
+                travelTime: '06:30',
             }),
         })
     );
@@ -368,20 +370,20 @@ describe('a partial journey on a route with no configured timings', () => {
         expect(display.departureLabel).toBe('6:00 AM');
     });
 
-    it('still shows the arrival when the passenger alights at the last stop', async () => {
-        const { display } = await view('Rajagiriya', 'Kollupitiya', untimed());
+    // A passenger boarding MID-ROUTE on an untimed route has no derivable
+    // boarding time, so the search no longer offers that journey at all
+    // (MOV-308 R1). How such a journey would be displayed is still covered, at
+    // the display level, in tests/features/journey/journeyRecommendations.test.ts.
+    it('does not offer a mid-route journey whose boarding time cannot be derived', async () => {
+        for (const [origin, destination] of [
+            ['Rajagiriya', 'Kollupitiya'],
+            ['Malabe', 'Borella'],
+        ]) {
+            const { json, journeys } = await view(origin, destination, untimed());
 
-        expect(display.arrivalLabel).toBe('7:10 AM');
-        expect(display.departureLabel).toBeNull();
-        expect(display.durationLabel).toBeNull();
-    });
-
-    it('shows neither time for a journey between two middle stops', async () => {
-        const { display } = await view('Malabe', 'Borella', untimed());
-
-        expect(display.departureLabel).toBeNull();
-        expect(display.arrivalLabel).toBeNull();
-        expect(display.durationLabel).toBeNull();
+            expect(json.success).toBe(true);
+            expect(journeys).toEqual([]);
+        }
     });
 
     it('still shows the measured distance, which needs no timings', async () => {
@@ -394,13 +396,20 @@ describe('a partial journey on a route with no configured timings', () => {
     it('reports no duration when only one crossed segment is untimed', async () => {
         // Battaramulla -> Rajagiriya unmeasured, so Malabe -> Borella crosses a
         // gap nobody has timed. A partial sum would understate the journey.
-        const { display } = await view(
+        const { journeys, display } = await view(
             'Malabe',
             'Borella',
             routeDoc({ segmentDurationsMinutes: [8, 6, null, 15, 9] })
         );
 
+        // Still offered: the timings up to Malabe fix its 06:08 boarding time,
+        // which is what the search selects on (MOV-308).
+        expect(journeys).toHaveLength(1);
         expect(display.durationLabel).toBeNull();
+        // What the screen shows is unchanged by that: the shared timing helper
+        // still reports no clock times for a ride it cannot fully measure.
+        expect(display.departureLabel).toBeNull();
+        expect(display.arrivalLabel).toBeNull();
     });
 
     it('still measures a journey that avoids the untimed segment', async () => {
@@ -587,7 +596,7 @@ describe('ranking and accessibility survive the journey-specific values', () => 
     /** The less accessible bus leaves first, so the two orders really differ. */
     const trips: (Trip & { id: string })[] = [
         { ...trip, id: 'TRIP-EARLY', tripId: 'TRIP-EARLY', busId: 'BUS-2', departureTime: '06:00' },
-        { ...trip, id: 'TRIP-LATER', tripId: 'TRIP-LATER', busId: 'BUS-1', departureTime: '09:00' },
+        { ...trip, id: 'TRIP-LATER', tripId: 'TRIP-LATER', busId: 'BUS-1', departureTime: '07:00' },
     ];
 
     async function rankedFor(origin: string, destination: string) {
@@ -608,7 +617,8 @@ describe('ranking and accessibility survive the journey-specific values', () => 
                     origin,
                     destination,
                     travelDate: '2026-08-25',
-                    travelTime: '05:00',
+                    // Both departures (06:00, 07:00) are within ±60 minutes (MOV-308).
+                    travelTime: '06:30',
                 }),
             })
         );

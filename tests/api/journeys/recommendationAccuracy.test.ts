@@ -190,7 +190,8 @@ async function recommend(
                 origin: criteria.origin ?? 'Kaduwela',
                 destination: criteria.destination ?? 'Borella',
                 travelDate: '2026-08-25',
-                travelTime: criteria.travelTime ?? '05:00',
+                // Fixtures here depart 06:00-08:00, all within ±60 minutes (MOV-308).
+                travelTime: criteria.travelTime ?? '07:00',
             }),
         })
     );
@@ -268,7 +269,7 @@ describe('A. the order a passenger is given', () => {
             ],
             trips: [
                 makeTrip('T-177-A', R177, 'BUS-LOW', '06:00'),
-                makeTrip('T-177-B', R177, 'BUS-HIGH', '09:00'),
+                makeTrip('T-177-B', R177, 'BUS-HIGH', '08:00'),
                 makeTrip('T-138-A', R138, 'BUS-HIGH', '07:00'),
             ],
         });
@@ -278,7 +279,7 @@ describe('A. the order a passenger is given', () => {
         expect(orderOf(journeys).slice().sort()).toEqual(['T-138-A', 'T-177-A', 'T-177-B']);
     });
 
-    it('recommends the accessible bus first even though the other leaves 3 hours earlier', async () => {
+    it('recommends the accessible bus first even though the other leaves 2 hours earlier', async () => {
         const { journeys } = await recommend({
             buses: [
                 makeBus('BUS-HIGH', 'NB-1111', FULLY_EQUIPPED),
@@ -286,7 +287,7 @@ describe('A. the order a passenger is given', () => {
             ],
             trips: [
                 makeTrip('T-EARLY-INACCESSIBLE', R177, 'BUS-LOW', '06:00'),
-                makeTrip('T-LATER-ACCESSIBLE', R177, 'BUS-HIGH', '09:00'),
+                makeTrip('T-LATER-ACCESSIBLE', R177, 'BUS-HIGH', '08:00'),
             ],
         });
 
@@ -303,12 +304,13 @@ describe('A. the order a passenger is given', () => {
                 makeBus('BUS-MOSTLY', 'NB-2222', MOSTLY_EQUIPPED),
             ],
             trips: [
-                // Departure order is deliberately the REVERSE of the accessibility
-                // order, so a lingering "soonest first" cannot look correct.
-                makeTrip('T-NONE', R177, 'BUS-NONE', '06:00'),
+                // All four board at the requested time, so closeness cannot tell
+                // them apart (MOV-308 R3) and neither can departure time: only
+                // accessibility can produce this order. Trip-id order would not.
+                makeTrip('T-NONE', R177, 'BUS-NONE', '07:00'),
                 makeTrip('T-PARTLY', R177, 'BUS-PARTLY', '07:00'),
-                makeTrip('T-MOSTLY', R177, 'BUS-MOSTLY', '08:00'),
-                makeTrip('T-FULLY', R177, 'BUS-FULLY', '09:00'),
+                makeTrip('T-MOSTLY', R177, 'BUS-MOSTLY', '07:00'),
+                makeTrip('T-FULLY', R177, 'BUS-FULLY', '07:00'),
             ],
         });
 
@@ -342,10 +344,12 @@ describe('A. the order a passenger is given', () => {
                 makeBus('BUS-D', 'NB-4444', NOT_EQUIPPED),
             ],
             trips: [
-                makeTrip('T-C', R177, 'BUS-C', '06:00'),
-                makeTrip('T-A', R177, 'BUS-A', '06:30'),
+                // Equally close to the requested time, so the accessibility
+                // ranking orders the whole list (MOV-308 R3).
+                makeTrip('T-C', R177, 'BUS-C', '07:00'),
+                makeTrip('T-A', R177, 'BUS-A', '07:00'),
                 makeTrip('T-D', R177, 'BUS-D', '07:00'),
-                makeTrip('T-B', R177, 'BUS-B', '07:30'),
+                makeTrip('T-B', R177, 'BUS-B', '07:00'),
             ],
         });
 
@@ -364,7 +368,7 @@ describe('A. the order a passenger is given', () => {
             trips: [
                 // No bus record exists for this one, so nothing could be measured.
                 makeTrip('T-UNKNOWN', R177, 'BUS-MISSING', '06:00'),
-                makeTrip('T-ZERO', R177, 'BUS-NONE', '09:00'),
+                makeTrip('T-ZERO', R177, 'BUS-NONE', '08:00'),
             ],
         });
 
@@ -412,9 +416,11 @@ describe('B. each recommendation carries its own bus score', () => {
             makeBus('BUS-M', 'NB-5555', FULLY_EQUIPPED),
         ],
         trips: [
+            // Each 60 minutes from the 07:00 request, so closeness ties and the
+            // accessibility ranking decides (MOV-308 R3).
             makeTrip('T-3', R177, 'BUS-M', '08:00'),
             makeTrip('T-1', R177, 'BUS-Z', '06:00'),
-            makeTrip('T-2', R177, 'BUS-A', '07:00'),
+            makeTrip('T-2', R177, 'BUS-A', '08:00'),
         ],
     };
 
@@ -470,7 +476,7 @@ describe('B. each recommendation carries its own bus score', () => {
             buses: [makeBus('BUS-SHARED', 'NB-1111', MOSTLY_EQUIPPED)],
             trips: [
                 makeTrip('T-MORNING', R177, 'BUS-SHARED', '06:00', { turnNumber: 1 }),
-                makeTrip('T-EVENING', R177, 'BUS-SHARED', '18:00', { turnNumber: 2 }),
+                makeTrip('T-EVENING', R177, 'BUS-SHARED', '08:00', { turnNumber: 2 }),
             ],
         });
 
@@ -517,7 +523,7 @@ describe('C. journey data survives ranking', () => {
         ],
         trips: [
             makeTrip('T-NONE', R177, 'BUS-NONE', '06:00'),
-            makeTrip('T-FULLY', R177, 'BUS-FULLY', '09:00'),
+            makeTrip('T-FULLY', R177, 'BUS-FULLY', '08:00'),
         ],
     };
 
@@ -533,7 +539,7 @@ describe('C. journey data survives ranking', () => {
 
         // Reordering must not shuffle the times along with the options.
         expect(byTrip.get('T-NONE')).toBe('06:00');
-        expect(byTrip.get('T-FULLY')).toBe('09:00');
+        expect(byTrip.get('T-FULLY')).toBe('08:00');
     });
 
     it('measures a partial journey from its own segments', async () => {
@@ -609,7 +615,8 @@ describe('C. journey data survives ranking', () => {
                 trips: [
                     makeTrip('T-DEPARTED', R177, 'BUS-FULLY', '05:00'),
                     makeTrip('T-INACTIVE', R177, 'BUS-FULLY', '10:00', { status: 'INACTIVE' }),
-                    makeTrip('T-AVAILABLE', R177, 'BUS-FULLY', '11:00'),
+                    // Inside ±60 minutes of the 09:00 request (MOV-308); 05:00 is not.
+                    makeTrip('T-AVAILABLE', R177, 'BUS-FULLY', '09:30'),
                 ],
             },
             { travelTime: '09:00' }
@@ -645,8 +652,8 @@ describe('D. the recommendation handed to the screen', () => {
             ],
             trips: [
                 makeTrip('T-NONE', R177, 'BUS-NONE', '06:00'),
-                makeTrip('T-FULLY', R177, 'BUS-FULLY', '09:00', {
-                    estimatedArrivalTime: '10:10',
+                makeTrip('T-FULLY', R177, 'BUS-FULLY', '08:00', {
+                    estimatedArrivalTime: '09:10',
                 }),
             ],
         });
@@ -656,8 +663,8 @@ describe('D. the recommendation handed to the screen', () => {
         // Accuracy is both halves at once: the right option, described rightly.
         expect(top.option.trip.tripId).toBe('T-FULLY');
         expect(top.accessibilityScore).toBe(scoreOf(FULLY_EQUIPPED));
-        expect(top.display.departureLabel).toBe('9:00 AM');
-        expect(top.display.arrivalLabel).toBe('9:41 AM');
+        expect(top.display.departureLabel).toBe('8:00 AM');
+        expect(top.display.arrivalLabel).toBe('8:41 AM');
         expect(top.display.durationLabel).toBe('41m');
         expect(top.display.stopCount).toBe(5);
         expect(top.timing.transferCount).toBe(0);
@@ -731,17 +738,18 @@ describe('D. the recommendation handed to the screen', () => {
 describe('E. two searches of the same data agree', () => {
     const equalScores: Network = {
         buses: [makeBus('BUS-SAME', 'NB-1111', MOSTLY_EQUIPPED)],
+        // Equally close to the 07:00 request (30 minutes either side) and on the
+        // same bus, so only the departure-time rule can separate them (MOV-308 R3).
         trips: [
-            makeTrip('T-LATE', R177, 'BUS-SAME', '18:00'),
-            makeTrip('T-EARLY', R177, 'BUS-SAME', '07:00'),
-            makeTrip('T-MIDDAY', R177, 'BUS-SAME', '12:00'),
+            makeTrip('T-LATE', R177, 'BUS-SAME', '07:30'),
+            makeTrip('T-EARLY', R177, 'BUS-SAME', '06:30'),
         ],
     };
 
     it('falls back to the earliest departure when accessibility ties', async () => {
         const { journeys } = await recommend(equalScores);
 
-        expect(orderOf(journeys)).toEqual(['T-EARLY', 'T-MIDDAY', 'T-LATE']);
+        expect(orderOf(journeys)).toEqual(['T-EARLY', 'T-LATE']);
     });
 
     it('settles an equal score and equal departure on route then trip identity', async () => {
@@ -772,7 +780,7 @@ describe('E. two searches of the same data agree', () => {
             makeTrip('T-A', R177, 'BUS-PARTLY', '06:00'),
             makeTrip('T-B', R177, 'BUS-FULLY', '07:00'),
             makeTrip('T-C', R177, 'BUS-NONE', '08:00'),
-            makeTrip('T-D', R177, 'BUS-MOSTLY', '09:00'),
+            makeTrip('T-D', R177, 'BUS-MOSTLY', '07:30'),
         ];
 
         // Firestore makes no promise about document order, so the recommendation
@@ -823,8 +831,8 @@ describe('E. two searches of the same data agree', () => {
                 makeTrip('T-177-A', R177, 'BUS-NONE', '06:00'),
                 makeTrip('T-177-B', R177, 'BUS-FULLY', '07:00'),
                 makeTrip('T-138-A', R138, 'BUS-FULLY', '08:00'),
-                makeTrip('T-138-B', R138, 'BUS-NONE', '09:00'),
-                makeTrip('T-ORPHAN', R177, 'BUS-MISSING', '10:00'),
+                makeTrip('T-138-B', R138, 'BUS-NONE', '07:30'),
+                makeTrip('T-ORPHAN', R177, 'BUS-MISSING', '07:45'),
             ],
         });
 
@@ -911,6 +919,9 @@ describe('G. nothing private travels with a recommendation', () => {
         expect(Object.keys(journeys[0].option.bus as object).sort()).toEqual([
             'accessibilityFacilities',
             'accessibilityScore',
+            // Added by the score breakdown: the three factors of the score above,
+            // derived from the same evidence. Declared so the list stays exhaustive.
+            'accessibilityScoreBreakdown',
             'busId',
             'busModel',
             'manufacturer',

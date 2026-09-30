@@ -17,7 +17,10 @@ import {
     JourneySearchMatch,
     JourneySearchOption,
 } from '../../../src/entities/route/model/types';
-import { toRecommendedJourneys } from '../../../src/features/journey/utils/journeyRecommendations';
+import {
+    isExactTimeMatch,
+    toRecommendedJourneys,
+} from '../../../src/features/journey/utils/journeyRecommendations';
 
 // ------------------------------------------------------------------
 // Fixtures
@@ -375,6 +378,59 @@ describe('the journey time carried on each option', () => {
 });
 
 // ==================================================================
+// What a partial journey on an incompletely timed route displays.
+//
+// Moved here from tests/api/journeys/passengerJourneyDisplay.test.ts: since
+// MOV-308 the search no longer offers a journey whose boarding time it cannot
+// derive, so these display rules are exercised on the view model directly.
+// The trip leaves Kaduwela at 09:00 and reaches Borella, the last stop, at 09:41.
+// ==================================================================
+describe('a partial journey on an incompletely timed route', () => {
+    it('still shows the arrival when the passenger alights at the last stop', () => {
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Rajagiriya',
+                segmentDurationsMinutes: null,
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.arrivalLabel).toBe('9:41 AM');
+        expect(journey.display.departureLabel).toBeNull();
+        expect(journey.display.durationLabel).toBeNull();
+    });
+
+    it('shows neither time for a journey between two middle stops', () => {
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Malabe',
+                destination: 'Rajagiriya',
+                segmentDurationsMinutes: null,
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.departureLabel).toBeNull();
+        expect(journey.display.arrivalLabel).toBeNull();
+        expect(journey.display.durationLabel).toBeNull();
+    });
+
+    it('reports no duration when only one crossed segment is untimed', () => {
+        // Battaramulla -> Rajagiriya unmeasured, so Malabe -> Borella crosses a
+        // gap nobody has timed. A partial sum would understate the journey.
+        const [journey] = toRecommendedJourneys([
+            match({
+                origin: 'Malabe',
+                segmentDurationsMinutes: [8, 6, null, 15],
+                trips: [{ tripId: 'T1' }],
+            }),
+        ]);
+
+        expect(journey.display.durationLabel).toBeNull();
+    });
+});
+
+// ==================================================================
 // E. TRANSFERS
 // ==================================================================
 describe('transfers on a recommended option', () => {
@@ -400,5 +456,41 @@ describe('transfers on a recommended option', () => {
             'Rajagiriya',
             'Borella',
         ]);
+    });
+});
+
+// ==================================================================
+// Exact or nearby (MOV-310), read from the search's own measurement
+// ==================================================================
+describe('isExactTimeMatch', () => {
+    it('treats a journey boarding at the requested time as exact', () => {
+        expect(isExactTimeMatch(0)).toBe(true);
+    });
+
+    it('treats a journey a minute away as nearby, not exact', () => {
+        expect(isExactTimeMatch(1)).toBe(false);
+    });
+
+    it('treats a journey inside the window as nearby, not exact', () => {
+        expect(isExactTimeMatch(30)).toBe(false);
+    });
+
+    it('treats a journey at the edge of the window as nearby, not exact', () => {
+        expect(isExactTimeMatch(60)).toBe(false);
+    });
+
+    it('never presents a missing figure as exact', () => {
+        expect(isExactTimeMatch(null)).toBe(false);
+        expect(isExactTimeMatch(undefined)).toBe(false);
+        expect(isExactTimeMatch(Number.NaN)).toBe(false);
+    });
+
+    it('never presents a journey the search did not measure as exact', () => {
+        // Built without `minutesFromRequestedTime`, as a response predating it
+        // would arrive.
+        const [journey] = toRecommendedJourneys([match({ trips: [{ tripId: 'T1' }] })]);
+
+        expect(journey.option).not.toHaveProperty('minutesFromRequestedTime');
+        expect(isExactTimeMatch(journey.option.minutesFromRequestedTime)).toBe(false);
     });
 });

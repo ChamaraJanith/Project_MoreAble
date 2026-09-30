@@ -26,6 +26,9 @@ interface ReportJourneyFieldsProps extends ReportJourneySelection {
     onChange: (selection: ReportJourneySelection) => void;
     /** Labels both fields "Optional" instead of marking them required. */
     optional?: boolean;
+    /** Validation messages from the form, drawn under each picker. */
+    routeFieldError?: string;
+    busFieldError?: string;
 }
 
 /**
@@ -42,6 +45,8 @@ export function ReportJourneyFields({
     busId,
     onChange,
     optional = false,
+    routeFieldError,
+    busFieldError,
 }: ReportJourneyFieldsProps) {
     const [buses, setBuses] = useState<Bus[]>([]);
     const [routes, setRoutes] = useState<Route[]>([]);
@@ -177,6 +182,7 @@ export function ReportJourneyFields({
                 icon="git-branch-outline"
                 showSelectedTick
                 disabled={routes.length === 0}
+                error={routeFieldError}
                 onPress={() => setActivePicker('route')}
             />
 
@@ -197,6 +203,7 @@ export function ReportJourneyFields({
                 icon="bus-outline"
                 showSelectedTick
                 disabled={!isBusUnlocked || buses.length === 0}
+                error={busFieldError}
                 onPress={() => setActivePicker('bus')}
                 helper={
                     isBusUnlocked

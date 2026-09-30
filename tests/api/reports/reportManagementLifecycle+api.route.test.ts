@@ -291,14 +291,32 @@ beforeEach(() => {
 // The three tabs
 // ==================================================================
 describe('the report list tabs ask the API for their own slice', () => {
-    it('shows a newly submitted report in All Reports as Pending', async () => {
+    it('keeps a newly submitted issue out of All Reports until an admin verifies it', async () => {
+        // All Reports is the public community feed: a pending issue is one
+        // passenger's unreviewed report, visible only to its author (under My
+        // Reports) and to admins.
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
-        const { response, body } = await openTab(db, 'all');
+        const author = await openTab(db, 'all');
+        const other = await openTab(db, 'all', OTHER_SESSION);
 
-        expect(response.status).toBe(200);
-        expect(cardFor(body, reportId).status).toBe('PENDING');
+        expect(author.response.status).toBe(200);
+        expect(idsIn(author.body)).not.toContain(reportId);
+        expect(idsIn(other.body)).not.toContain(reportId);
+
+        await review(db, reportId, { action: 'VERIFY' });
+
+        expect(idsIn((await openTab(db, 'all', OTHER_SESSION)).body)).toEqual([reportId]);
+    });
+
+    it("never shows another passenger somebody else's PENDING issue, by list or by id", async () => {
+        const db = emptyFirestore();
+        const { reportId } = await fileReport(db);
+
+        expect(idsIn((await openTab(db, 'all', OTHER_SESSION)).body)).toEqual([]);
+        expect(idsIn((await openTab(db, 'my', OTHER_SESSION)).body)).toEqual([]);
+        expect((await openReport(db, reportId, OTHER_SESSION)).response.status).toBe(404);
     });
 
     it('shows it in My Reports as well', async () => {
@@ -354,12 +372,14 @@ describe('the report list tabs ask the API for their own slice', () => {
     it('carries the status and both tallies on every tab', async () => {
         // What AC 11 asks a card to show: where the report has got to, and how
         // the community answered it.
+        // Verified first: another passenger can only vote on and comment on a
+        // report they can see, and a pending issue is not one of them.
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
+        await review(db, reportId, { action: 'VERIFY' });
         await agree(db, reportId);
         await comment(db, reportId, 'The same ramp failed on my journey too.');
-        await review(db, reportId, { action: 'VERIFY' });
 
         for (const scope of ['all', 'my', 'verified'] as const) {
             const card = cardFor((await openTab(db, scope)).body, reportId);
@@ -430,7 +450,8 @@ describe('a pending report is still its author‘s to change', () => {
 
         expect(removal.response.status).toBe(200);
         expect(idsIn((await openTab(db, 'my')).body)).toEqual([kept.reportId]);
-        expect(idsIn((await openTab(db, 'all')).body)).toEqual([kept.reportId]);
+        // Neither pending report was ever in the public feed.
+        expect(idsIn((await openTab(db, 'all')).body)).toEqual([]);
         expect((await openReport(db, reportId)).response.status).toBe(404);
     });
 
@@ -509,9 +530,10 @@ describe('the full lifecycle of a report that is verified', () => {
         const db = emptyFirestore();
         const { reportId } = await fileReport(db);
 
+        await review(db, reportId, { action: 'VERIFY', adminRemark: 'Confirmed on site.' });
+        // Once verified it is public, so the community can answer it.
         await agree(db, reportId);
         await comment(db, reportId, 'Same ramp, same problem.');
-        await review(db, reportId, { action: 'VERIFY', adminRemark: 'Confirmed on site.' });
 
         const { response, body } = await openReport(db, reportId);
 
@@ -557,6 +579,7 @@ describe('the full lifecycle of a report that is rejected', () => {
         const kept = await fileReport(db);
         const { reportId } = await fileReport(db);
 
+        await review(db, kept.reportId, { action: 'VERIFY' });
         await review(db, reportId, {
             action: 'REJECT',
             adminRemark: 'The ramp was tested on site and folded normally.',

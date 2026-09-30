@@ -10,7 +10,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { AccessibilityReport } from '../../../entities/report/model/types';
+import { AccessibilityReport, passengerReportStatusBadge } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
@@ -222,7 +222,7 @@ export const ReportDetailsScreen = () => {
                     icon={summary.icon}
                     reportType={summary.reportType}
                     title={summary.title}
-                    status={report.status}
+                    status={passengerReportStatusBadge(report)}
                     submittedLabel={summary.submittedLabel}
                 />
 
@@ -317,19 +317,22 @@ export const ReportDetailsScreen = () => {
                         <ReportSectionTitle>Admin Review</ReportSectionTitle>
 
                         <View style={reportDetailStyles.card}>
-                            <View style={reportDetailStyles.timelineRow}>
-                                <Ionicons
-                                    name="shield-checkmark-outline"
-                                    size={16}
-                                    color={adminColors.textSecondary}
-                                />
-                                <Text style={reportDetailStyles.timelineLabel}>
-                                    Decision
-                                </Text>
-                                <Text style={reportDetailStyles.timelineValue}>
-                                    {review.statusLabel}
-                                </Text>
-                            </View>
+                            {/* No decision row on positive feedback: it is never decided. */}
+                            {!!review.statusLabel && (
+                                <View style={reportDetailStyles.timelineRow}>
+                                    <Ionicons
+                                        name="shield-checkmark-outline"
+                                        size={16}
+                                        color={adminColors.textSecondary}
+                                    />
+                                    <Text style={reportDetailStyles.timelineLabel}>
+                                        Decision
+                                    </Text>
+                                    <Text style={reportDetailStyles.timelineValue}>
+                                        {review.statusLabel}
+                                    </Text>
+                                </View>
+                            )}
 
                             {!!review.reviewedAt && (
                                 <View
@@ -353,7 +356,14 @@ export const ReportDetailsScreen = () => {
                             )}
 
                             {!!review.remark && (
-                                <View style={reportDetailStyles.divided}>
+                                // Divided only when a row sits above it.
+                                <View
+                                    style={
+                                        review.statusLabel || review.reviewedAt
+                                            ? reportDetailStyles.divided
+                                            : undefined
+                                    }
+                                >
                                     <Text style={styles.remarkLabel}>
                                         Administrator&apos;s remark
                                     </Text>
@@ -372,7 +382,11 @@ export const ReportDetailsScreen = () => {
                     not come back costs this card and not the report above it.
                     Who is voting comes off the token inside those calls — the
                     report id is all this screen has to hand over. */}
-                <CommunityFeedback reportId={report.reportId} token={token} />
+                <CommunityFeedback
+                    reportId={report.reportId}
+                    reportType={summary.reportType}
+                    token={token}
+                />
 
                 {/* ---------------- Owner actions ----------------
                     Pending: Edit and Delete. Verified or rejected: a note that

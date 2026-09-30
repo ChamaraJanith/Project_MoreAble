@@ -7,6 +7,7 @@ import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } fr
 import {
     JourneyGeoInformation,
     JourneySearchMatch,
+    JourneySearchWindowSummary,
 } from '../../../entities/route/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
 import {
@@ -35,8 +36,13 @@ import {
     toggleAccessibilityRequirement,
 } from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
+import { journeyEmptyReason } from '../utils/journeyEmptyState';
 import { goBackOrTo, JOURNEY_PLANNER_PATH } from '../utils/journeyNavigation';
-import { toRecommendedJourneys } from '../utils/journeyRecommendations';
+import {
+    isExactTimeMatch,
+    RecommendedJourney,
+    toRecommendedJourneys,
+} from '../utils/journeyRecommendations';
 import { AccessibilityFilterPanel } from './AccessibilityFilterPanel';
 import { JourneyOptionCard } from './JourneyOptionCard';
 
@@ -57,6 +63,9 @@ export const JourneySearchResults = () => {
     const [routes, setRoutes] = useState<JourneySearchMatch[]>([]);
     // Kept so "View details" can hand the route map data to the details screen.
     const [geo, setGeo] = useState<JourneyGeoInformation | null>(null);
+    // What the time window found before the requirements were applied (MOV-308
+    // AC6): the only way an empty filtered result can say why it is empty.
+    const [searchWindow, setSearchWindow] = useState<JourneySearchWindowSummary | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
     // The passenger's stated accessibility needs (MOV-91). Held here, alongside
     // the results they narrow, so selecting one filters what is already on
@@ -142,6 +151,7 @@ export const JourneySearchResults = () => {
 
             setRoutes(Array.isArray(response.routes) ? response.routes : []);
             setGeo(response.geo ?? null);
+            setSearchWindow(response.searchWindow ?? null);
             setStatus('loaded');
         } catch (error: any) {
             if (requestId !== latestRequestId.current) return;
@@ -159,10 +169,12 @@ export const JourneySearchResults = () => {
 
     // Every trip on every matched route, in recommended order (MOV-88).
     //
-    // Ordering is MOV-87's `rankJourneyOptions` reading MOV-89's accessibility
-    // score — not a sort written here. It reorders and never filters, so the
-    // passenger can still compare every departure the search returned; the most
-    // accessible suitable one is simply first.
+    // Ordering is decided in `toRecommendedJourneys`, not by a sort written here.
+    // MOV-87's `rankJourneyOptions`, reading MOV-89's accessibility score, gives
+    // the accessibility order; MOV-312 then puts exact-time journeys first and
+    // nearby ones by distance from the requested time, and journeys equally close
+    // keep that accessibility order. It reorders and never filters, so the
+    // passenger can still compare every departure the search returned.
     const journeyOptions = useMemo(() => toRecommendedJourneys(routes), [routes]);
 
     // The same requirements applied again to what came back (MOV-91).
@@ -176,6 +188,26 @@ export const JourneySearchResults = () => {
     const visibleJourneys = useMemo(
         () => filterJourneysByAccessibility(journeyOptions, requirements),
         [journeyOptions, requirements]
+    );
+
+    // Exact-time and nearby journeys, shown as separate groups (MOV-310).
+    //
+    // Split by the search's own measurement of how far each boards from the
+    // requested time, never recomputed here. Filtering keeps the recommended
+    // order, so each group is already in the order MOV-312 gave it.
+    const exactJourneys = useMemo(
+        () =>
+            visibleJourneys.filter((journey) =>
+                isExactTimeMatch(journey.option.minutesFromRequestedTime)
+            ),
+        [visibleJourneys]
+    );
+    const nearbyJourneys = useMemo(
+        () =>
+            visibleJourneys.filter(
+                (journey) => !isExactTimeMatch(journey.option.minutesFromRequestedTime)
+            ),
+        [visibleJourneys]
     );
 
     /**
@@ -244,18 +276,47 @@ export const JourneySearchResults = () => {
         setFavouriteAnnouncement(favouriteChangeAnnouncement(true, journeyPair));
     };
 
+    // One card per journey, whichever group it is shown in.
+    const renderJourneyCard = ({
+        key,
+        route,
+        option,
+        timing,
+        display,
+        accessibilityScore,
+    }: RecommendedJourney) => (
+        <JourneyOptionCard
+            key={key}
+            route={route}
+            option={option}
+            timing={timing}
+            display={display}
+            accessibilityScore={accessibilityScore}
+            geo={geo}
+            travelDate={travelDate}
+            travelTime={travelTime}
+        />
+    );
+
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
     const friendlyTime = travelTime ? formatFriendlyTime(parseApiTimeString(travelTime)) : '';
 
-    // A route can match without having any upcoming departure, so the two empty
-    // cases need different explanations.
-    const hasMatchedRoutes = routes.length > 0;
     const isEmpty = status === 'loaded' && visibleJourneys.length === 0;
-    // Nothing to show BECAUSE of the stated needs. A different situation from
-    // having no route or no departure at all: the search itself excluded the
-    // unsuitable departures, so neither of the other two explanations is true,
-    // and this one has its own way out.
-    const isFilteredEmpty = isEmpty && isFiltering;
+    // Why it is empty, from the search's own counts taken before the
+    // requirements were applied (MOV-308 AC6) — never guessed from what
+    // survived the filter. Three different situations, three explanations:
+    //   - no route at all;
+    //   - a route that runs, but nothing within an hour of the requested time,
+    //     requirements or not: removing one would bring nothing back;
+    //   - departures within the hour that the stated needs excluded, which is
+    //     the only case with "remove a requirement" as its way out.
+    const emptyReason = isEmpty
+        ? journeyEmptyReason({ searchWindow, isFiltering, returnedRouteCount: routes.length })
+        : null;
+    // Read only by the time-window / no-route empty state below, where the
+    // reason is one of those two, so it still means exactly "a route matched".
+    const hasMatchedRoutes = emptyReason === 'NO_JOURNEY_IN_WINDOW';
+    const isFilteredEmpty = emptyReason === 'NO_SUITABLE_JOURNEY';
 
     return (
         <View style={styles.container}>
@@ -347,7 +408,7 @@ export const JourneySearchResults = () => {
                 )}
 
                 {/* Empty */}
-                {isEmpty && !isFiltering && (
+                {isEmpty && !isFilteredEmpty && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
                         <View style={styles.stateIconBadge}>
                             <Ionicons
@@ -357,11 +418,24 @@ export const JourneySearchResults = () => {
                             />
                         </View>
                         <Text style={styles.stateTitle}>
-                            {hasMatchedRoutes ? 'No departures left' : 'No routes found'}
+                            {hasMatchedRoutes
+                                ? t('journey.noSuitableTitle', 'No journeys near this time')
+                                : 'No routes found'}
                         </Text>
                         <Text style={styles.stateDescription}>
+                            {/*
+                              The search looks an hour either side of the requested
+                              time (MOV-308), so there is no "earlier time" left to
+                              suggest: both directions were already searched.
+                            */}
                             {hasMatchedRoutes
-                                ? `Buses do run between ${origin} and ${destination}, but none are scheduled to depart at or after ${friendlyTime}. Try an earlier time.`
+                                ? t('journey.noSuitableDesc', {
+                                      origin,
+                                      destination,
+                                      time: friendlyTime,
+                                      defaultValue:
+                                          'No suitable journey between {{origin}} and {{destination}} departs within an hour of {{time}}, earlier or later.',
+                                  })
                                 : `We couldn't find a route from ${origin} to ${destination}. Try a nearby stop or check the spelling.`}
                         </Text>
                         <TouchableOpacity
@@ -429,27 +503,68 @@ export const JourneySearchResults = () => {
                     <>
                         <Text style={styles.resultsCountText}>
                             {visibleJourneys.length} journey option{visibleJourneys.length > 1 ? 's' : ''}
-                            {isFiltering ? ' match your requirements' : ''} · most accessible first
+                            {isFiltering ? ' match your requirements' : ''} · closest to your time first,
+                            then most accessible
                         </Text>
-                        {visibleJourneys.map(({ key, route, option, timing, display, accessibilityScore }) => (
-                            <JourneyOptionCard
-                                key={key}
-                                route={route}
-                                option={option}
-                                timing={timing}
-                                display={display}
-                                accessibilityScore={accessibilityScore}
-                                geo={geo}
-                                travelDate={travelDate}
-                                travelTime={travelTime}
-                            />
-                        ))}
+
+                        {exactJourneys.length > 0 && (
+                            <>
+                                <SectionHeading
+                                    icon="checkmark-circle-outline"
+                                    title={t('journey.exactTimeHeading', {
+                                        time: friendlyTime,
+                                        defaultValue: 'At your requested time ({{time}})',
+                                    })}
+                                />
+                                {exactJourneys.map(renderJourneyCard)}
+                            </>
+                        )}
+
+                        {/* No exact match: say so before offering the alternatives. */}
+                        {exactJourneys.length === 0 && nearbyJourneys.length > 0 && (
+                            <View
+                                style={styles.noExactNotice}
+                                accessible
+                                accessibilityLiveRegion="polite"
+                            >
+                                <Ionicons name="information-circle-outline" size={18} color="#0066CC" />
+                                <Text style={styles.noExactNoticeText}>
+                                    {t('journey.noExactNotice', {
+                                        time: friendlyTime,
+                                        defaultValue:
+                                            'No journey at exactly {{time}}. These journeys depart within an hour of it.',
+                                    })}
+                                </Text>
+                            </View>
+                        )}
+
+                        {nearbyJourneys.length > 0 && (
+                            <>
+                                <SectionHeading
+                                    icon="time-outline"
+                                    title={t('journey.nearbyHeading', 'Nearby alternatives within an hour')}
+                                />
+                                {nearbyJourneys.map(renderJourneyCard)}
+                            </>
+                        )}
                     </>
                 )}
             </ScrollView>
         </View>
     );
 };
+
+// The section heading pattern the activities screens use, kept local as they do.
+function SectionHeading({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
+    return (
+        <View style={styles.sectionHeadingRow}>
+            <Ionicons name={icon} size={16} color="#0F172A" />
+            <Text style={styles.sectionHeadingText} accessibilityRole="header">
+                {title}
+            </Text>
+        </View>
+    );
+}
 
 const styles = StyleSheet.create({
     container: {
@@ -552,6 +667,36 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#64748B',
         marginBottom: 12,
+    },
+    sectionHeadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        marginBottom: 12,
+        gap: 6,
+    },
+    sectionHeadingText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#0F172A',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
+    noExactNotice: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        backgroundColor: '#E8F1FB',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 16,
+    },
+    noExactNoticeText: {
+        flex: 1,
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#0F172A',
+        lineHeight: 20,
     },
     stateContainer: {
         alignItems: 'center',

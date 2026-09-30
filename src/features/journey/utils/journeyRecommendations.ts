@@ -4,7 +4,8 @@
 // One place where the three pieces the story needs come together:
 //
 //   * every travellable option, so multiple routes are offered and compared;
-//   * MOV-87's ranking, so the most accessible suitable option is first;
+//   * MOV-87's ranking, so equally suitable options are ordered by
+//     accessibility — within MOV-308's closeness to the requested time;
 //   * MOV-88's passenger-specific timing, so the estimated travel time is the
 //     passenger's own journey and not the route's total.
 //
@@ -169,26 +170,86 @@ function toJourneyOptions(routes: JourneySearchMatch[]): RecommendedJourney[] {
 }
 
 /**
- * The recommended routes, in recommended order.
+ * A measured accessibility score to carry forward, or null when none was
+ * measured (MOV-308 R5).
  *
- * Ordering is MOV-87's and only MOV-87's — accessibility score first, then
- * earliest departure, then the route and trip ids for reproducibility. There is
- * no comparator here and no `sort` call: this supplies the facts and
- * `rankJourneyOptions` decides the order.
+ * Returns the first candidate that is a real number. An unknown score stays
+ * unknown — never 100, 0 or any other stand-in, which would present a vehicle
+ * nobody assessed as if it had been.
+ */
+export function knownAccessibilityScore(...candidates: unknown[]): number | null {
+    for (const candidate of candidates) {
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+    }
+
+    return null;
+}
+
+/** How far an option boards from the requested time, when the search said. */
+function usableProximity(journey: RecommendedJourney): number | null {
+    const minutes = journey.option.minutesFromRequestedTime;
+    return typeof minutes === 'number' && Number.isFinite(minutes) ? minutes : null;
+}
+
+/**
+ * Whether a journey boards at exactly the requested time (MOV-310), read from
+ * the `minutesFromRequestedTime` the search measured (MOV-308) — never
+ * re-derived here, since only the search knows the boarding time it selected on.
+ *
+ * Only 0 is exact. Every other search result is a nearby alternative, and a
+ * missing or unreadable figure is never presented as exact.
+ */
+export function isExactTimeMatch(
+    minutesFromRequestedTime: JourneySearchOption['minutesFromRequestedTime']
+): boolean {
+    return minutesFromRequestedTime === 0;
+}
+
+/**
+ * The recommended routes, in recommended order (MOV-308 R3).
+ *
+ *   1. Closeness to the requested time, measured by the search at the
+ *      passenger's own boarding stop. 0 is an exact match, so every exact
+ *      journey comes before every nearby one, and nearby journeys follow in
+ *      order of distance — earlier and later alike.
+ *   2. Journeys equally close keep the order MOV-87's `rankJourneyOptions`
+ *      gives them — accessibility score first, then earliest departure, then
+ *      route and trip ids. That ranking is used exactly as written: this only
+ *      groups its result by closeness.
+ *
+ * An option with no closeness figure goes after those with one; when none has
+ * one, the order is `rankJourneyOptions`' own.
  *
  * Ranking reorders and never filters. Every departure the search returned comes
  * back, including one whose bus is missing and whose score is therefore unknown:
- * a passenger is still entitled to see it, ranked last.
+ * a passenger is still entitled to see it, ranked last among its equals.
  */
 export function toRecommendedJourneys(
     routes: JourneySearchMatch[] | null | undefined
 ): RecommendedJourney[] {
     const matched = Array.isArray(routes) ? routes : [];
 
-    return rankJourneyOptions(toJourneyOptions(matched), (journey) => ({
+    const byAccessibility = rankJourneyOptions(toJourneyOptions(matched), (journey) => ({
         accessibilityScore: journey.accessibilityScore,
         departureTime: journey.option.trip.departureTime,
         routeId: journey.route.routeId,
         tripId: journey.option.trip.tripId,
     }));
+
+    return byAccessibility
+        .map((journey, accessibilityRank) => ({
+            journey,
+            accessibilityRank,
+            proximity: usableProximity(journey),
+        }))
+        .sort((a, b) => {
+            if (a.proximity !== b.proximity) {
+                if (a.proximity === null) return 1;
+                if (b.proximity === null) return -1;
+                return a.proximity - b.proximity;
+            }
+            // Equally close: the accessibility ranking decides.
+            return a.accessibilityRank - b.accessibilityRank;
+        })
+        .map((entry) => entry.journey);
 }

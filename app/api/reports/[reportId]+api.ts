@@ -1,4 +1,5 @@
 import {
+  canViewReport,
   isReportDecided,
   isReportType,
   reportDecisionStatus,
@@ -11,6 +12,7 @@ import {
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
 import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
 import { readReportContent } from '../../../src/shared/server/reportContent';
+import { isCountedCommunityReport } from '../../../src/shared/utils/accessibility';
 import { normalizeReportPhotoUrls } from '../../../src/shared/server/reportPhotos';
 import {
   resolveBusReference,
@@ -169,14 +171,22 @@ async function loadReport(
     };
   }
 
+  // Reading: the same visibility as the public feed. Somebody else's PENDING
+  // or REJECTED issue is answered exactly as a report that does not exist, so
+  // trying ids reveals nothing. Its author and an admin can still read it.
+  if (!options.requireOwner && !canViewReport(report, user)) {
+    return { ok: false, response: errorResponse(404, 'Report not found.') };
+  }
+
   return { ok: true, docRef, report, passengerId: user.passengerId, isOwner };
 }
 
 // GET /api/reports/[reportId]
 //
-// Readable by any authenticated passenger, which is what All Reports already
-// exposes: the list hands back every report, so the detail view of one adds no
-// access. `isOwner` says whether this session may edit or delete it.
+// Readable by any authenticated passenger when the report is in the public
+// feed (a VERIFIED issue or positive feedback); by its author in any status;
+// and by an admin. Anything else is a 404. `isOwner` says whether this session
+// may edit or delete it.
 export async function GET(request: Request, context: any) {
   try {
     const loaded = await loadReport(request, context, { requireOwner: false });
@@ -342,7 +352,27 @@ export async function PUT(request: Request, context: any) {
       updatedAt: new Date(),
     };
 
+    // Read before the write: nothing after it may rely on `existing` still
+    // describing the document as it was.
+    const previousBusId = existing.busId;
+
     await docRef.set(updatedReport);
+
+    // Only positive feedback can be both counted toward a score and still open
+    // to edits. Moving it to another bus moves that evidence, so both buses'
+    // score history is recorded (MOV-113); a call that changed nothing stores
+    // nothing. Best effort: the edit is saved.
+    if (isCountedCommunityReport(updatedReport)) {
+      const affectedBuses = new Set(
+        [previousBusId, (updatedReport as Record<string, any>).busId].filter(
+          (value): value is string => typeof value === 'string' && value.length > 0
+        )
+      );
+
+      for (const affectedBusId of affectedBuses) {
+        await recordAccessibilityScoreSafely(adminDb, affectedBusId);
+      }
+    }
 
     return Response.json(
       {
@@ -393,12 +423,12 @@ export async function DELETE(request: Request, context: any) {
 
     await loaded.docRef.delete();
 
-    // A VERIFIED report was part of its bus's accessibility score; withdrawing
-    // it can change that score. Any other status never counted (MOV-113). Best
-    // effort: the report is already deleted.
+    // A verified issue or positive feedback was part of its bus's accessibility
+    // score; withdrawing it can change that score. Nothing else ever counted
+    // (MOV-113). Best effort: the report is already deleted.
     const deletedBusId = loaded.report.busId;
 
-    if (loaded.report.status === 'VERIFIED' && typeof deletedBusId === 'string' && deletedBusId) {
+    if (isCountedCommunityReport(loaded.report) && typeof deletedBusId === 'string' && deletedBusId) {
       await recordAccessibilityScoreSafely(getAdminDb(), deletedBusId);
     }
 

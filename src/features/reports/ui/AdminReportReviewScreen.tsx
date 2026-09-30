@@ -10,16 +10,23 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { ReportReviewAction } from '../../../entities/report/model/types';
+import {
+    ReportReviewAction,
+    adminReportDisplayStatus,
+    requiresAdminReview,
+} from '../../../entities/report/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
-import { createComplaint } from '../../admin/api/complaintAdminApi';
+import { createComplaint, getComplaints } from '../../admin/api/complaintAdminApi';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import {
     DUPLICATE_COMPLAINT_MESSAGE,
+    ReportComplaintLookup,
     canCreateComplaintFromReport,
     complaintDetailsPath,
     complaintErrorMessage,
     readDuplicateComplaint,
+    reportComplaintLookupFromResult,
+    reportComplaintView,
 } from '../../admin/utils/complaintWorkflow';
 import {
     AdminEmptyState,
@@ -31,9 +38,13 @@ import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { fetchReportForReview, submitReportReview } from '../api/reportReviewApi';
 import {
+    ADMIN_REMARK_HELPER,
     MAX_ADMIN_REMARK_LENGTH,
     NEEDS_REVIEW_LABEL,
+    POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REJECT_ACTION,
+    adminReportIdLabel,
+    adminReviewStatusNote,
     REMARK_ACTION,
     VERIFY_ACTION,
     canDecideReport,
@@ -45,7 +56,6 @@ import {
 } from '../utils/reportReview';
 import { formatReportDateTime } from '../utils/reportFormat';
 import {
-    initialRemarkDraft,
     initialReviewState,
     isActionPending,
     isReviewBusy,
@@ -119,12 +129,8 @@ export const AdminReportReviewScreen = () => {
 
     const [state, dispatch] = useReducer(reportReviewReducer, initialReviewState);
 
+    // Starts empty on every visit; the saved remark is displayed separately.
     const [remark, setRemark] = useState('');
-
-    // Whether the stored remark has already been put in the box. A ref rather
-    // than state because nothing renders from it, and it has to be up to date
-    // by the time the next load reads it rather than after the next commit.
-    const hasLoadedRemark = useRef(false);
 
     /** The decision awaiting confirmation, or null when no dialog is open. */
     const [confirming, setConfirming] = useState<'VERIFY' | 'REJECT' | null>(null);
@@ -141,9 +147,31 @@ export const AdminReportReviewScreen = () => {
         tone: 'error' | 'success';
         text: string;
     } | null>(null);
-    /** The complaint this report already has, once one is known. */
-    const [linkedComplaintId, setLinkedComplaintId] = useState<string | null>(null);
+    /**
+     * The complaint this report already has, read from the complaint itself.
+     * Starts as loading so "Create Complaint" is never drawn before the lookup
+     * has answered that there is none.
+     */
+    const [complaintLookup, setComplaintLookup] = useState<ReportComplaintLookup>({ kind: 'loading' });
+    /** Only the newest lookup may write its answer; an older one is stale. */
+    const complaintLookupSeq = useRef(0);
     const creatingComplaint = useRef(false);
+
+    const lookupComplaint = useCallback(async () => {
+        if (!reportId || !token) return;
+
+        const seq = ++complaintLookupSeq.current;
+        const result = await getComplaints(token, { reportId });
+
+        if (seq !== complaintLookupSeq.current) return;
+
+        setComplaintLookup(reportComplaintLookupFromResult(result));
+    }, [reportId, token]);
+
+    const retryComplaintLookup = () => {
+        setComplaintLookup({ kind: 'loading' });
+        lookupComplaint();
+    };
 
     const loadReport = useCallback(async () => {
         if (!reportId) {
@@ -167,13 +195,13 @@ export const AdminReportReviewScreen = () => {
                 comments: result.value.comments,
             });
 
-            // The stored remark fills the box the first time only. Refilling it
-            // on every reload would wipe out whatever the admin had started
-            // typing when the page refreshed underneath them.
-            if (!hasLoadedRemark.current) {
-                hasLoadedRemark.current = true;
-                setRemark(initialRemarkDraft(result.value.report));
-            }
+            // The composer is not prefilled: the saved remark is shown above it
+            // as "Current remark", and the box is for writing a new one.
+
+            // Only a VERIFIED issue report can have a complaint. Refreshed on
+            // every load, so a complaint resolved elsewhere reads as resolved
+            // when this page comes back into view.
+            if (canCreateComplaintFromReport(result.value.report)) lookupComplaint();
 
             return;
         }
@@ -187,7 +215,7 @@ export const AdminReportReviewScreen = () => {
             type: 'loadFailed',
             message: reviewErrorMessage(result.status, result.message),
         });
-    }, [reportId, isAuthenticated, token]);
+    }, [reportId, isAuthenticated, token, lookupComplaint]);
 
     // Reloaded on focus, so a report decided elsewhere is not still showing a
     // Verify button when this screen comes back into view.
@@ -289,19 +317,23 @@ export const AdminReportReviewScreen = () => {
         setIsCreatingComplaint(false);
 
         if (result.ok) {
-            const complaintId = result.value.complaint.complaintId;
+            const complaint = result.value.complaint;
 
-            setLinkedComplaintId(complaintId);
-            setComplaintMessage({ tone: 'success', text: `Complaint ${complaintId} created.` });
-            router.push(complaintDetailsPath(complaintId) as Href);
+            // Any lookup still in flight predates this complaint.
+            complaintLookupSeq.current += 1;
+            setComplaintLookup({ kind: 'found', complaint });
+            setComplaintMessage({ tone: 'success', text: `Complaint ${complaint.complaintId} created.` });
+            router.push(complaintDetailsPath(complaint.complaintId) as Href);
             return;
         }
 
         const duplicate = readDuplicateComplaint(result.status, result.message);
 
         if (duplicate.isDuplicate) {
-            setLinkedComplaintId(duplicate.complaintId);
+            // The existing complaint's real status comes from the complaint,
+            // so it is looked up rather than assumed.
             setComplaintMessage({ tone: 'error', text: DUPLICATE_COMPLAINT_MESSAGE });
+            retryComplaintLookup();
             return;
         }
 
@@ -317,6 +349,7 @@ export const AdminReportReviewScreen = () => {
     };
 
     const { report } = state;
+    const complaintView = reportComplaintView(complaintLookup);
 
     const renderBody = () => {
         // A reload with a report already on screen keeps drawing it: the
@@ -350,8 +383,15 @@ export const AdminReportReviewScreen = () => {
         const photos = reportGalleryPhotos(report);
 
         const status = reviewStatusOf(report);
+        // What the badge says: accepted positive feedback reads "Verified"
+        // (display only; its stored status stays PUBLISHED).
+        const displayStatus = adminReportDisplayStatus(report);
         const isDecidable = canDecideReport(report);
         const busy = isReviewBusy(state);
+
+        // Positive feedback is accepted automatically; see adminReviewStatusNote.
+        const isPositive = !requiresAdminReview(report);
+        const reviewNote = adminReviewStatusNote(report, report.review);
 
         return (
             <>
@@ -360,7 +400,8 @@ export const AdminReportReviewScreen = () => {
                     icon={summary.icon}
                     reportType={summary.reportType}
                     title={summary.title}
-                    status={status}
+                    status={displayStatus}
+                    referenceLabel={adminReportIdLabel(report)}
                     submittedLabel={summary.submittedLabel}
                 >
                     {report.flagged && (
@@ -474,8 +515,26 @@ export const AdminReportReviewScreen = () => {
                 <View style={reportDetailStyles.card}>
                     {/* The review already recorded, if there is one. Shown
                         above the composer because it is what the report says
-                        now, not what is being written about it. */}
-                    {report.review ? (
+                        now, not what is being written about it. Positive
+                        feedback is never decided, so it says so in place of a
+                        decision — and still shows any remark left on it. */}
+                    {reviewNote ? (
+                        <>
+                            <ReportEmptySection
+                                icon={isPositive ? 'checkmark-circle-outline' : 'clipboard-outline'}
+                                message={reviewNote}
+                            />
+
+                            {!!report.review?.adminRemark && (
+                                <View style={styles.remarkQuote}>
+                                    <Text style={styles.remarkQuoteLabel}>Current remark</Text>
+                                    <Text style={styles.remarkQuoteText}>
+                                        {report.review.adminRemark}
+                                    </Text>
+                                </View>
+                            )}
+                        </>
+                    ) : report.review ? (
                         <View style={styles.existingReview}>
                             <View style={styles.reviewRow}>
                                 <Ionicons
@@ -512,12 +571,7 @@ export const AdminReportReviewScreen = () => {
                                 </View>
                             )}
                         </View>
-                    ) : (
-                        <ReportEmptySection
-                            icon="clipboard-outline"
-                            message="No administrator has reviewed this report yet."
-                        />
-                    )}
+                    ) : null}
 
                     <View style={styles.remarkComposer}>
                         <ReportTextArea
@@ -525,7 +579,7 @@ export const AdminReportReviewScreen = () => {
                             value={remark}
                             onChangeText={setRemark}
                             placeholder="Record what you found when reviewing this report..."
-                            helper="Shown to the passenger who filed this report. Saving a remark does not change the report's status."
+                            helper={ADMIN_REMARK_HELPER}
                             maxLength={MAX_ADMIN_REMARK_LENGTH}
                             editable={!busy}
                         />
@@ -630,6 +684,13 @@ export const AdminReportReviewScreen = () => {
                             </Text>
                         </TouchableOpacity>
                     </View>
+                ) : !requiresAdminReview(report) ? (
+                    // Positive feedback has no Verify/Reject workflow; it counts
+                    // as submitted. Said plainly, and never as "verified".
+                    <View style={styles.decidedNotice} accessibilityLiveRegion="polite">
+                        <Ionicons name="happy-outline" size={20} color={adminColors.success} />
+                        <Text style={styles.decidedText}>{POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE}</Text>
+                    </View>
                 ) : (
                     // No Verify or Reject on a decided report. The API answers
                     // 409, and the decision is a record rather than a setting —
@@ -655,20 +716,63 @@ export const AdminReportReviewScreen = () => {
                             />
                         )}
 
-                        {linkedComplaintId ? (
+                        {complaintView.showLoading && (
+                            <View style={styles.complaintLoading} accessibilityLiveRegion="polite">
+                                <ActivityIndicator size="small" color={adminColors.primary} />
+                                <Text style={styles.complaintLoadingText}>
+                                    Checking for an existing complaint…
+                                </Text>
+                            </View>
+                        )}
+
+                        {!!complaintView.error && (
+                            <>
+                                <InlineMessage tone="error" message={complaintView.error} />
+                                <TouchableOpacity
+                                    style={styles.secondaryButton}
+                                    onPress={retryComplaintLookup}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Retry complaint lookup"
+                                >
+                                    <Ionicons name="refresh" size={18} color={adminColors.primary} />
+                                    <Text style={styles.secondaryButtonText}>Retry</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
+
+                        {complaintView.summary && (
+                            <View
+                                style={styles.complaintCard}
+                                accessible
+                                accessibilityLabel={`Complaint ${complaintView.summary.complaintId}, ${complaintView.summary.statusLabel}`}
+                            >
+                                <Text style={styles.complaintCardLabel}>Complaint</Text>
+                                <View style={styles.complaintCardRow}>
+                                    <Text style={styles.complaintCardId}>
+                                        {complaintView.summary.complaintId}
+                                    </Text>
+                                    <StatusBadge status={complaintView.summary.status} size="small" />
+                                </View>
+                            </View>
+                        )}
+
+                        {complaintView.summary && (
                             <TouchableOpacity
                                 style={styles.secondaryButton}
                                 onPress={() =>
-                                    router.push(complaintDetailsPath(linkedComplaintId) as Href)
+                                    router.push(
+                                        complaintDetailsPath(complaintView.summary!.complaintId) as Href
+                                    )
                                 }
                                 accessibilityRole="button"
-                                accessibilityLabel={`View Complaint ${linkedComplaintId}`}
+                                accessibilityLabel={`View Complaint ${complaintView.summary.complaintId}`}
                             >
                                 <Ionicons name="open-outline" size={18} color={adminColors.primary} />
                                 <Text style={styles.secondaryButtonText}>View Complaint</Text>
                             </TouchableOpacity>
-                        ) : (
-                            complaintMessage?.text !== DUPLICATE_COMPLAINT_MESSAGE && (
+                        )}
+
+                        {complaintView.showCreate && (
                                 <TouchableOpacity
                                     style={[
                                         styles.verifyButton,
@@ -693,7 +797,6 @@ export const AdminReportReviewScreen = () => {
                                         {isCreatingComplaint ? 'Creating…' : 'Create Complaint'}
                                     </Text>
                                 </TouchableOpacity>
-                            )
                         )}
                     </View>
                 )}
@@ -972,6 +1075,31 @@ const styles = StyleSheet.create({
 
     complaintSection: { marginTop: 4 },
     complaintButton: { marginTop: 16 },
+    complaintLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 16 },
+    complaintLoadingText: { fontSize: 13, color: adminColors.textSecondary },
+    complaintCard: {
+        marginTop: 16,
+        backgroundColor: adminColors.surface,
+        borderRadius: 12,
+        padding: 16,
+        ...adminShadow.card,
+    },
+    complaintCardLabel: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: adminColors.textMuted,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    complaintCardRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 6,
+    },
+    complaintCardId: { fontSize: 18, fontWeight: '800', color: adminColors.textPrimary },
 
     decidedNotice: {
         backgroundColor: adminColors.surface,

@@ -15,7 +15,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
     AccessibilityReport,
+    ReportScope,
     ReportType,
+    passengerReportStatusBadge,
     reportTypeOf,
 } from '../../../entities/report/model/types';
 import {
@@ -31,6 +33,18 @@ import {
     reportStatusLabel,
     reportTypeLabel,
 } from './reportFormat';
+
+/**
+ * The status badge a passenger report list draws on a card, or null for none.
+ *
+ * All Reports and Verified Reports are the public community feed: a card there
+ * shows its type (ISSUE / POSITIVE) and no status at all. My Reports is where
+ * an author follows their own issue through review, so it shows the issue's
+ * status — and still nothing for positive feedback, which has none.
+ */
+export function reportListStatusBadge(report: AccessibilityReport, scope: ReportScope): string | null {
+    return scope === 'my' ? passengerReportStatusBadge(report) : null;
+}
 
 /** The icons the card's chips use. A closed set, so the UI can pass them on. */
 export type ReportChipIcon =
@@ -238,8 +252,8 @@ export interface ReportSubmissionReceipt {
      */
     reportId: string;
     submittedLabel: string;
-    /** The stored status; a fresh report is PENDING. */
-    status: string;
+    /** The status to show: a fresh issue is PENDING; positive feedback has none (null). */
+    status: string | null;
     reportType: ReportType;
     typeLabel: string;
     /** The category, in the wording its picker offered it in. */
@@ -252,7 +266,7 @@ export function reportSubmissionReceipt(report: AccessibilityReport): ReportSubm
     return {
         reportId: report.reportId,
         submittedLabel: formatReportDateTime(report.createdAt),
-        status: typeof report.status === 'string' && report.status ? report.status : 'PENDING',
+        status: passengerReportStatusBadge(report),
         reportType,
         typeLabel: reportTypeLabel(reportType),
         categoryLabel:
@@ -260,6 +274,27 @@ export function reportSubmissionReceipt(report: AccessibilityReport): ReportSubm
                 ? positiveFeedbackCategoryLabel(report.category ?? '')
                 : reportCategoryLabel(report.issueCategory),
     };
+}
+
+/**
+ * The note under the receipt: who can see what was just filed, and what its
+ * author can still do with it (MOV-305).
+ *
+ * Worded from the existing rules rather than restating them differently: an
+ * issue is visible only to its author until an admin verifies it
+ * (`canViewReport`), can be edited only while pending (`canEditReport`), and
+ * can be deleted by its author at any time (`canDeleteReport`). Positive
+ * feedback is public as filed and is never decided, so it stays editable.
+ */
+const RECEIPT_NOTES: Record<ReportType, string> = {
+    ISSUE:
+        'Only you can see this report until an administrator verifies it. You can edit it from My Reports while it is pending, and delete it at any time.',
+    POSITIVE:
+        'Your feedback is shared with the community straight away. You can edit or delete it from My Reports.',
+};
+
+export function receiptNote(reportType: ReportType): string {
+    return RECEIPT_NOTES[reportType];
 }
 
 // ------------------------------------------------------------------
@@ -382,8 +417,8 @@ export function hasBeenEdited(report: AccessibilityReport): boolean {
  * which names nobody to the passenger and is not theirs to be told.
  */
 export interface ReportReviewOutcome {
-    /** The decision, in words — "Verified", "Rejected". */
-    statusLabel: string;
+    /** The decision, in words — "Verified", "Rejected". Null on positive feedback, which is never decided. */
+    statusLabel: string | null;
     /** When it was decided, already formatted. Null when none was stored. */
     reviewedAt: string | null;
     /** What the admin wrote, or null when they wrote nothing. */
@@ -406,6 +441,13 @@ export function reportReviewOutcome(
 ): ReportReviewOutcome | null {
     const reviewedAt = textOrNull(report.reviewedAt);
     const remark = textOrNull(report.adminRemark);
+
+    // Positive feedback is never reviewed, so the passenger is shown no
+    // decision and no review date — only an admin's remark, if one was left.
+    // A legacy record verified under the old workflow reads the same way.
+    if (reportTypeOf(report) === 'POSITIVE') {
+        return remark ? { statusLabel: null, reviewedAt: null, remark } : null;
+    }
 
     if (!reviewedAt && !remark) return null;
 

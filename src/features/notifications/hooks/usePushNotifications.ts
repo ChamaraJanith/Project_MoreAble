@@ -8,27 +8,75 @@ import { API_BASE_URL } from '../../../shared/api/config';
 import { useNotificationPreferencesStore } from '../store/notificationPreferencesStore';
 import { usePreferencesStore } from '../../../shared/store/preferencesStore';
 
-// Safe check for Expo Go store client on Android
+// Safe check for Expo Go client on Android without requiring untranspiled 'expo' package
 const isExpoGoOnAndroid =
     Platform.OS === 'android' &&
     (Constants?.appOwnership === 'expo' ||
-        Constants?.executionEnvironment === (ExecutionEnvironment?.StoreClient || 'storeClient'));
+        Constants?.executionEnvironment === (ExecutionEnvironment?.StoreClient || 'storeClient') ||
+        Boolean((Constants as any)?.expoGoConfig) ||
+        Boolean((global as any)?.ExpoModules?.ExpoGo));
 
 // Ensure global notification presentation handler is set safely with preferences awareness
-try {
-    Notifications.setNotificationHandler({
-        handleNotification: async (notification) => {
-            try {
-                const prefs = useNotificationPreferencesStore.getState().preferences;
-                const data = (notification?.request?.content?.data || {}) as Record<string, any>;
-                const notifType = String(data.type || '');
-                const isEmergency =
-                    notifType === 'EMERGENCY_SOS' ||
-                    notifType === 'SOS_EMERGENCY' ||
-                    Boolean(data.isEmergency);
+if (!isExpoGoOnAndroid) {
+    try {
+        Notifications.setNotificationHandler({
+            handleNotification: async (notification) => {
+                try {
+                    const prefs = useNotificationPreferencesStore.getState().preferences;
+                    const data = (notification?.request?.content?.data || {}) as Record<string, any>;
+                    const notifType = String(data.type || '');
+                    const isEmergency =
+                        notifType === 'EMERGENCY_SOS' ||
+                        notifType === 'SOS_EMERGENCY' ||
+                        Boolean(data.isEmergency);
 
-                // Emergency SOS alerts must ALWAYS bypass filters and present full alert with sound
-                if (isEmergency) {
+                    // Emergency SOS alerts must ALWAYS bypass filters and present full alert with sound
+                    if (isEmergency) {
+                        return {
+                            shouldShowBanner: true,
+                            shouldShowList: true,
+                            shouldPlaySound: true,
+                            shouldSetBadge: true,
+                        };
+                    }
+
+                    // Master push notifications toggle
+                    if (prefs?.pushEnabled === false) {
+                        return {
+                            shouldShowBanner: false,
+                            shouldShowList: false,
+                            shouldPlaySound: false,
+                            shouldSetBadge: false,
+                        };
+                    }
+
+                    // Granular category preference filters
+                    if (prefs?.bookingAlerts === false && (notifType === 'BOOKING_CONFIRMATION' || notifType === 'BOOKING')) {
+                        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                    }
+                    if (prefs?.boardingReminders === false && (notifType === 'BOARDING_REMINDER' || notifType === 'BOARDING_CONFIRMED' || notifType === 'PASSENGER_BOARDED')) {
+                        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                    }
+                    if (prefs?.arrivalAlerts === false && notifType === 'VEHICLE_ARRIVAL') {
+                        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                    }
+                    if (prefs?.destinationReminders === false && notifType === 'DESTINATION_REMINDER') {
+                        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                    }
+                    if (prefs?.caregiverUpdates === false && (notifType === 'CAREGIVER_JOURNEY_UPDATE' || notifType === 'CARE_PASSENGER_BOARDED' || notifType.startsWith('CAREGIVER'))) {
+                        return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
+                    }
+
+                    const appPrefs = usePreferencesStore.getState().preferences;
+                    const soundOption = appPrefs?.notificationSound !== false;
+
+                    return {
+                        shouldShowBanner: true,
+                        shouldShowList: true,
+                        shouldPlaySound: soundOption,
+                        shouldSetBadge: true,
+                    };
+                } catch {
                     return {
                         shouldShowBanner: true,
                         shouldShowList: true,
@@ -36,62 +84,18 @@ try {
                         shouldSetBadge: true,
                     };
                 }
-
-                // Master push notifications toggle
-                if (prefs?.pushEnabled === false) {
-                    return {
-                        shouldShowBanner: false,
-                        shouldShowList: false,
-                        shouldPlaySound: false,
-                        shouldSetBadge: false,
-                    };
-                }
-
-                // Granular category preference filters
-                if (prefs?.bookingAlerts === false && (notifType === 'BOOKING_CONFIRMATION' || notifType === 'BOOKING')) {
-                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
-                }
-                if (prefs?.boardingReminders === false && (notifType === 'BOARDING_REMINDER' || notifType === 'BOARDING_CONFIRMED' || notifType === 'PASSENGER_BOARDED')) {
-                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
-                }
-                if (prefs?.arrivalAlerts === false && notifType === 'VEHICLE_ARRIVAL') {
-                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
-                }
-                if (prefs?.destinationReminders === false && notifType === 'DESTINATION_REMINDER') {
-                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
-                }
-                if (prefs?.caregiverUpdates === false && (notifType === 'CAREGIVER_JOURNEY_UPDATE' || notifType === 'CARE_PASSENGER_BOARDED' || notifType.startsWith('CAREGIVER'))) {
-                    return { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: false };
-                }
-
-                const appPrefs = usePreferencesStore.getState().preferences;
-                const soundOption = appPrefs?.notificationSound !== false;
-
-                return {
-                    shouldShowBanner: true,
-                    shouldShowList: true,
-                    shouldPlaySound: soundOption,
-                    shouldSetBadge: true,
-                };
-            } catch {
-                return {
-                    shouldShowBanner: true,
-                    shouldShowList: true,
-                    shouldPlaySound: true,
-                    shouldSetBadge: true,
-                };
-            }
-        },
-    });
-} catch (handlerErr) {
-    // Graceful fallback in Expo Go
+            },
+        });
+    } catch (handlerErr) {
+        // Graceful fallback in Expo Go
+    }
 }
 
 /**
  * Configure high-priority notification channels on Android (Android 8.0+)
  */
 export async function setupAndroidNotificationChannels(): Promise<void> {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android' || isExpoGoOnAndroid) return;
 
     try {
         await Notifications.setNotificationChannelAsync('sos-emergency', {
@@ -232,7 +236,7 @@ export function usePushNotifications() {
 
     // Initial setup on mount or auth change
     useEffect(() => {
-        if (Platform.OS === 'web') return;
+        if (Platform.OS === 'web' || isExpoGoOnAndroid) return;
 
         setupAndroidNotificationChannels();
 
@@ -244,35 +248,47 @@ export function usePushNotifications() {
         }
 
         // Listener for foreground notifications
-        notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-            // Optional: trigger state updates or badge changes
-            console.log('[usePushNotifications] Foreground notification received:', notification.request.content.title);
-        });
+        try {
+            notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
+                // Optional: trigger state updates or badge changes
+                console.log('[usePushNotifications] Foreground notification received:', notification.request.content.title);
+            });
+        } catch {
+            // Guard against unsupported platforms in Expo Go
+        }
 
         // Listener for user tapping/clicking notification banner (Deep Linking)
-        responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-            const data = response.notification.request.content.data;
-            if (data && data.route && typeof data.route === 'string') {
-                try {
-                    router.push(data.route as any);
-                } catch (navErr) {
-                    console.warn('[usePushNotifications] Deep link navigation failed:', navErr);
+        try {
+            responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+                const data = response.notification.request.content.data;
+                if (data && data.route && typeof data.route === 'string') {
+                    try {
+                        router.push(data.route as any);
+                    } catch (navErr) {
+                        console.warn('[usePushNotifications] Deep link navigation failed:', navErr);
+                    }
+                } else if (data && data.type === 'BOARDING_CONFIRMED') {
+                    router.push('/(tabs)/activities' as any);
+                } else if (data && data.type === 'VEHICLE_ARRIVAL') {
+                    router.push('/(tabs)/explore' as any);
+                } else if (data && data.type === 'EMERGENCY_SOS') {
+                    router.push('/(admin)' as any);
                 }
-            } else if (data && data.type === 'BOARDING_CONFIRMED') {
-                router.push('/(tabs)/ticket' as any);
-            } else if (data && data.type === 'VEHICLE_ARRIVAL') {
-                router.push('/(tabs)/schedule' as any);
-            } else if (data && data.type === 'EMERGENCY_SOS') {
-                router.push('/(admin)' as any);
-            }
-        });
+            });
+        } catch {
+            // Guard against unsupported platforms in Expo Go
+        }
 
         return () => {
             if (notificationListener.current) {
-                notificationListener.current.remove();
+                try {
+                    notificationListener.current.remove();
+                } catch {}
             }
             if (responseListener.current) {
-                responseListener.current.remove();
+                try {
+                    responseListener.current.remove();
+                } catch {}
             }
         };
     }, [isAuthenticated, user, registerDeviceToken]);

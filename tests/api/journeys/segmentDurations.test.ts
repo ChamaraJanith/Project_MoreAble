@@ -141,7 +141,9 @@ async function search(
             origin: criteria.origin ?? 'Kaduwela',
             destination: criteria.destination ?? 'Borella',
             travelDate: '2026-08-20',
-            travelTime: '08:00',
+            // The 09:00 departure boards within ±60 minutes at Kaduwela (09:00)
+            // and at Malabe (09:08) (MOV-308).
+            travelTime: '09:00',
         })
     );
 
@@ -347,7 +349,8 @@ describe('timings entered by an operator reach the passenger', () => {
                 origin: 'Malabe',
                 destination: 'Borella',
                 travelDate: '2026-08-20',
-                travelTime: '08:00',
+                // The 09:00 departure boards Malabe at 09:08, within ±60 minutes (MOV-308).
+                travelTime: '09:00',
             })
         );
 

@@ -38,8 +38,13 @@
 
 import {
     AccessibilityReport,
+    ReportType,
     reportTypeOf,
 } from '../../../entities/report/model/types';
+import type {
+    AccessibilityFacilityKey,
+    AccessibilityFactorBreakdown,
+} from '../../../shared/utils/accessibility';
 import {
     ACTIVE_VEHICLE_STATUS,
     VERIFIED_REPORT_STATUS,
@@ -692,4 +697,84 @@ export function accessibilityAnalytics(
         mostReportedVehicles: mostReportedVehicles(input.reports, input.buses, limit),
         trend: accessibilityScoreTrend(input.history, options),
     };
+}
+
+// ==================================================================
+// 5. Per-bus accessibility (the bus-focused Analytics page)
+//
+// Shapes only. Every number in them is produced on the server by
+// shared/server/accessibilityAnalytics, which calls MOV-79's own functions in
+// shared/utils/accessibility. Nothing in this section computes anything, so the
+// app can import these types without importing a formula.
+// ==================================================================
+
+/**
+ * The factor shapes, defined beside the score they break down and re-exported
+ * here so the admin screens keep importing them from this module.
+ */
+export type { AccessibilityFactorBreakdown, AccessibilityFactorKey } from '../../../shared/utils/accessibility';
+
+/** The score band word, as accessibilityAnalyticsPresentation names it. */
+export type BusAccessibilityBand = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'NEEDS_IMPROVEMENT';
+
+/** One of the eight canonical facilities, as the score reads it. */
+export interface BusFacilityAvailability {
+    key: AccessibilityFacilityKey;
+    /** isFacilityEffectivelyAvailable: exactly `true`, and not taken out by an active issue. */
+    available: boolean;
+    /** The stored count of a counted facility (seats, spaces); null for the others. */
+    count: number | null;
+}
+
+/** One bus as the Analytics list shows it: identity, score and the evidence counts behind it. */
+export interface BusAccessibilitySummary {
+    /** The bus DOCUMENT id, e.g. BUS-00001. */
+    busId: string;
+    /** The plate, or the id when the record carries none. Never empty. */
+    numberPlate: string;
+    busModel: string | null;
+    manufacturer: string | null;
+    status: string | null;
+    /** computeAccessibilityScore(facilities, evidence): a whole number, 0–100. */
+    accessibilityScore: number;
+    band: BusAccessibilityBand;
+    factors: AccessibilityFactorBreakdown[];
+    /** All eight, in ACCESSIBILITY_FACILITY_KEYS order. */
+    facilities: BusFacilityAvailability[];
+    availableFacilityCount: number;
+    /** Verified issues and positive feedback — the tally the score weighs. */
+    community: { issueCount: number; positiveCount: number };
+    /** Valid 1–5 ratings only. `average` is the plain mean on 1–5, null when there are none. */
+    ratings: { count: number; average: number | null };
+}
+
+/** One counted report about a bus (a verified issue or positive feedback), as community evidence. */
+export interface BusEvidenceReport {
+    reportId: string;
+    type: ReportType;
+    /** The issue category, or the positive feedback category. */
+    category: string | null;
+    description: string;
+    /** ISO 8601, or null when the record holds no readable time. */
+    createdAt: string | null;
+    reviewedAt: string | null;
+    adminRemark: string | null;
+}
+
+/** How many valid ratings gave each number of stars. */
+export interface RatingDistributionEntry {
+    stars: 1 | 2 | 3 | 4 | 5;
+    count: number;
+}
+
+/** One bus's accessibility, with the evidence itself rather than only its counts. */
+export interface BusAccessibilityDetail extends BusAccessibilitySummary {
+    manufactureYear: number | null;
+    seatCapacity: number | null;
+    /** VERIFIED issue reports about this bus, newest first. */
+    verifiedIssues: BusEvidenceReport[];
+    /** Positive feedback about this bus that counts (no admin review needed), newest first. */
+    positiveFeedback: BusEvidenceReport[];
+    /** Five entries, 5 stars first. The counts add up to `ratings.count`. */
+    ratingDistribution: RatingDistributionEntry[];
 }

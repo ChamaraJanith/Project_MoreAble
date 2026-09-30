@@ -17,6 +17,8 @@
 import {
     MAX_ADMIN_REMARK_LENGTH,
     REPORT_REVIEW_ACTIONS,
+    ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS,
+    adminReportDisplayStatus,
 } from '../../../src/entities/report/model/types';
 import {
     ADMIN_REPORT_TYPE_FILTERS,
@@ -25,8 +27,11 @@ import {
     NEEDS_REVIEW_LABEL,
     REJECT_ACTION,
     REMARK_ACTION,
+    POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE,
+    POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REVIEW_FALLBACK_MESSAGE,
     VERIFY_ACTION,
+    adminReportIdLabel,
     adminReportTypeCounts,
     adminReportTypeFilterLabel,
     adminReviewCardSummary,
@@ -36,6 +41,8 @@ import {
     filterReportsByType,
     canDecideReport,
     isDecidedReport,
+    isInReviewFilter,
+    reportsForReviewFilter,
     isSubmittableRemark,
     mapAdminReview,
     mapAdminReviewReport,
@@ -489,17 +496,25 @@ describe('the test fixture', () => {
 // The tabs
 // ==================================================================
 describe('the queue tabs', () => {
-    it('offers All, Pending and Verified, and nothing else', () => {
+    it('offers All, Pending, Verified and Positive, and nothing else', () => {
         expect(ADMIN_REVIEW_FILTERS.map((tab) => tab.value)).toEqual([
             'ALL',
             'PENDING',
             'VERIFIED',
+            'POSITIVE',
         ]);
         expect(ADMIN_REVIEW_FILTERS.map((tab) => tab.label)).toEqual([
             'All',
             'Pending',
             'Verified',
+            'Positive',
         ]);
+        // The admin side never says "Published".
+        expect(ADMIN_REVIEW_FILTERS.map((tab) => tab.label)).not.toContain('Published');
+    });
+
+    it('asks for the whole queue on Positive, since legacy feedback is stored under other statuses', () => {
+        expect(adminReviewRequestPath('POSITIVE')).toBe('/api/reports?scope=review');
     });
 
     it('asks the API for the verified reports by status', () => {
@@ -631,12 +646,16 @@ describe('the counts above the queue', () => {
         expect(adminReportTypeCounts(reports).positive).toBe(3);
     });
 
-    it('counts the verified positive feedback', () => {
-        expect(adminReportTypeCounts(reports).verifiedPositive).toBe(2);
+    it('has no "verified" count for positive feedback, which is never reviewed', () => {
+        expect(adminReportTypeCounts(reports)).not.toHaveProperty('verifiedPositive');
     });
 
     it('counts the issue reports', () => {
         expect(adminReportTypeCounts(reports).issue).toBe(4);
+    });
+
+    it('counts the issue reports still waiting for an admin', () => {
+        expect(adminReportTypeCounts(reports).pendingIssue).toBe(1);
     });
 
     it('counts the verified issue reports', () => {
@@ -660,28 +679,28 @@ describe('the counts above the queue', () => {
         expect(counts.verifiedIssue).toBe(0);
     });
 
-    it('counts a report with no stored status towards its total but not as verified', () => {
+    it('counts an issue with no stored status as pending, not verified', () => {
         const counts = adminReportTypeCounts(
-            queue(positiveReport({ documentId: 'P', reportId: 'P', status: undefined }))
+            queue(issueReport({ documentId: 'I', reportId: 'I', status: undefined }))
         );
 
-        expect(counts.positive).toBe(1);
-        expect(counts.verifiedPositive).toBe(0);
+        expect(counts.issue).toBe(1);
+        expect(counts.pendingIssue).toBe(1);
+        expect(counts.verifiedIssue).toBe(0);
     });
 
     it('accounts for every report exactly once', () => {
         const counts = adminReportTypeCounts(reports);
 
         expect(counts.positive + counts.issue).toBe(reports.length);
-        expect(counts.verifiedPositive).toBeLessThanOrEqual(counts.positive);
-        expect(counts.verifiedIssue).toBeLessThanOrEqual(counts.issue);
+        expect(counts.pendingIssue + counts.verifiedIssue).toBeLessThanOrEqual(counts.issue);
     });
 
     it('is all zeroes for an empty queue', () => {
         expect(adminReportTypeCounts([])).toEqual({
             positive: 0,
-            verifiedPositive: 0,
             issue: 0,
+            pendingIssue: 0,
             verifiedIssue: 0,
         });
     });
@@ -814,14 +833,28 @@ describe('narrowing the queue by more than one thing', () => {
 });
 
 // ==================================================================
-// The verification workflow, unchanged
+// The verification workflow: issues only
 // ==================================================================
 describe('deciding a report after these changes', () => {
-    it('still offers Verify and Reject on a pending report of either kind', () => {
+    it('still offers Verify and Reject on a pending issue report', () => {
         expect(canDecideReport(mapAdminReviewReport(issueReport({ status: 'PENDING' })))).toBe(true);
-        expect(canDecideReport(mapAdminReviewReport(positiveReport({ status: 'PENDING' })))).toBe(
-            true
+    });
+
+    it('never offers Verify or Reject on positive feedback, in any status', () => {
+        for (const status of ['PUBLISHED', 'PENDING', 'VERIFIED', 'REJECTED']) {
+            expect(canDecideReport(mapAdminReviewReport(positiveReport({ status })))).toBe(false);
+        }
+    });
+
+    it('says plainly that no administrator reviewed positive feedback', () => {
+        expect(POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE).toMatch(
+            /^Positive feedback is automatically accepted and does not require review/
         );
+        expect(POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE).toMatch(/no administrator reviewed it/);
+    });
+
+    it('treats PUBLISHED feedback as undecided: nobody decided it', () => {
+        expect(isDecidedReport(mapAdminReviewReport(positiveReport({ status: 'PUBLISHED' })))).toBe(false);
     });
 
     it('still refuses to re-decide a report that was already decided', () => {
@@ -835,5 +868,182 @@ describe('deciding a report after these changes', () => {
 
     it('still names the same three actions', () => {
         expect(REPORT_REVIEW_ACTIONS).toEqual([VERIFY_ACTION, REJECT_ACTION, REMARK_ACTION]);
+    });
+});
+
+// ==================================================================
+// Positive feedback in the admin review queue
+//
+// Stored PUBLISHED and accepted without review. The admin screens badge it
+// "Verified" through a display-only key (never the VERIFIED an admin's
+// decision stores, never the blue Published badge), with a note that nobody
+// reviewed it. It sits on the Positive tab and All, never on Pending or
+// Verified, and never in either issue count — legacy records included.
+// ==================================================================
+describe('positive feedback in the review queue', () => {
+    const published = positiveReport({ documentId: 'POS-PUB', reportId: 'POS-PUB', status: 'PUBLISHED' });
+    const legacyPending = positiveReport({ documentId: 'POS-OLD-P', reportId: 'POS-OLD-P', status: 'PENDING' });
+    const legacyVerified = positiveReport({ documentId: 'POS-OLD-V', reportId: 'POS-OLD-V', status: 'VERIFIED' });
+    const legacyRejected = positiveReport({ documentId: 'POS-OLD-R', reportId: 'POS-OLD-R', status: 'REJECTED' });
+    const pendingIssue = issueReport({ documentId: 'ISS-P', reportId: 'ISS-P', status: 'PENDING' });
+    const verifiedIssue = issueReport({ documentId: 'ISS-V', reportId: 'ISS-V', status: 'VERIFIED' });
+
+    const all = queue(published, legacyPending, legacyVerified, legacyRejected, pendingIssue, verifiedIssue);
+    const byId = (id: string) => all.find((report) => report.documentId === id)!;
+    const ids = (list: AdminReviewReport[]) => list.map((report) => report.documentId);
+
+    describe('badges', () => {
+        it.each(['POS-PUB', 'POS-OLD-P', 'POS-OLD-V'])(
+            'shows positive feedback %s as "Verified" through the display-only key, not the blue Published badge',
+            (id) => {
+                const summary = adminReviewCardSummary(byId(id));
+
+                expect(summary.status).toBe(ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS);
+                expect(summary.status).not.toBe('PUBLISHED');
+                expect(summary.status).not.toBe('VERIFIED');
+                expect(summary.statusLabel).toBe('Verified');
+                expect(summary.statusLabel).not.toBe('Published');
+            }
+        );
+
+        it('says on the card that the feedback was accepted without review', () => {
+            const summary = adminReviewCardSummary(byId('POS-PUB'));
+
+            expect(summary.statusNote).toBe(POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE);
+            expect(summary.accessibilityLabel).toContain('status Verified');
+            expect(summary.accessibilityLabel).toContain(POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE);
+        });
+
+        it('leaves the stored status PUBLISHED: the label is display only', () => {
+            expect(byId('POS-PUB').status).toBe('PUBLISHED');
+        });
+
+        it('keeps saying Rejected for legacy feedback an admin rejected', () => {
+            const summary = adminReviewCardSummary(byId('POS-OLD-R'));
+
+            expect(summary.statusLabel).toBe('Rejected');
+            expect(summary.statusNote).toBeNull();
+        });
+
+        it('shows a pending issue as Pending and a verified issue as Verified, with no note', () => {
+            expect(adminReviewCardSummary(byId('ISS-P'))).toMatchObject({
+                status: 'PENDING',
+                statusLabel: 'Pending',
+                statusNote: null,
+            });
+            expect(adminReviewCardSummary(byId('ISS-V'))).toMatchObject({
+                status: 'VERIFIED',
+                statusLabel: 'Verified',
+                statusNote: null,
+            });
+        });
+
+        it('reads type and status together in adminReportDisplayStatus', () => {
+            expect(adminReportDisplayStatus({ type: 'POSITIVE', status: 'PUBLISHED' })).toBe('AUTO_VERIFIED');
+            expect(adminReportDisplayStatus({ type: 'POSITIVE', status: 'VERIFIED' })).toBe('AUTO_VERIFIED');
+            expect(adminReportDisplayStatus({ type: 'POSITIVE', status: 'REJECTED' })).toBe('REJECTED');
+            expect(adminReportDisplayStatus({ status: 'VERIFIED' })).toBe('VERIFIED');
+            expect(adminReportDisplayStatus({})).toBe('PENDING');
+        });
+    });
+
+    describe('tabs', () => {
+        it('shows positive feedback under All', () => {
+            expect(ids(reportsForReviewFilter(all, 'ALL'))).toContain('POS-PUB');
+            expect(reportsForReviewFilter(all, 'ALL')).toHaveLength(all.length);
+        });
+
+        it('keeps Pending to pending issue reports only', () => {
+            expect(ids(reportsForReviewFilter(all, 'PENDING'))).toEqual(['ISS-P']);
+        });
+
+        it('keeps Verified to verified issue reports only', () => {
+            expect(ids(reportsForReviewFilter(all, 'VERIFIED'))).toEqual(['ISS-V']);
+        });
+
+        it('keeps what the API returns for status=PENDING / VERIFIED to issues', () => {
+            // The API filters by stored status alone, so legacy positive
+            // feedback comes back in these slices; the tab still drops it.
+            expect(ids(reportsForReviewFilter(queue(legacyPending, pendingIssue), 'PENDING'))).toEqual(['ISS-P']);
+            expect(ids(reportsForReviewFilter(queue(legacyVerified, verifiedIssue), 'VERIFIED'))).toEqual([
+                'ISS-V',
+            ]);
+        });
+
+        it('shows accepted positive feedback under Positive, and no issue', () => {
+            expect(ids(reportsForReviewFilter(all, 'POSITIVE'))).toEqual(['POS-PUB', 'POS-OLD-P', 'POS-OLD-V']);
+        });
+
+        it('puts every report on at most one of Pending, Verified and Positive', () => {
+            for (const report of all) {
+                const tabs = (['PENDING', 'VERIFIED', 'POSITIVE'] as const).filter((tab) =>
+                    isInReviewFilter(report, tab)
+                );
+
+                expect(tabs.length).toBeLessThanOrEqual(1);
+            }
+        });
+    });
+
+    describe('counts', () => {
+        const counts = adminReportTypeCounts(all);
+
+        it('does not count positive feedback as pending', () => {
+            expect(counts.pendingIssue).toBe(1);
+        });
+
+        it('does not count positive feedback as verified, although it reads "Verified"', () => {
+            expect(counts.verifiedIssue).toBe(1);
+        });
+
+        it('counts all positive feedback separately from issues', () => {
+            expect(counts.positive).toBe(4);
+            expect(counts.issue).toBe(2);
+        });
+
+        it('leaves positive feedback out of the "pending" line above the list', () => {
+            expect(adminReviewQueueSummary(all).pending).toBe(1);
+        });
+    });
+
+    describe('review controls', () => {
+        it('offers no Verify or Reject on any positive feedback', () => {
+            for (const id of ['POS-PUB', 'POS-OLD-P', 'POS-OLD-V', 'POS-OLD-R']) {
+                expect(canDecideReport(byId(id))).toBe(false);
+            }
+        });
+
+        it('still offers Verify and Reject on a pending issue, and not on a verified one', () => {
+            expect(canDecideReport(byId('ISS-P'))).toBe(true);
+            expect(canDecideReport(byId('ISS-V'))).toBe(false);
+        });
+    });
+});
+
+// ==================================================================
+// The report id on the review DETAIL screen
+//
+// Shown there (and only there) under the status badges, read from the stored
+// reportId. Queue cards still never show it — see adminReviewCardVisibleText.
+// ==================================================================
+describe('the report id on the review detail screen', () => {
+    it('shows the stored report id', () => {
+        expect(adminReportIdLabel(mapAdminReviewReport(apiReport()))).toBe(`Report ID: ${REPORT_ID}`);
+        expect(adminReportIdLabel({ reportId: 'REP-00014' })).toBe('Report ID: REP-00014');
+    });
+
+    it('falls back to the document id, as the queue maps a report', () => {
+        expect(adminReportIdLabel({ reportId: '', documentId: 'REP-00014' })).toBe('Report ID: REP-00014');
+    });
+
+    it('invents nothing when there is no id', () => {
+        expect(adminReportIdLabel({})).toBeNull();
+        expect(adminReportIdLabel(null)).toBeNull();
+    });
+
+    it('still keeps the id off the queue card', () => {
+        const summary = adminReviewCardSummary(mapAdminReviewReport(apiReport()));
+
+        expect(adminReviewCardVisibleText(summary).join(' ')).not.toContain(REPORT_ID);
     });
 });

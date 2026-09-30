@@ -82,7 +82,9 @@ export async function POST(request: Request) {
 // GET /api/complaints
 //
 // Every complaint, newest first. Admin only. Optionally narrowed by
-// `?status=` (one of the complaint statuses) and `?assignedTo=<userId>`.
+// `?status=` (one of the complaint statuses), `?assignedTo=<userId>` and
+// `?reportId=<reportId>` — the last is how the Review Report screen finds the
+// complaint (if any) already opened from a report.
 export async function GET(request: Request) {
   try {
     const auth = await authenticateComplaintAdmin(request);

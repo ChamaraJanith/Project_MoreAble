@@ -28,10 +28,12 @@ import {
     REPORT_SEARCH_PLACEHOLDER,
     ReportListFilters,
     activeReportFilterCount,
+    filtersForScope,
+    isStatusFilterAvailable,
     narrowReportList,
     reportRouteFilterOptions,
 } from '../utils/reportSearch';
-import { reportCardSummary } from '../utils/reportSummary';
+import { reportCardSummary, reportListStatusBadge } from '../utils/reportSummary';
 import { ReportFilterSheet } from './ReportFilterSheet';
 import { ReportListCard } from './ReportListCard';
 
@@ -123,17 +125,24 @@ export const AccessibilityReportsScreen = () => {
     // previous renders" pattern) rather than in an effect.
     const [lastRequestedScope, setLastRequestedScope] = useState(requestedScope);
 
-    if (requestedScope !== lastRequestedScope) {
-        setLastRequestedScope(requestedScope);
-        if (requestedScope) setScope(requestedScope);
-    }
-
     // The search and the filters are kept for the screen rather than per tab:
     // a passenger looking for one route wants the same narrowing applied as
-    // they move between All and My, not two sets to redo.
+    // they move between All and My, not two sets to redo. The one exception
+    // is Status, which only My Reports offers — see changeScope.
     const [search, setSearch] = useState('');
     const [filters, setFilters] = useState<ReportListFilters>(DEFAULT_REPORT_FILTERS);
     const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+
+    /** Moves to a tab, dropping a Status filter the tab does not offer. */
+    const changeScope = (next: ReportScope) => {
+        setScope(next);
+        setFilters((current) => filtersForScope(current, next));
+    };
+
+    if (requestedScope !== lastRequestedScope) {
+        setLastRequestedScope(requestedScope);
+        if (requestedScope) changeScope(requestedScope);
+    }
 
     // Which scopes have had a request fired for them. A ref rather than state
     // because it is read to decide whether to start a fetch, and has to be
@@ -289,18 +298,11 @@ export const AccessibilityReportsScreen = () => {
         // here, the search or the filters are simply not finding them, so the
         // way out is to change those rather than to file a report.
         if (visibleReports.length === 0) {
-            // All Reports never carries a rejected report — the API keeps a
-            // rejection for its author alone — so say where to find one.
-            const rejectedHint =
-                scope === 'all' && filters.status === 'REJECTED'
-                    ? ' Rejected reports are only shown to the passenger who filed them, under My Reports.'
-                    : '';
-
             return (
                 <AdminEmptyState
                     icon="search-outline"
                     title="No matching reports"
-                    description={`No reports match your search or filters.${rejectedHint}`}
+                    description="No reports match your search or filters."
                     actionLabel="Clear Search & Filters"
                     onAction={clearNarrowing}
                 />
@@ -338,7 +340,9 @@ export const AccessibilityReportsScreen = () => {
                             // so a card reads the same wherever it appears.
                             isOwnReport: isReportOwnedBy(report, user?.passengerId),
                         })}
-                        status={typeof report.status === 'string' ? report.status : 'PENDING'}
+                        // No status on the public feed; an issue's review
+                        // status on My Reports (see reportListStatusBadge).
+                        status={reportListStatusBadge(report, scope)}
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something the
                         // passenger is asked to read. Editing and deleting live
@@ -424,7 +428,7 @@ export const AccessibilityReportsScreen = () => {
                                 key={tab.value}
                                 style={[styles.segment, isSelected && styles.segmentSelected]}
                                 onPress={() => {
-                                    setScope(tab.value);
+                                    changeScope(tab.value);
                                     // Kept in step with the tab, so a later
                                     // return with ?scope=my is always a change.
                                     router.setParams({ scope: tab.value });
@@ -492,6 +496,7 @@ export const AccessibilityReportsScreen = () => {
                 <ReportFilterSheet
                     filters={filters}
                     routeOptions={routeOptions}
+                    showStatusFilter={isStatusFilterAvailable(scope)}
                     onClose={() => setIsFilterSheetOpen(false)}
                     onApply={(next) => {
                         setFilters(next);

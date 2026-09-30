@@ -2,7 +2,7 @@
  * How a bus's community standing reads (MOV-80).
  *
  * The rules for turning a rating summary into words, and for picking the
- * verified reports that belong to one bus. Kept out of the components for the
+ * public community reports that belong to one bus. Kept out of the components for the
  * reason the rest of this folder is: Jest here is node-only with no renderer,
  * so a rule in a module can be tested and the same rule inside a component
  * cannot.
@@ -14,7 +14,10 @@
  */
 
 import { BusRatingSummary } from '../../../entities/rating/model/types';
-import { AccessibilityReport } from '../../../entities/report/model/types';
+import {
+    AccessibilityReport,
+    isPubliclyVisibleReport,
+} from '../../../entities/report/model/types';
 
 /**
  * What a bus with no ratings says.
@@ -29,7 +32,7 @@ export const NO_RATINGS_LABEL = 'No ratings yet';
 /** Shown when the ratings could not be read at all, which is not the same as none. */
 export const RATINGS_UNAVAILABLE_LABEL = 'Ratings unavailable';
 
-/** How many verified reports the community feedback screen shows before "recent" stops meaning anything. */
+/** How many community reports the feedback screen shows before "recent" stops meaning anything. */
 export const RECENT_FEEDBACK_LIMIT = 10;
 
 /** The top of the rating scale, for "4.6 out of 5". */
@@ -122,16 +125,17 @@ function sortableTime(value: unknown): number {
 }
 
 /**
- * The verified community reports about one bus, newest first.
+ * The public community reports about one bus, newest first.
  *
  * The three rules, in the order they matter:
  *
- *   1. VERIFIED only. A PENDING report is one passenger's unchecked account and
- *      a REJECTED one is an account an admin found did not hold — neither is
- *      something to tell a passenger about the bus they are choosing. Compared
- *      against the stored status exactly as `tallyVerifiedCommunityReports`
- *      does, so the list a passenger reads and the evidence the score weighs
- *      agree on what "verified" means.
+ *   1. Public only (`isPubliclyVisibleReport`): VERIFIED issues and positive
+ *      feedback, which is published as filed without review. A PENDING issue
+ *      is one passenger's unchecked account and a REJECTED one is an account
+ *      an admin found did not hold — neither is something to tell a passenger
+ *      about the bus they are choosing. The same rule the All Reports feed and
+ *      the community score (`isCountedCommunityReport`) use, so the list a
+ *      passenger reads and the evidence the score weighs agree.
  *   2. This bus only. Matched on `busId`, the bus DOCUMENT id, which is the same
  *      value a rating's `busId` holds. A report naming another bus or no bus at
  *      all is not about this one.
@@ -140,7 +144,7 @@ function sortableTime(value: unknown): number {
  * An empty or non-string `busId` matches nothing, rather than matching reports
  * that happen to have no bus — the same guard the tallies use.
  */
-export function selectVerifiedBusReports(
+export function selectBusCommunityReports(
     reports: readonly (AccessibilityReport | null | undefined)[] | null | undefined,
     busId: string,
     limit: number = RECENT_FEEDBACK_LIMIT
@@ -151,7 +155,7 @@ export function selectVerifiedBusReports(
 
     return (reports ?? [])
         .filter((report): report is AccessibilityReport =>
-            !!report && report.status === 'VERIFIED' && report.busId === wanted
+            !!report && isPubliclyVisibleReport(report) && report.busId === wanted
         )
         .sort((first, second) => sortableTime(second.createdAt) - sortableTime(first.createdAt))
         .slice(0, Math.max(0, limit));
@@ -213,7 +217,12 @@ export function ratingCardView(
     };
 }
 
-/** What the feedback list says when the bus has no verified reports. */
-export const NO_VERIFIED_FEEDBACK_TITLE = 'No verified feedback yet';
-export const NO_VERIFIED_FEEDBACK_DESCRIPTION =
-    'Reports about this bus appear here once an administrator has verified them.';
+/** What the feedback list says when the bus has no community feedback. */
+export const NO_COMMUNITY_FEEDBACK_TITLE = 'No community feedback yet';
+export const NO_COMMUNITY_FEEDBACK_DESCRIPTION =
+    'Positive feedback and verified accessibility issues about this bus will appear here.';
+
+/** The heading and caption over the feedback list. */
+export const COMMUNITY_FEEDBACK_TITLE = 'Community feedback';
+export const COMMUNITY_FEEDBACK_CAPTION =
+    'Positive feedback and verified accessibility issues about this bus, newest first.';

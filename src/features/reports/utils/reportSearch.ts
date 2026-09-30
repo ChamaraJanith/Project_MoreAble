@@ -15,8 +15,9 @@
 
 import {
     AccessibilityReport,
+    ReportScope,
     ReportType,
-    reportDecisionStatus,
+    passengerReportStatusBadge,
     reportTypeOf,
 } from '../../../entities/report/model/types';
 import {
@@ -239,8 +240,10 @@ export function reportMatchesFilters(
     if (filters.category && reportCategoryValue(report) !== filters.category) return false;
     if (filters.routeId && report.routeId !== filters.routeId) return false;
 
-    // Read the way the review is: a report with no stored status is PENDING.
-    if (filters.status !== 'ALL' && reportDecisionStatus(report) !== filters.status) {
+    // Matched against the status the card shows (type and status together).
+    // Positive feedback has no status on the passenger side, so a status
+    // filter narrows to issues; an issue with no stored status reads as PENDING.
+    if (filters.status !== 'ALL' && passengerReportStatusBadge(report) !== filters.status) {
         return false;
     }
 
@@ -295,6 +298,33 @@ export function narrowReportList<T extends AccessibilityReport>(
     );
 
     return sortReports(matching, filters.sort);
+}
+
+/**
+ * Whether the filter sheet offers a Status filter on this tab (MOV-305).
+ *
+ * Only on My Reports, where an author follows their own issues through review
+ * and each card carries its status. All Reports is the public feed: it holds
+ * nothing but verified issues and positive feedback, and shows no status on
+ * any card — so Pending and Rejected could never match there, and Verified
+ * would only quietly hide the positive feedback.
+ */
+export function isStatusFilterAvailable(scope: ReportScope): boolean {
+    return scope === 'my';
+}
+
+/**
+ * The filters as they apply on this tab: a status chosen on My Reports is
+ * dropped on a tab that does not offer the Status filter, rather than
+ * narrowing it invisibly. Returns the same object when nothing changes.
+ */
+export function filtersForScope(
+    filters: ReportListFilters,
+    scope: ReportScope
+): ReportListFilters {
+    if (isStatusFilterAvailable(scope) || filters.status === 'ALL') return filters;
+
+    return { ...filters, status: 'ALL' };
 }
 
 /** How many narrowing filters are set, for the badge on the filter button. */

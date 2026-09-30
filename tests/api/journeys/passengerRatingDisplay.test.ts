@@ -114,7 +114,8 @@ async function searchWith(options: {
                 origin: 'Kaduwela',
                 destination: 'Borella',
                 travelDate: '2026-08-25',
-                travelTime: '05:00',
+                // Every departure in this suite (06:00-08:00) boards within ±60 minutes (MOV-308).
+                travelTime: '07:00',
             }),
         })
     );

@@ -69,7 +69,9 @@ function storedReport(overrides: Record<string, any> = {}) {
         passengerId: AUTHOR,
         issueCategory: 'BROKEN_RAMP',
         description: 'The wheelchair ramp would not fold down at Pettah station.',
-        status: 'PENDING',
+        // VERIFIED: another passenger may only see, vote on or comment on a report
+        // in the public feed (a pending issue is visible to its author and admins).
+        status: 'VERIFIED',
         createdAt: FILED_AT,
         updatedAt: FILED_AT,
         ...overrides,
@@ -377,7 +379,7 @@ describe('POST /api/reports/[reportId]/vote', () => {
             passengerId: AUTHOR,
             issueCategory: 'BROKEN_RAMP',
             description: 'The wheelchair ramp would not fold down at Pettah station.',
-            status: 'PENDING',
+            status: 'VERIFIED',
         });
         expect(report.createdAt).toEqual(FILED_AT);
     });
@@ -634,8 +636,8 @@ describe('the five-agree admin review flag', () => {
         const report = await storedReportDoc(db);
 
         // Five passengers agreeing is a reason for an admin to look, not a
-        // finding: only an admin moves a report to VERIFIED.
-        expect(report.status).toBe('PENDING');
+        // finding: voting never changes a report's status.
+        expect(report.status).toBe('VERIFIED');
     });
 
     it('does not count disagreement towards the flag', async () => {

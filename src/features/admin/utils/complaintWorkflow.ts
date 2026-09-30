@@ -111,6 +111,7 @@ export function countComplaintsByStatus(complaints: AdminComplaint[]): Complaint
 export function complaintListQuery(filters: {
     status?: ComplaintStatusFilter;
     assignedTo?: string | null;
+    reportId?: string | null;
 }): string {
     const params: string[] = [];
 
@@ -120,6 +121,10 @@ export function complaintListQuery(filters: {
 
     if (filters.assignedTo) {
         params.push(`assignedTo=${encodeURIComponent(filters.assignedTo)}`);
+    }
+
+    if (filters.reportId) {
+        params.push(`reportId=${encodeURIComponent(filters.reportId)}`);
     }
 
     return params.length > 0 ? `?${params.join('&')}` : '';
@@ -371,6 +376,84 @@ export function readDuplicateComplaint(
     }
 
     return { isDuplicate: true, complaintId: text.match(/\b(CMP-\d{5,})\b/)?.[1] ?? null };
+}
+
+// ------------------------------------------------------------------
+// The complaint a report already has (Review Report screen)
+//
+// Found through GET /api/complaints?reportId=, and read off the complaint
+// itself — never inferred from the report, whose status stays VERIFIED
+// whatever happens to the complaint.
+// ------------------------------------------------------------------
+
+/** Where the lookup of a report's complaint stands. */
+export type ReportComplaintLookup =
+    | { kind: 'loading' }
+    | { kind: 'none' }
+    | { kind: 'found'; complaint: Pick<AdminComplaint, 'complaintId' | 'status'> }
+    | { kind: 'error'; message: string };
+
+export const REPORT_COMPLAINT_LOOKUP_ERROR =
+    'Could not check whether this report already has a complaint.';
+
+/**
+ * A list result as a lookup.
+ *
+ * An empty list is "none"; a failed request is an ERROR, never "none" — a
+ * lookup that could not be made must not read as a report nobody has raised a
+ * complaint about. One complaint per report is the create rule; should the
+ * list ever hold more, the newest (the API's first) is the one shown.
+ */
+export function reportComplaintLookupFromResult(
+    result:
+        | { ok: true; value: Pick<AdminComplaint, 'complaintId' | 'status'>[] }
+        | { ok: false; message?: string; status?: number }
+): ReportComplaintLookup {
+    if (!result.ok) {
+        return {
+            kind: 'error',
+            message:
+                result.status === 401 || result.status === 403
+                    ? complaintErrorMessage(result.status)
+                    : REPORT_COMPLAINT_LOOKUP_ERROR,
+        };
+    }
+
+    const [complaint] = result.value;
+
+    return complaint ? { kind: 'found', complaint } : { kind: 'none' };
+}
+
+/** What the complaint section of the Review Report screen shows. */
+export interface ReportComplaintView {
+    showLoading: boolean;
+    /** Only once the lookup has positively found no complaint. */
+    showCreate: boolean;
+    error: string | null;
+    /** The existing complaint, when there is one. */
+    summary: { complaintId: string; status: string; statusLabel: string } | null;
+}
+
+export function reportComplaintView(lookup: ReportComplaintLookup): ReportComplaintView {
+    switch (lookup.kind) {
+        case 'loading':
+            return { showLoading: true, showCreate: false, error: null, summary: null };
+        case 'error':
+            return { showLoading: false, showCreate: false, error: lookup.message, summary: null };
+        case 'none':
+            return { showLoading: false, showCreate: true, error: null, summary: null };
+        case 'found':
+            return {
+                showLoading: false,
+                showCreate: false,
+                error: null,
+                summary: {
+                    complaintId: lookup.complaint.complaintId,
+                    status: lookup.complaint.status,
+                    statusLabel: complaintStatusLabel(lookup.complaint.status),
+                },
+            };
+    }
 }
 
 // ------------------------------------------------------------------

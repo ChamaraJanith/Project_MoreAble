@@ -148,7 +148,8 @@ async function searchWith(fleet: Fleet) {
                 origin: 'Kaduwela',
                 destination: 'Borella',
                 travelDate: '2026-08-25',
-                travelTime: '05:00',
+                // Every departure in this suite (06:00-08:00) boards within ±60 minutes (MOV-308).
+                travelTime: '07:00',
             }),
         })
     );
@@ -188,9 +189,9 @@ describe('fetching the vehicle behind each departure', () => {
             buses: [makeBus('BUS-BUSY', 'NB-8001', FULLY_EQUIPPED)],
             trips: [
                 makeTrip('TRIP-1', ROUTE_MAIN, 'BUS-BUSY', '06:00'),
-                makeTrip('TRIP-2', ROUTE_MAIN, 'BUS-BUSY', '07:00'),
-                makeTrip('TRIP-3', ROUTE_MAIN, 'BUS-BUSY', '08:00'),
-                makeTrip('TRIP-4', ROUTE_MAIN, 'BUS-BUSY', '09:00'),
+                makeTrip('TRIP-2', ROUTE_MAIN, 'BUS-BUSY', '06:40'),
+                makeTrip('TRIP-3', ROUTE_MAIN, 'BUS-BUSY', '07:20'),
+                makeTrip('TRIP-4', ROUTE_MAIN, 'BUS-BUSY', '08:00'),
             ],
         });
 

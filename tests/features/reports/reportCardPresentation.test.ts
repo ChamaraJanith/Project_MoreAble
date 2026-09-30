@@ -145,6 +145,12 @@ describe('reportSubmissionReceipt', () => {
         expect(receipt.categoryLabel).not.toBe('');
     });
 
+    it('gives positive feedback no status at all on the passenger side', () => {
+        for (const status of ['PUBLISHED', 'PENDING', 'VERIFIED']) {
+            expect(reportSubmissionReceipt(positive({ status })).status).toBeNull();
+        }
+    });
+
     it('reads a report with no stored status as pending', () => {
         expect(reportSubmissionReceipt(report({ status: '' })).status).toBe('PENDING');
     });
