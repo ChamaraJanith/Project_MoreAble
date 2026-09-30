@@ -47,6 +47,8 @@ function ongoingFor(booking: Booking, startedAt: string): PassengerOngoingJourne
             tripId: booking.tripId,
             startedAt,
             expiresAt: new Date(new Date(startedAt).getTime() + 23 * HOUR).toISOString(),
+            scheduledDepartureAt: null,
+            scheduledArrivalAt: null,
         },
         busId: 'BUS-A',
         liveStatus: { available: false },
@@ -69,7 +71,13 @@ describe('groupActivitiesWithOngoing', () => {
         const boardedYesterday = makeBooking('USED', {
             boardingStatus: 'BOARDED',
             boardedAt: hoursAgo(26),
-            activeJourney: { tripId: 'TRIP-USED', startedAt: hoursAgo(1), expiresAt: hoursAgo(-22) },
+            activeJourney: {
+                tripId: 'TRIP-USED',
+                startedAt: hoursAgo(1),
+                expiresAt: hoursAgo(-22),
+                scheduledDepartureAt: null,
+                scheduledArrivalAt: null,
+            },
         });
 
         const groups = groupActivitiesWithOngoing([boardedYesterday], [], PASSENGER, NOW);

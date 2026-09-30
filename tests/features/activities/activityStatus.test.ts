@@ -72,10 +72,13 @@ const TRIP_A_SCHEDULE = { departureTime: '06:00', estimatedArrivalTime: '06:40' 
 
 /** The persisted Start Journey of TRIP-A, as the history endpoint reports it. */
 function started(startedAt: Date, tripId = 'TRIP-A'): BookingActiveJourney {
+    const service = scheduledServiceFor(TRIP_A_SCHEDULE, startedAt)!;
     return {
         tripId,
         startedAt: startedAt.toISOString(),
-        expiresAt: scheduledServiceFor(TRIP_A_SCHEDULE, startedAt)!.expiresAt.toISOString(),
+        expiresAt: service.expiresAt.toISOString(),
+        scheduledDepartureAt: service.departureAt.toISOString(),
+        scheduledArrivalAt: service.arrivalAt.toISOString(),
     };
 }
 

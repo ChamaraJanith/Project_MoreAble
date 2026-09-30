@@ -220,12 +220,27 @@ export interface PassengerJourneyCompletion {
 }
 
 /**
+ * The scheduled service a journey run belongs to (MOV-309), exactly as Start
+ * Journey persisted it on trips/{tripId}.journey (MOV-294).
+ *
+ * Copied, never calculated: null when the stored value is missing or
+ * unreadable, and never filled in from startedAt, a completion time, the
+ * booking's 'HH:MM' timetable copy or the current time.
+ */
+export interface JourneyRunSchedule {
+  /** ISO 8601, scheduled departure of the service; null when not stored. */
+  scheduledDepartureAt: string | null;
+  /** ISO 8601, scheduled arrival of the service; null when not stored. */
+  scheduledArrivalAt: string | null;
+}
+
+/**
  * The running journey of a booking's own trip (MOV-294).
  *
  * Read from trips/{booking.tripId}.journey, so it can only ever describe the
  * exact trip the passenger booked. Sent only while that journey is running.
  */
-export interface BookingActiveJourney {
+export interface BookingActiveJourney extends JourneyRunSchedule {
   /** Always the booking's own tripId. */
   tripId: string;
   /** ISO 8601, when the bus pressed Start Journey. */
@@ -320,6 +335,13 @@ export interface PassengerOngoingJourney {
 export interface PassengerCompletedJourney {
   booking: OngoingJourneyBooking;
   completion: PassengerJourneyCompletion;
+  /**
+   * The completed run's scheduled service (MOV-309). Only from the trip's
+   * persisted journey record while it is still THIS run (its startedAt equals
+   * completion.journeyStartedAt); once a later run has replaced it, both are
+   * null — never reconstructed.
+   */
+  schedule: JourneyRunSchedule;
   /** The planned path, only when asked for (`?include=route`); null when unreadable. */
   route?: OngoingJourneyRoute | null;
 }

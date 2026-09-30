@@ -80,14 +80,24 @@ const completion = (overrides: Partial<PassengerJourneyCompletion> = {}): Passen
 function ongoingFor(booking: Booking): PassengerOngoingJourney {
     return {
         booking: { ...booking, fare: { totalFare: 80, currency: 'LKR', isEstimate: false } },
-        activeJourney: { tripId: booking.tripId, startedAt: STARTED, expiresAt: '2026-09-22T09:00:00.000Z' },
+        activeJourney: {
+            tripId: booking.tripId,
+            startedAt: STARTED,
+            expiresAt: '2026-09-22T09:00:00.000Z',
+            scheduledDepartureAt: null,
+            scheduledArrivalAt: null,
+        },
         busId: 'BUS-A',
         liveStatus: { available: false },
     };
 }
 
 function completedFor(booking: Booking, record = completion()): PassengerCompletedJourney {
-    return { booking: { ...booking, fare: { totalFare: 80, currency: 'LKR', isEstimate: false } }, completion: record };
+    return {
+        booking: { ...booking, fare: { totalFare: 80, currency: 'LKR', isEstimate: false } },
+        completion: record,
+        schedule: { scheduledDepartureAt: null, scheduledArrivalAt: null },
+    };
 }
 
 // ------------------------------------------------------------------

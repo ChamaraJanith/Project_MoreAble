@@ -47,6 +47,9 @@ const session = (passengerId: string, extra: Record<string, unknown> = {}) => ({
 const NOW = Date.now();
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 const STARTED_AT = minutesAgo(30);
+// The scheduled service Start Journey persisted: arrival + 30 min grace = expiresAt.
+const SCHEDULED_DEPARTURE_AT = minutesAgo(25);
+const SCHEDULED_ARRIVAL_AT = minutesAgo(-90);
 
 function booking(bookingId: string, userId: string, tripId: string, busId: string, extra: Record<string, unknown> = {}) {
     return {
@@ -76,6 +79,8 @@ const startedJourney = (busId: string, startedAt: string = STARTED_AT) => ({
     startedAt,
     endedAt: null,
     busId,
+    scheduledDepartureAt: SCHEDULED_DEPARTURE_AT,
+    scheduledArrivalAt: SCHEDULED_ARRIVAL_AT,
     expiresAt: minutesAgo(-120),
 });
 
@@ -190,6 +195,8 @@ describe('GET /api/journeys/ongoing — matching the active trip', () => {
             tripId: 'TRIP-00004',
             startedAt: STARTED_AT,
             expiresAt: minutesAgo(-120),
+            scheduledDepartureAt: SCHEDULED_DEPARTURE_AT,
+            scheduledArrivalAt: SCHEDULED_ARRIVAL_AT,
         });
         expect(journey.busId).toBe('BUS-8899');
     });
@@ -334,6 +341,75 @@ describe('GET /api/journeys/ongoing — matching the active trip', () => {
         expect(status).toBe(500);
         expect(body).toEqual({ success: false, message: 'Failed to retrieve your ongoing journey.' });
         consoleError.mockRestore();
+    });
+});
+
+describe('GET /api/journeys/ongoing — scheduled service (MOV-309)', () => {
+    async function activeJourneyFor(journey: Record<string, unknown>) {
+        mockGetAdminDb.mockReturnValue(seed({ trips: [trip('TRIP-00004', 'BUS-8899', { journey })] }));
+        const { body } = await ongoing(session(PASSENGER_A));
+        expect(body.journeys).toHaveLength(1);
+        return body.journeys[0].activeJourney;
+    }
+
+    it('returns the persisted scheduled departure, scheduled arrival and startedAt exactly as stored', async () => {
+        const activeJourney = await activeJourneyFor(startedJourney('BUS-8899'));
+
+        expect(activeJourney.scheduledDepartureAt).toBe(SCHEDULED_DEPARTURE_AT);
+        expect(activeJourney.scheduledArrivalAt).toBe(SCHEDULED_ARRIVAL_AT);
+        expect(activeJourney.startedAt).toBe(STARTED_AT);
+    });
+
+    it('reports a missing scheduled departure as null, never startedAt or the timetable', async () => {
+        const { scheduledDepartureAt, ...record } = startedJourney('BUS-8899');
+
+        const activeJourney = await activeJourneyFor(record);
+
+        expect(activeJourney.scheduledDepartureAt).toBeNull();
+        expect(activeJourney.scheduledArrivalAt).toBe(SCHEDULED_ARRIVAL_AT);
+        expect(activeJourney.startedAt).toBe(STARTED_AT);
+    });
+
+    it('reports a missing scheduled arrival as null, never expiresAt or the timetable', async () => {
+        const { scheduledArrivalAt, ...record } = startedJourney('BUS-8899');
+
+        const activeJourney = await activeJourneyFor(record);
+
+        expect(activeJourney.scheduledArrivalAt).toBeNull();
+        expect(activeJourney.scheduledDepartureAt).toBe(SCHEDULED_DEPARTURE_AT);
+    });
+
+    it('reports unreadable stored scheduled times as null', async () => {
+        const activeJourney = await activeJourneyFor({
+            ...startedJourney('BUS-8899'),
+            scheduledDepartureAt: 'not-a-date',
+            scheduledArrivalAt: 42,
+        });
+
+        expect(activeJourney.scheduledDepartureAt).toBeNull();
+        expect(activeJourney.scheduledArrivalAt).toBeNull();
+    });
+
+    it('still keeps a journey whose record has no scheduled times, since running is decided by expiresAt', async () => {
+        const { scheduledDepartureAt, scheduledArrivalAt, ...legacy } = startedJourney('BUS-8899');
+
+        const activeJourney = await activeJourneyFor(legacy);
+
+        expect(activeJourney).toEqual({
+            tripId: 'TRIP-00004',
+            startedAt: STARTED_AT,
+            expiresAt: minutesAgo(-120),
+            scheduledDepartureAt: null,
+            scheduledArrivalAt: null,
+        });
+    });
+
+    it('copies only the allow-listed fields, never the rest of the stored journey record', async () => {
+        const activeJourney = await activeJourneyFor({ ...startedJourney('BUS-8899'), internalNote: 'private' });
+
+        expect(Object.keys(activeJourney).sort()).toEqual(
+            ['expiresAt', 'scheduledArrivalAt', 'scheduledDepartureAt', 'startedAt', 'tripId'].sort()
+        );
     });
 });
 
