@@ -250,8 +250,12 @@ describe('F. the Activities card and the Live Journey screen agree', () => {
         expect(definition(screen, 'run')).toBe('journey!.activeJourney');
     });
 
-    it('the scheduled arrival is on the screen only, from scheduledArrivalAt', () => {
+    it('an ongoing scheduled arrival is on the screen only, from scheduledArrivalAt', () => {
         expect(definition(screen, 'scheduledArrival')).toBe('formatServiceTime(run?.scheduledArrivalAt) ?? notAvailable');
-        expect(card).not.toContain('scheduledArrivalAt');
+        // The ongoing card shows no scheduled arrival: the card's only one is a
+        // completed journey's own, from its own schedule (MOV-316).
+        expect(card).not.toContain('run?.scheduledArrivalAt');
+        expect(card.match(/scheduledArrivalAt/g)).toEqual(['scheduledArrivalAt']);
+        expect(definition(card, 'completedScheduledArrival')).toBe('formatServiceTime(completedRun?.scheduledArrivalAt) ?? notAvailable');
     });
 });

@@ -218,11 +218,13 @@ export function groupActivitiesWithOngoing(
     completedJourneys: PassengerCompletedJourney[] = []
 ): ActivityGroups {
     const activeById = new Map(ongoingJourneys.map((journey) => [journey.booking?.bookingId, journey.activeJourney]));
-    const completedById = new Map(completedJourneys.map((journey) => [journey.booking?.bookingId, journey.completion]));
+    const completedById = new Map(completedJourneys.map((journey) => [journey.booking?.bookingId, journey]));
     const withServerJourney = history.map((booking) => ({
         ...booking,
         activeJourney: activeById.get(booking.bookingId),
-        passengerJourney: completedById.get(booking.bookingId),
+        passengerJourney: completedById.get(booking.bookingId)?.completion,
+        // The finished run's scheduled service comes with its completion (MOV-309).
+        passengerJourneySchedule: completedById.get(booking.bookingId)?.schedule,
     }));
     const { ongoing, completed } = groupActivities(withServerJourney, passengerId, now);
 

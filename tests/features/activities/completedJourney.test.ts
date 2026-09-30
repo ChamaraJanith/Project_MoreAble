@@ -20,7 +20,6 @@ import {
 import { groupActivitiesWithOngoing } from '../../../src/features/activities/utils/activityStatus';
 import {
     completionReasonLabel,
-    completionTimeCaption,
     createEndJourneyAction,
     END_JOURNEY_DIALOG,
     findCompletedJourney,
@@ -294,8 +293,10 @@ describe('Completed Journey screen', () => {
     it('says how it finished, in plain words', () => {
         expect(completionReasonLabel('PASSENGER')).toBe('Completed by you');
         expect(completionReasonLabel('BUS_JOURNEY_ENDED')).toBe('Completed when the bus journey ended');
-        expect(completionTimeCaption('PASSENGER')).toBe('You completed it at');
-        expect(completionTimeCaption('BUS_JOURNEY_ENDED')).toBe('Journey completed at');
+        // How it finished stays in the reason line; the time itself is the
+        // "Actual end" row (MOV-309), whichever way it finished.
+        expect(screen).toContain('completionReasonLabel(completion.completionReason)');
+        expect(screen).toContain("t('completedJourney.actualEnd', 'Actual end')");
     });
 
     it('selects only from the passenger\'s own list', () => {

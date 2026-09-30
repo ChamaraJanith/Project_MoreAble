@@ -528,20 +528,6 @@ export function formatScheduleTime(value: string | null | undefined): string | n
     return formatFriendlyTime(parseApiTimeString(value as string));
 }
 
-/** An ISO time as the passenger's local clock time, e.g. '8:35 PM'; null when unreadable. */
-export function formatClockTime(value: string | null | undefined): string | null {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-
-    const hour24 = date.getHours();
-    return formatFriendlyTime({
-        hour: hour24 % 12 === 0 ? 12 : hour24 % 12,
-        minute: date.getMinutes(),
-        period: hour24 >= 12 ? 'PM' : 'AM',
-    });
-}
-
 export interface ScheduleTime {
     /** Friendly clock time, or null when unknown. */
     time: string | null;
