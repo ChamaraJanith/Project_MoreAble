@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { VEHICLE_MARKER_COLOR } from '../../../shared/ui/mapTheme';
+import { formatServiceDate, formatServiceTime } from '../../../shared/utils/serviceTime';
 import { RouteMapVehicle } from '../../journey/ui/RouteMap';
 import { RouteMapCard } from '../../journey/ui/RouteMapCard';
 import { RouteStopTimeline } from '../../journey/ui/RouteStopTimeline';
@@ -21,7 +22,6 @@ import {
     computeJourneyProgress,
     describeBusPosition,
     describeOngoingSchedule,
-    formatClockTime,
     formatOngoingFare,
     liveVehicleFor,
     upcomingStops,
@@ -229,7 +229,14 @@ export function OngoingJourneyScreen() {
     const isLive = !!vehicle;
     const positionSentence = describeBusPosition(phase, vehiclePosition, progress, connectionLost);
     const fare = formatOngoingFare(journey);
-    const startedAt = formatClockTime(journey!.activeJourney.startedAt);
+    // The run's own persisted times, on the service clock (MOV-309) — the same
+    // sources the Activities card uses. A missing one says so; none is borrowed.
+    const run = journey!.activeJourney;
+    const notAvailable = t('ongoingJourney.notAvailable', 'Not available');
+    const serviceDate = formatServiceDate(run?.scheduledDepartureAt) ?? notAvailable;
+    const scheduledDeparture = formatServiceTime(run?.scheduledDepartureAt) ?? notAvailable;
+    const scheduledArrival = formatServiceTime(run?.scheduledArrivalAt) ?? notAvailable;
+    const actualStart = formatServiceTime(run?.startedAt) ?? notAvailable;
     const ahead = upcomingStops(route, progress);
     const journeyStops = route?.journeyStops ?? [origin, destination];
     const seat = booking.pairedSeatNumber
@@ -448,24 +455,34 @@ export function OngoingJourneyScreen() {
                     <SectionHeading icon="information-circle-outline" title={t('ongoingJourney.details', 'Journey information')} />
                     <InfoRow icon="radio-button-on" label={t('ongoingJourney.from', 'From')} value={origin} />
                     <InfoRow icon="location" label={t('ongoingJourney.to', 'To')} value={destination} />
+                    {/* The run: its service date, its scheduled service and when it actually started. */}
+                    <InfoRow icon="calendar-outline" label={t('ongoingJourney.journeyDate', 'Journey date')} value={serviceDate} />
                     <InfoRow
                         icon="time-outline"
-                        label={
-                            schedule.departure.isPassengerStop
-                                ? t('ongoingJourney.scheduledAtStop', 'Scheduled at {{stop}}', { stop: origin })
-                                : t('ongoingJourney.tripDeparture', 'Trip departure (route start)')
-                        }
-                        value={schedule.departure.time ?? t('ongoingJourney.notAvailable', 'Not available')}
+                        label={t('ongoingJourney.scheduledDepartureTime', 'Scheduled departure')}
+                        value={scheduledDeparture}
                     />
                     <InfoRow
                         icon="flag-outline"
-                        label={
-                            schedule.arrival.isPassengerStop
-                                ? t('ongoingJourney.scheduledArrival', 'Scheduled arrival at {{stop}}', { stop: destination })
-                                : t('ongoingJourney.tripArrival', 'Trip arrival (route end)')
-                        }
-                        value={schedule.arrival.time ?? t('ongoingJourney.notAvailable', 'Not available')}
+                        label={t('ongoingJourney.scheduledArrivalTime', 'Scheduled arrival')}
+                        value={scheduledArrival}
                     />
+                    <InfoRow icon="play-circle-outline" label={t('ongoingJourney.actualStart', 'Actual start')} value={actualStart} />
+                    {/* The passenger's own stops, from the timetable, when the route can place them. */}
+                    {schedule.departure.isPassengerStop && (
+                        <InfoRow
+                            icon="time-outline"
+                            label={t('ongoingJourney.scheduledAtStop', 'Scheduled at {{stop}}', { stop: origin })}
+                            value={schedule.departure.time ?? notAvailable}
+                        />
+                    )}
+                    {schedule.arrival.isPassengerStop && (
+                        <InfoRow
+                            icon="flag-outline"
+                            label={t('ongoingJourney.scheduledArrival', 'Scheduled arrival at {{stop}}', { stop: destination })}
+                            value={schedule.arrival.time ?? notAvailable}
+                        />
+                    )}
                     {!!schedule.durationLabel && (
                         <InfoRow
                             icon="hourglass-outline"
@@ -473,13 +490,10 @@ export function OngoingJourneyScreen() {
                             value={schedule.durationLabel}
                         />
                     )}
-                    {!!startedAt && (
-                        <InfoRow icon="play-circle-outline" label={t('ongoingJourney.startedAt', 'Bus started the journey')} value={startedAt} />
-                    )}
                     <Text style={styles.footnote}>
                         {t(
                             'ongoingJourney.scheduleNote',
-                            'Times are from the timetable. A live arrival estimate is not available yet.'
+                            'Scheduled times are from the timetable. The actual start is when the bus started this journey. A live arrival estimate is not available yet.'
                         )}
                     </Text>
                 </View>

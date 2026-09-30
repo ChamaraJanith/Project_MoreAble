@@ -5,6 +5,7 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Booking } from '../../../entities/booking/model/types';
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { statusBadgeStyles } from '../../../shared/ui/statusBadgeStyles';
+import { formatServiceDate, formatServiceTime } from '../../../shared/utils/serviceTime';
 import {
     apiTimeToMinutes,
     formatDisplayDate,
@@ -77,8 +78,16 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     // A recorded completion (MOV-297) dates the journey by when it finished.
     const completion = isOngoing ? undefined : booking.passengerJourney;
     const rawDate = completion?.completedAt ?? booking.boardedAt ?? booking.journeyDate ?? booking.travelDate ?? booking.journey?.journeyDate ?? booking.journey?.departureDate;
-    const journeyDate = formatJourneyDate(rawDate);
-    const startedAt = isOngoing ? formatStartedAt(booking.activeJourney?.startedAt) : null;
+    const journeyDate = isOngoing ? null : formatJourneyDate(rawDate);
+    // An ongoing journey (MOV-309) is described only by its run's own persisted
+    // times, on the service clock: the service date and scheduled departure from
+    // scheduledDepartureAt, the actual start from startedAt. Never the booking's
+    // 'HH:MM' copy, a boarding scan or a booked date; a missing time says so.
+    const run = isOngoing ? booking.activeJourney : undefined;
+    const notAvailable = t('activities.notAvailable', 'Not available');
+    const serviceDate = formatServiceDate(run?.scheduledDepartureAt) ?? notAvailable;
+    const scheduledDeparture = formatServiceTime(run?.scheduledDepartureAt) ?? notAvailable;
+    const actualStart = formatServiceTime(run?.startedAt) ?? notAvailable;
     const completedAt = completion ? formatStartedAt(completion.completedAt) : null;
     const reason = completion ? completionReasonLabel(completion.completionReason) : null;
     const fare =
@@ -129,12 +138,21 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
             </Text>
 
             <View style={styles.metaRow}>
-                <View style={styles.metaBadge}>
-                    <Ionicons name="time-outline" size={14} color="#0066CC" />
-                    <Text style={styles.metaText}>
-                        {departure} → {arrival}
-                    </Text>
-                </View>
+                {isOngoing ? (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="time-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>
+                            {t('activities.scheduledDeparture', 'Scheduled departure: {{time}}', { time: scheduledDeparture })}
+                        </Text>
+                    </View>
+                ) : (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="time-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>
+                            {departure} → {arrival}
+                        </Text>
+                    </View>
+                )}
 
                 {!!numberPlate && (
                     <View style={styles.metaBadge}>
@@ -143,11 +161,20 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
                     </View>
                 )}
 
-                {!!startedAt && (
+                {isOngoing && (
                     <View style={styles.metaBadge}>
                         <Ionicons name="play-circle-outline" size={14} color="#0066CC" />
                         <Text style={styles.metaText}>
-                            {t('activities.startedAt', 'Started {{time}}', { time: startedAt })}
+                            {t('activities.actualStart', 'Actual start: {{time}}', { time: actualStart })}
+                        </Text>
+                    </View>
+                )}
+
+                {isOngoing && (
+                    <View style={styles.metaBadge}>
+                        <Ionicons name="calendar-outline" size={14} color="#0066CC" />
+                        <Text style={styles.metaText}>
+                            {t('activities.journeyDate', 'Journey date: {{date}}', { date: serviceDate })}
                         </Text>
                     </View>
                 )}
