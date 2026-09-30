@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -35,13 +35,60 @@ export default function EmergencyDetailScreen() {
     const [assignModalVisible, setAssignModalVisible] = useState(false);
     const [responderName, setResponderName] = useState('');
     const [responderContact, setResponderContact] = useState('');
-    const [etaMinutes, setEtaMinutes] = useState('10');
+    const [etaMinutes, setEtaMinutes] = useState('0');
     const [assignNotes, setAssignNotes] = useState('');
+
+    // State for Live Directives / Comms to Bus Console
+    const [liveDirectiveInput, setLiveDirectiveInput] = useState('');
+    const [isSendingDirective, setIsSendingDirective] = useState(false);
+    const adminChatScrollRef = useRef<ScrollView>(null);
 
     // Modal state for Resolve Emergency
     const [resolveModalVisible, setResolveModalVisible] = useState(false);
     const [resolutionNotes, setResolutionNotes] = useState('');
     const [actionTaken, setActionTaken] = useState('');
+
+    const openAssignModal = () => {
+        if (emergency) {
+            const plate = emergency.vehicle?.plateNumber || 'Bus Device';
+            if (!responderName) {
+                setResponderName(`Onboard Bus Crew (${plate})`);
+            }
+            if (!responderContact) {
+                setResponderContact('0771234567');
+            }
+            if (!assignNotes) {
+                setAssignNotes('Bus crew: Pull over safely at nearest bus halt and verify commuter safety.');
+            }
+        }
+        setAssignModalVisible(true);
+    };
+
+    const handleCallBusCrew = (phone?: string) => {
+        const targetPhone = phone || emergency?.assignment?.responderContact || responderContact || '0771234567';
+        Linking.openURL(`tel:${targetPhone}`).catch(() => {
+            Alert.alert('Call Failed', `Unable to place call to ${targetPhone}. Ensure device has telephone capabilities.`);
+        });
+    };
+
+    const handleSendLiveDirective = async () => {
+        if (!liveDirectiveInput.trim() || !emergency) return;
+        setIsSendingDirective(true);
+        try {
+            const updated = await updateEmergencyStatusApi(emergency.id, {
+                status: emergency.status,
+                directiveMessage: liveDirectiveInput.trim(),
+                changedBy: (user as any)?.name || user?.email || 'Admin Dispatcher',
+            });
+            setEmergency(updated);
+            setLiveDirectiveInput('');
+            Alert.alert('Directive Transmitted', 'Live directive sent directly to the onboard bus console.');
+        } catch (err: any) {
+            Alert.alert('Transmission Failed', err.message || 'Failed to send directive to bus device.');
+        } finally {
+            setIsSendingDirective(false);
+        }
+    };
 
     const loadEmergency = useCallback(async () => {
         if (!emergencyId) return;
@@ -59,7 +106,20 @@ export default function EmergencyDetailScreen() {
 
     useEffect(() => {
         loadEmergency();
-    }, [loadEmergency]);
+        const interval = setInterval(async () => {
+            if (emergencyId && !isUpdating) {
+                try {
+                    const fresh = await getEmergencyById(emergencyId);
+                    if (fresh) {
+                        setEmergency(fresh);
+                    }
+                } catch {
+                    // background polling silent catch
+                }
+            }
+        }, 3500);
+        return () => clearInterval(interval);
+    }, [emergencyId, isUpdating, loadEmergency]);
 
     const handleAssignSupport = async () => {
         if (!responderName.trim() || !responderContact.trim()) {
@@ -408,7 +468,156 @@ export default function EmergencyDetailScreen() {
                     </View>
                 )}
 
-                {/* Section 6: Status History Audit Trail (MOV-236) */}
+                {/* Section 6: Live Bus Console Comms & Directives */}
+                <View style={[styles.sectionCard, { borderColor: '#93C5FD', borderWidth: 1.5 }]}>
+                    <View style={styles.sectionHeader}>
+                        <Ionicons name="chatbubbles-outline" size={20} color="#0066CC" />
+                        <Text style={[styles.sectionTitleText, { color: '#0066CC' }]}>
+                            Bus Console Direct Comms & Dispatch Directives
+                        </Text>
+                        <View style={styles.liveBadge}>
+                            <View style={styles.liveIndicatorDot} />
+                            <Text style={styles.liveBadgeText}>LIVE LINK</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.targetBusBox}>
+                        <View style={styles.targetBusIconCircle}>
+                            <Ionicons name="bus" size={20} color="#0066CC" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.targetBusTitle}>
+                                Bus {emergency.vehicle?.plateNumber || 'N/A'} (Route {emergency.vehicle?.routeNumber || 'N/A'})
+                            </Text>
+                            <Text style={styles.targetBusSubtitle}>
+                                Target Device: Onboard Bus Driver & Conductor Console
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.busCallBtn}
+                            onPress={() => handleCallBusCrew()}
+                            activeOpacity={0.8}
+                        >
+                            <Ionicons name="call" size={15} color="#FFFFFF" />
+                            <Text style={styles.busCallBtnText}>Call Bus</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Live Dispatch Message Thread */}
+                    <Text style={[styles.infoLabel, { marginTop: 14, marginBottom: 6 }]}>
+                        Live Directive & Status Thread:
+                    </Text>
+                    <ScrollView
+                        ref={adminChatScrollRef}
+                        style={styles.dispatchThreadScroll}
+                        contentContainerStyle={styles.dispatchThreadBox}
+                        nestedScrollEnabled
+                        onContentSizeChange={() => adminChatScrollRef.current?.scrollToEnd({ animated: false })}
+                    >
+                        {(!emergency.dispatchMessages || emergency.dispatchMessages.length === 0) ? (
+                            <Text style={styles.emptyThreadText}>
+                                No directives exchanged yet. Send operational instructions below or call the onboard crew directly.
+                            </Text>
+                        ) : (
+                            emergency.dispatchMessages.map((msg) => {
+                                const isAdmin = msg.sender === 'ADMIN';
+                                return (
+                                    <View
+                                        key={msg.id}
+                                        style={[
+                                            styles.dispatchBubble,
+                                            isAdmin ? styles.dispatchBubbleAdmin : styles.dispatchBubbleBus,
+                                        ]}
+                                    >
+                                        <View style={styles.dispatchSenderRow}>
+                                            <Ionicons
+                                                name={isAdmin ? 'shield-checkmark' : 'bus'}
+                                                size={12}
+                                                color={isAdmin ? '#2563EB' : '#D97706'}
+                                            />
+                                            <Text
+                                                style={[
+                                                    styles.dispatchSenderText,
+                                                    { color: isAdmin ? '#2563EB' : '#D97706' },
+                                                ]}
+                                                numberOfLines={1}
+                                            >
+                                                {msg.senderName}
+                                            </Text>
+                                            <Text style={styles.dispatchTimeText}>
+                                                {formatDateTime(msg.sentAt)}
+                                            </Text>
+                                        </View>
+                                        <Text style={styles.dispatchMessageText}>{msg.message}</Text>
+                                    </View>
+                                );
+                            })
+                        )}
+                    </ScrollView>
+
+                    {/* Quick Directives & Input */}
+                    {!isResolved && (
+                        <View style={{ marginTop: 12 }}>
+                            <View style={styles.quickChipsRow}>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setLiveDirectiveInput('Pull over safely at next bus bay.')}
+                                >
+                                    <Text style={styles.quickChipText}>🛑 Pull over</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setLiveDirectiveInput('Deploy wheelchair ramp at exit.')}
+                                >
+                                    <Text style={styles.quickChipText}>♿ Deploy ramp</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setLiveDirectiveInput('Emergency patrol / ambulance dispatched.')}
+                                >
+                                    <Text style={styles.quickChipText}>🚑 Paramedics notified</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setLiveDirectiveInput('Verify commuter vitals & passenger safety.')}
+                                >
+                                    <Text style={styles.quickChipText}>🩺 Check vitals</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setLiveDirectiveInput('Hold bus position at current halt.')}
+                                >
+                                    <Text style={styles.quickChipText}>🚦 Hold bus</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.directiveInputRow}>
+                                <TextInput
+                                    style={styles.directiveTextInput}
+                                    placeholder="Type live directive or chat message to bus console..."
+                                    placeholderTextColor="#94A3B8"
+                                    value={liveDirectiveInput}
+                                    onChangeText={setLiveDirectiveInput}
+                                    onSubmitEditing={handleSendLiveDirective}
+                                    returnKeyType="send"
+                                />
+                                <TouchableOpacity
+                                    style={styles.sendDirectiveBtn}
+                                    onPress={handleSendLiveDirective}
+                                    disabled={isSendingDirective || !liveDirectiveInput.trim()}
+                                >
+                                    {isSendingDirective ? (
+                                        <ActivityIndicator size="small" color="#FFFFFF" />
+                                    ) : (
+                                        <Ionicons name="send" size={16} color="#FFFFFF" />
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+                </View>
+
+                {/* Section 7: Status History Audit Trail (MOV-236) */}
                 <View style={styles.sectionCard}>
                     <View style={styles.sectionHeader}>
                         <Ionicons name="git-commit-outline" size={20} color="#6366F1" />
@@ -475,7 +684,7 @@ export default function EmergencyDetailScreen() {
                     {isPending && (
                         <TouchableOpacity
                             style={[styles.primaryActionBtn, { backgroundColor: '#DC2626' }]}
-                            onPress={() => setAssignModalVisible(true)}
+                            onPress={openAssignModal}
                         >
                             <Ionicons name="shield-half" size={20} color="#FFFFFF" />
                             <Text style={styles.primaryActionBtnText}>Assign Support Responder</Text>
@@ -494,7 +703,7 @@ export default function EmergencyDetailScreen() {
 
                             <TouchableOpacity
                                 style={[styles.secondaryActionBtn, { borderColor: '#D97706' }]}
-                                onPress={() => setAssignModalVisible(true)}
+                                onPress={openAssignModal}
                             >
                                 <Ionicons name="refresh" size={18} color="#D97706" />
                                 <Text style={[styles.secondaryActionBtnText, { color: '#D97706' }]}>
@@ -532,14 +741,73 @@ export default function EmergencyDetailScreen() {
                         </View>
 
                         <Text style={styles.modalSubtitle}>
-                            Assign local emergency response personnel or dispatch team to coordinate support.
+                            Assign onboard vehicle crew or rapid transit dispatch team to coordinate emergency response.
                         </Text>
+
+                        {/* Target Vehicle Unit Box */}
+                        <View style={styles.modalTargetBusBox}>
+                            <View style={styles.modalTargetBusIcon}>
+                                <Ionicons name="bus" size={18} color="#0066CC" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTargetBusTitle}>
+                                    Target: Bus {emergency?.vehicle?.plateNumber || 'N/A'} (Route {emergency?.vehicle?.routeNumber || 'N/A'})
+                                </Text>
+                                <Text style={styles.modalTargetBusSub}>
+                                    Dispatches directly to the onboard Driver & Conductor device
+                                </Text>
+                            </View>
+                        </View>
+
+                        {/* Quick Presets */}
+                        <View style={styles.presetRow}>
+                            <TouchableOpacity
+                                style={[styles.presetChip, responderName.includes('Onboard') && styles.presetChipActive]}
+                                onPress={() => {
+                                    setResponderName(`Onboard Bus Crew (${emergency?.vehicle?.plateNumber || 'Bus Device'})`);
+                                    setResponderContact('0771234567');
+                                    setEtaMinutes('0');
+                                    setAssignNotes('Bus crew: Pull over safely at next bus halt and assist commuter immediately.');
+                                }}
+                            >
+                                <Ionicons name="bus-outline" size={14} color={responderName.includes('Onboard') ? '#0066CC' : '#64748B'} />
+                                <Text style={[styles.presetChipText, responderName.includes('Onboard') && styles.presetChipTextActive]}>
+                                    Onboard Crew (0 min)
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.presetChip, responderName.includes('Depot') && styles.presetChipActive]}
+                                onPress={() => {
+                                    setResponderName(`Transit Depot Patrol (Route ${emergency?.vehicle?.routeNumber || 'Transit'})`);
+                                    setResponderContact('0112345678');
+                                    setEtaMinutes('10');
+                                    setAssignNotes('Depot patrol intercepting vehicle at upcoming transit stop.');
+                                }}
+                            >
+                                <Ionicons name="business-outline" size={14} color={responderName.includes('Depot') ? '#0066CC' : '#64748B'} />
+                                <Text style={[styles.presetChipText, responderName.includes('Depot') && styles.presetChipTextActive]}>
+                                    Depot Team (10 min)
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Direct Call Button */}
+                        <TouchableOpacity
+                            style={styles.modalDirectCallBtn}
+                            onPress={() => handleCallBusCrew(responderContact)}
+                            activeOpacity={0.8}
+                        >
+                            <Ionicons name="call" size={16} color="#FFFFFF" />
+                            <Text style={styles.modalDirectCallBtnText}>
+                                Call Bus Device Now ({responderContact || '0771234567'})
+                            </Text>
+                        </TouchableOpacity>
 
                         <View style={styles.modalInputGroup}>
                             <Text style={styles.modalInputLabel}>Responder / Team Name *</Text>
                             <TextInput
                                 style={styles.modalInput}
-                                placeholder="e.g. SLTB Emergency Patrol Team 4"
+                                placeholder="e.g. Onboard Bus Crew or Patrol Team"
                                 placeholderTextColor="#94A3B8"
                                 value={responderName}
                                 onChangeText={setResponderName}
@@ -550,7 +818,7 @@ export default function EmergencyDetailScreen() {
                             <Text style={styles.modalInputLabel}>Responder Contact Phone *</Text>
                             <TextInput
                                 style={styles.modalInput}
-                                placeholder="e.g. 0712345678"
+                                placeholder="e.g. 0771234567"
                                 placeholderTextColor="#94A3B8"
                                 keyboardType="phone-pad"
                                 value={responderContact}
@@ -562,7 +830,7 @@ export default function EmergencyDetailScreen() {
                             <Text style={styles.modalInputLabel}>Estimated Arrival (Minutes)</Text>
                             <TextInput
                                 style={styles.modalInput}
-                                placeholder="e.g. 10"
+                                placeholder="0 for onboard, or estimated minutes"
                                 placeholderTextColor="#94A3B8"
                                 keyboardType="numeric"
                                 value={etaMinutes}
@@ -572,9 +840,29 @@ export default function EmergencyDetailScreen() {
 
                         <View style={styles.modalInputGroup}>
                             <Text style={styles.modalInputLabel}>Dispatch Instructions / Notes</Text>
+                            <View style={styles.quickChipsRow}>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setAssignNotes((prev) => (prev ? prev + ' ' : '') + 'Pull over safely at next bus bay.')}
+                                >
+                                    <Text style={styles.quickChipText}>+ Pull over</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setAssignNotes((prev) => (prev ? prev + ' ' : '') + 'Deploy wheelchair ramp.')}
+                                >
+                                    <Text style={styles.quickChipText}>+ Deploy ramp</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.quickChip}
+                                    onPress={() => setAssignNotes((prev) => (prev ? prev + ' ' : '') + 'Medical distress — check vitals.')}
+                                >
+                                    <Text style={styles.quickChipText}>+ Check vitals</Text>
+                                </TouchableOpacity>
+                            </View>
                             <TextInput
                                 style={[styles.modalInput, styles.modalTextArea]}
-                                placeholder="Provide specific instructions to responder..."
+                                placeholder="Provide specific instructions or directives to the crew..."
                                 placeholderTextColor="#94A3B8"
                                 multiline
                                 numberOfLines={3}
@@ -1107,5 +1395,256 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 14,
         fontWeight: '700',
+    },
+    targetBusBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EFF6FF',
+        borderRadius: 12,
+        padding: 12,
+        gap: 12,
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+    },
+    targetBusIconCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#DBEAFE',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    targetBusTitle: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#1E3A8A',
+    },
+    targetBusSubtitle: {
+        fontSize: 11,
+        color: '#64748B',
+        marginTop: 2,
+    },
+    busCallBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#16A34A',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 6,
+    },
+    busCallBtnText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    dispatchThreadScroll: {
+        maxHeight: 280,
+        backgroundColor: '#F8FAFC',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    dispatchThreadBox: {
+        padding: 12,
+        gap: 10,
+    },
+    emptyThreadText: {
+        fontSize: 12,
+        color: '#94A3B8',
+        fontStyle: 'italic',
+        textAlign: 'center',
+        paddingVertical: 18,
+    },
+    dispatchBubble: {
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 14,
+        gap: 4,
+        maxWidth: '78%',
+        minWidth: 180,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    dispatchBubbleAdmin: {
+        alignSelf: 'flex-end',
+        backgroundColor: '#EFF6FF',
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        borderBottomRightRadius: 2,
+    },
+    dispatchBubbleBus: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#FEF3C7',
+        borderWidth: 1,
+        borderColor: '#FDE68A',
+        borderBottomLeftRadius: 2,
+    },
+    dispatchSenderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 2,
+    },
+    dispatchSenderText: {
+        fontSize: 11,
+        fontWeight: '800',
+        flexShrink: 1,
+    },
+    dispatchTimeText: {
+        fontSize: 10,
+        color: '#94A3B8',
+        marginLeft: 'auto',
+        paddingLeft: 8,
+        flexShrink: 0,
+    },
+    dispatchMessageText: {
+        fontSize: 13,
+        color: '#1E293B',
+        lineHeight: 18,
+    },
+    quickChipsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginBottom: 8,
+    },
+    quickChip: {
+        backgroundColor: '#F1F5F9',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 16,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    quickChipText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#475569',
+    },
+    directiveInputRow: {
+        flexDirection: 'row',
+        gap: 8,
+        alignItems: 'center',
+    },
+    directiveTextInput: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        fontSize: 13,
+        color: '#0F172A',
+    },
+    sendDirectiveBtn: {
+        backgroundColor: '#0066CC',
+        width: 38,
+        height: 38,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    liveBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#ECFDF5',
+        borderWidth: 1,
+        borderColor: '#A7F3D0',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        gap: 5,
+        marginLeft: 'auto',
+    },
+    liveIndicatorDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#10B981',
+    },
+    liveBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#059669',
+        letterSpacing: 0.5,
+    },
+    modalTargetBusBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EFF6FF',
+        borderRadius: 10,
+        padding: 10,
+        gap: 10,
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        marginBottom: 12,
+    },
+    modalTargetBusIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: '#DBEAFE',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTargetBusTitle: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#1E3A8A',
+    },
+    modalTargetBusSub: {
+        fontSize: 11,
+        color: '#64748B',
+    },
+    presetRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 10,
+    },
+    presetChip: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: '#F8FAFC',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 6,
+    },
+    presetChipActive: {
+        backgroundColor: '#EFF6FF',
+        borderColor: '#0066CC',
+    },
+    presetChipText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748B',
+    },
+    presetChipTextActive: {
+        color: '#0066CC',
+        fontWeight: '800',
+    },
+    modalDirectCallBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#16A34A',
+        paddingVertical: 10,
+        borderRadius: 8,
+        gap: 8,
+        marginBottom: 12,
+    },
+    modalDirectCallBtnText: {
+        color: '#FFFFFF',
+        fontSize: 13,
+        fontWeight: '800',
     },
 });
