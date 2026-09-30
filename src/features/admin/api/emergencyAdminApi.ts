@@ -60,3 +60,14 @@ export async function createEmergencyRequestApi(input: CreateEmergencyInput): Pr
     });
     return data.emergency;
 }
+
+/**
+ * Dismisses/deletes an emergency request by ID.
+ */
+export async function deleteEmergencyApi(emergencyId: string): Promise<boolean> {
+    const data = await adminFetch(`/api/emergencies/${encodeURIComponent(emergencyId)}`, {
+        method: 'DELETE',
+    });
+    return data.success === true;
+}
+

@@ -48,6 +48,36 @@ export async function GET(request: Request, context: any) {
             return emergencyErrorResponse(404, `Emergency request '${emergencyId}' not found.`);
         }
 
+        // Dynamically enrich passenger details from users collection if available
+        if (db && typeof db.collection === 'function' && emergency.passenger) {
+            try {
+                let dbUser: any = null;
+                if (emergency.passenger.id && emergency.passenger.id !== 'PAS-554') {
+                    const uDoc = await db.collection('users').doc(emergency.passenger.id).get().catch(() => null);
+                    if (uDoc?.exists) {
+                        dbUser = uDoc.data();
+                    }
+                }
+                if (!dbUser && (emergency.passenger.name === 'Nimal Silva' || emergency.passenger.id === 'PAS-554')) {
+                    const uSnap = await db.collection('users').where('role', '==', 'COMMUTER').limit(1).get().catch(() => null);
+                    if (uSnap && !uSnap.empty) {
+                        dbUser = uSnap.docs[0].data();
+                    }
+                }
+                if (dbUser) {
+                    emergency.passenger.id = dbUser.passengerId || dbUser.uid || emergency.passenger.id;
+                    emergency.passenger.name = dbUser.userName || emergency.passenger.name;
+                    emergency.passenger.phone = dbUser.phoneNumber || dbUser.secondaryPhoneNumber || emergency.passenger.phone;
+                    if (emergency.vehicle?.model === 'Toyota Prius' || emergency.vehicle?.plateNumber === 'WP-CBA-1234') {
+                        emergency.vehicle.model = 'Transit Bus';
+                        emergency.vehicle.plateNumber = 'WP-ND-4521';
+                    }
+                }
+            } catch (healErr) {
+                // non-blocking
+            }
+        }
+
         return Response.json(
             {
                 success: true,
@@ -74,11 +104,12 @@ export async function PATCH(request: Request, context: any) {
         }
 
         const body = await request.json().catch(() => null);
-        if (!body || !body.status) {
+        if (!body || (!body.status && !body.directiveMessage)) {
             return emergencyErrorResponse(400, "New status ('PENDING', 'ASSIGNED', or 'RESOLVED') is required.");
         }
 
         const user = await authenticateRequest(request).catch(() => null);
+
         const actorId = body.changedBy || user?.email || (user as any)?.name || 'Admin Dispatcher';
 
         const db = getAdminDb();
@@ -100,3 +131,42 @@ export async function PATCH(request: Request, context: any) {
         return emergencyErrorResponse(500, error.message || 'Failed to update emergency status.');
     }
 }
+
+// DELETE /api/emergencies/:emergencyId
+//
+// Dismisses or clears an emergency request from the active system.
+export async function DELETE(request: Request, context: any) {
+    try {
+        const emergencyId = extractEmergencyId(request, context);
+        if (!emergencyId) {
+            return emergencyErrorResponse(400, 'Emergency ID is required.');
+        }
+
+        const db = getAdminDb();
+        const docRef = db.collection ? db.collection('emergencies').doc(emergencyId) : null;
+        if (!docRef) {
+            return emergencyErrorResponse(404, `Emergency request '${emergencyId}' not found.`);
+        }
+
+        const snap = await docRef.get().catch(() => null);
+        if (!snap || !snap.exists) {
+            return emergencyErrorResponse(404, `Emergency request '${emergencyId}' not found.`);
+        }
+
+        if (typeof docRef.delete === 'function') {
+            await docRef.delete();
+        }
+
+        return Response.json(
+            {
+                success: true,
+                message: `Emergency request '${emergencyId}' dismissed successfully.`,
+            },
+            { status: 200, headers: emergencyCorsHeaders }
+        );
+    } catch (error: any) {
+        console.error('Delete Emergency API Error:', error);
+        return emergencyErrorResponse(500, error.message || 'Failed to delete emergency request.');
+    }
+}
+

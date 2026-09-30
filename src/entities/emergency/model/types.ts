@@ -80,6 +80,14 @@ export interface EmergencyStatusHistoryEntry {
     actionTaken?: string;
 }
 
+export interface EmergencyDispatchMessage {
+    id: string;
+    sender: 'ADMIN' | 'BUS_CREW';
+    senderName: string;
+    message: string;
+    sentAt: string;
+}
+
 export interface EmergencyAssignment {
     responderName: string;
     responderContact: string;
@@ -111,6 +119,7 @@ export interface EmergencyRequest {
     };
     assignment?: EmergencyAssignment;
     resolution?: EmergencyResolution;
+    dispatchMessages?: EmergencyDispatchMessage[];
     statusHistory: EmergencyStatusHistoryEntry[];
     createdAt: string; // ISO timestamp (Emergency time)
     updatedAt: string;
@@ -149,7 +158,7 @@ export interface CreateEmergencyInput {
 }
 
 export interface UpdateEmergencyStatusInput {
-    status: EmergencyStatus;
+    status?: EmergencyStatus;
     changedBy?: string;
     notes?: string;
     // When assigning
@@ -158,4 +167,6 @@ export interface UpdateEmergencyStatusInput {
     etaMinutes?: number;
     // When resolving
     actionTaken?: string;
+    // Comms / dispatch directive
+    directiveMessage?: string;
 }
