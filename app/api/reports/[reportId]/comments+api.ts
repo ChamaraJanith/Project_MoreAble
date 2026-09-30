@@ -3,8 +3,9 @@ import {
   feedbackCorsHeaders,
   loadFeedbackContext,
   nextReportCommentId,
-  normalizeReportComment,
+  normalizeReportCommentContent,
   readReportComments,
+  resolveReplyParent,
   resolveCommentAuthorName,
   serializeReportComment,
 } from '../../../../src/shared/server/reportFeedback';
@@ -24,6 +25,11 @@ export async function OPTIONS() {
 // the verified token, so a comment can only ever be attributed to whoever
 // actually sent the request — which is also why only a genuine passenger
 // session may write one (403 otherwise).
+//
+// Body: { comment?, imageUrl?, parentCommentId? }. Text or a photo is required.
+// `imageUrl` is a Cloudinary URL the app already uploaded to — the API never
+// handles image bytes. `parentCommentId` makes it a reply, and must name a
+// top-level comment under this same report.
 export async function POST(request: Request, context: any) {
   try {
     const loaded = await loadFeedbackContext(request, context, 'comments', { access: 'write' });
@@ -43,17 +49,31 @@ export async function POST(request: Request, context: any) {
 
     // Validated before an id is generated, so a blank or over-long comment
     // costs a 400 and nothing else — no comment number burned on it.
-    const commentCheck = normalizeReportComment((body as Record<string, any>).comment);
+    const contentCheck = normalizeReportCommentContent(body as Record<string, any>);
 
-    if (!commentCheck.ok) {
+    if (!contentCheck.ok) {
       return Response.json(
-        { success: false, message: commentCheck.message },
+        { success: false, message: contentCheck.message },
         { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const parentCheck = await resolveReplyParent(
+      adminDb,
+      reportId,
+      (body as Record<string, any>).parentCommentId
+    );
+
+    if (!parentCheck.ok) {
+      return Response.json(
+        { success: false, message: parentCheck.message },
+        { status: parentCheck.status, headers: corsHeaders }
       );
     }
 
     const authorName = await resolveCommentAuthorName(adminDb, passengerId);
     const commentId = await nextReportCommentId(adminDb);
+    const now = new Date().toISOString();
 
     const comment = {
       commentId,
@@ -67,9 +87,13 @@ export async function POST(request: Request, context: any) {
 
       // Stored as `text`, which is what the thread renders it as. The request
       // key stays `comment`, because that is what the composer sends.
-      text: commentCheck.value,
+      text: contentCheck.value.text,
 
-      createdAt: new Date().toISOString(),
+      imageUrl: contentCheck.value.imageUrl,
+      parentCommentId: parentCheck.value,
+
+      createdAt: now,
+      updatedAt: now,
     };
 
     await adminDb.collection(REPORT_COMMENTS_COLLECTION).doc(commentId).set(comment);
@@ -77,7 +101,7 @@ export async function POST(request: Request, context: any) {
     return Response.json(
       {
         success: true,
-        message: 'Comment added.',
+        message: parentCheck.value ? 'Reply added.' : 'Comment added.',
         comment: serializeReportComment(comment, commentId),
       },
       { status: 201, headers: corsHeaders }
@@ -98,7 +122,9 @@ export async function POST(request: Request, context: any) {
 
 // GET /api/reports/:reportId/comments
 //
-// The thread, newest first.
+// The thread, newest first, as one flat list. Replies are in it too, each
+// carrying the `parentCommentId` the app groups it under; only this report's
+// comments are ever read (the query filters on reportId).
 export async function GET(request: Request, context: any) {
   try {
     const loaded = await loadFeedbackContext(request, context, 'comments');

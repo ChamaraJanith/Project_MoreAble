@@ -158,17 +158,38 @@ export async function fetchReportComments(
     }
 }
 
-/** POST /api/reports/:reportId/comments — returns the stored comment. */
+/** What may travel with a comment besides its text. */
+export interface ReportCommentAttachments {
+    /** The Cloudinary URL of a photo already uploaded — never local bytes. */
+    imageUrl?: string | null;
+    /** The top-level comment this one replies to. */
+    parentCommentId?: string | null;
+}
+
+/**
+ * POST /api/reports/:reportId/comments — returns the stored comment.
+ *
+ * A reply is the same request with `parentCommentId`; a photo is its uploaded
+ * URL under `imageUrl`. Either is sent only when present, so a plain comment
+ * posts exactly the body it always has.
+ */
 export async function submitReportComment(
     reportId: string,
     comment: string,
-    token: string
+    token: string,
+    attachments: ReportCommentAttachments = {}
 ): Promise<FeedbackResult<ReportCommentRecord>> {
     try {
         const response = await fetch(`${API_BASE_URL}${reportCommentsApiPath(reportId)}`, {
             method: 'POST',
             headers: authHeaders(token, true),
-            body: JSON.stringify({ comment }),
+            body: JSON.stringify({
+                comment,
+                ...(attachments.imageUrl ? { imageUrl: attachments.imageUrl } : {}),
+                ...(attachments.parentCommentId
+                    ? { parentCommentId: attachments.parentCommentId }
+                    : {}),
+            }),
         });
 
         const result = await response.json().catch(() => ({}));

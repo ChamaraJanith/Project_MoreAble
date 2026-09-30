@@ -16,8 +16,13 @@
  * reducer can be tested and a `useState` call cannot.
  */
 
-import { ReportCommentRecord } from '../../../entities/report/model/types';
-import { FeedbackVote, isSubmittableCommentEdit } from './reportFeedback';
+import { ReportCommentRecord, ReportPhotoDraft } from '../../../entities/report/model/types';
+import {
+    FeedbackVote,
+    canSubmitCommentDraft,
+    countVisibleComments,
+    isSubmittableCommentEdit,
+} from './reportFeedback';
 
 /** Where one half of the section has got to. */
 export type FeedbackLoadStatus = 'loading' | 'ready' | 'failed';
@@ -35,6 +40,7 @@ export const FEEDBACK_MESSAGES = {
     voteSubmitFailed: 'Unable to submit your feedback. Please try again.',
     commentsLoadFailed: 'Unable to load comments.',
     commentSubmitFailed: 'Unable to post your comment. Please try again.',
+    replySubmitFailed: 'Unable to post your reply. Please try again.',
     commentEditFailed: 'Unable to update your comment. Please try again.',
     commentDeleteFailed: 'Unable to delete your comment. Please try again.',
 } as const;
@@ -91,6 +97,10 @@ export interface ReportFeedbackState {
      * Kept apart from `submitError`, which is drawn under the votes.
      */
     commentActionError: string | null;
+    /** A reply is on its way to the API. */
+    isPostingReply: boolean;
+    /** Why the last reply failed, drawn inside the reply composer. */
+    replyError: string | null;
 }
 
 /**
@@ -116,6 +126,8 @@ export const initialFeedbackState: ReportFeedbackState = {
     editingCommentId: null,
     pendingCommentAction: null,
     commentActionError: null,
+    isPostingReply: false,
+    replyError: null,
 };
 
 /** What a vote request hands back: the tallies as the server now holds them. */
@@ -144,6 +156,10 @@ export type ReportFeedbackAction =
     | { type: 'commentStarted' }
     | { type: 'commentSucceeded'; comment: ReportCommentRecord }
     | { type: 'commentFailed' }
+    | { type: 'replyStarted' }
+    | { type: 'replySucceeded'; comment: ReportCommentRecord }
+    | { type: 'replyFailed'; message?: string }
+    | { type: 'replyDismissed' }
     | { type: 'commentEditOpened'; commentId: string }
     | { type: 'commentEditCancelled' }
     | { type: 'commentEditStarted'; commentId: string }
@@ -189,6 +205,46 @@ export function removeComment(
     commentId: string
 ): ReportCommentRecord[] {
     return items.filter((entry) => entry.commentId !== commentId);
+}
+
+/**
+ * The comment list after one comment was deleted, following the same thread
+ * rules the API applies (removeReportComment on the server):
+ *
+ * - a top-level comment with replies becomes a `deleted` placeholder, text and
+ *   photo gone, so the replies keep their place;
+ * - anything else leaves the list, and a placeholder parent left with no
+ *   replies leaves with it.
+ *
+ * Mirroring the rule here keeps the list right without a second request.
+ */
+export function removeCommentFromThread(
+    items: ReportCommentRecord[],
+    commentId: string
+): ReportCommentRecord[] {
+    const target = items.find((entry) => entry.commentId === commentId);
+
+    if (!target) return items;
+
+    if (!target.parentCommentId && items.some((entry) => entry.parentCommentId === commentId)) {
+        return items.map((entry) => {
+            if (entry.commentId !== commentId) return entry;
+
+            const { imageUrl: _removedImage, ...rest } = entry;
+
+            return { ...rest, text: '', deleted: true };
+        });
+    }
+
+    const remaining = removeComment(items, commentId);
+    const parentId = target.parentCommentId;
+
+    if (!parentId) return remaining;
+
+    const parent = remaining.find((entry) => entry.commentId === parentId);
+    const parentHasReplies = remaining.some((entry) => entry.parentCommentId === parentId);
+
+    return parent?.deleted && !parentHasReplies ? removeComment(remaining, parentId) : remaining;
 }
 
 function hasComment(state: ReportFeedbackState, commentId: string): boolean {
@@ -294,6 +350,36 @@ export function reportFeedbackReducer(
                 submitError: FEEDBACK_MESSAGES.commentSubmitFailed,
             };
 
+        // ---- Replies ----
+        //
+        // Kept apart from the top-level composer: a reply in flight does not
+        // lock the main box, and a failed reply is said in the reply composer
+        // rather than under the votes.
+        case 'replyStarted':
+            return { ...state, isPostingReply: true, replyError: null };
+
+        case 'replySucceeded':
+            return {
+                ...state,
+                isPostingReply: false,
+                replyError: null,
+                comments: {
+                    status: 'ready',
+                    items: mergeSubmittedComment(state.comments.items, action.comment),
+                },
+            };
+
+        case 'replyFailed':
+            return {
+                ...state,
+                isPostingReply: false,
+                replyError: action.message || FEEDBACK_MESSAGES.replySubmitFailed,
+            };
+
+        // The reply composer was closed: whatever it last failed on goes too.
+        case 'replyDismissed':
+            return state.isPostingReply ? state : { ...state, replyError: null };
+
         // ---- The passenger's own comments (MOV-306) ----
         //
         // Every action names the comment it is about, and one naming a comment
@@ -370,7 +456,7 @@ export function reportFeedbackReducer(
                     state.editingCommentId === action.commentId ? null : state.editingCommentId,
                 comments: {
                     ...state.comments,
-                    items: removeComment(state.comments.items, action.commentId),
+                    items: removeCommentFromThread(state.comments.items, action.commentId),
                 },
             };
 
@@ -402,9 +488,35 @@ export function shouldSendVote(state: ReportFeedbackState, choice: FeedbackVote)
     return state.votes.myVote !== choice;
 }
 
-/** Whether the composer should be sending what is in it. */
-export function shouldSendComment(state: ReportFeedbackState, draft: string): boolean {
-    return !state.isPostingComment && draft.trim().length > 0;
+/**
+ * Whether the composer should be sending what is in it: text, an uploaded
+ * photo, or both — never while its photo is still uploading.
+ */
+export function shouldSendComment(
+    state: ReportFeedbackState,
+    draft: string,
+    image: ReportPhotoDraft | null = null
+): boolean {
+    return !state.isPostingComment && canSubmitCommentDraft(draft, image);
+}
+
+/**
+ * Whether the reply composer should send: the same rules as a comment, plus a
+ * parent that is still on the list and still saying something.
+ */
+export function shouldSendReply(
+    state: ReportFeedbackState,
+    parentCommentId: string,
+    draft: string,
+    image: ReportPhotoDraft | null = null
+): boolean {
+    if (state.isPostingReply) return false;
+
+    const parent = state.comments.items.find((entry) => entry.commentId === parentCommentId);
+
+    if (!parent || parent.parentCommentId || parent.deleted) return false;
+
+    return canSubmitCommentDraft(draft, image);
 }
 
 /**
@@ -467,5 +579,7 @@ export function commentsLoadErrorMessage(state: ReportFeedbackState): string | n
 export function commentCountLabelValue(state: ReportFeedbackState): number | null {
     if (state.comments.status !== 'ready') return null;
 
-    return state.comments.items.length > 0 ? state.comments.items.length : null;
+    const count = countVisibleComments(state.comments.items);
+
+    return count > 0 ? count : null;
 }

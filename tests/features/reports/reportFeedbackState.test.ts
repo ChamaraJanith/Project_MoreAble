@@ -464,12 +464,13 @@ describe('mergeSubmittedComment', () => {
 });
 
 describe('the messages a passenger can be shown', () => {
-    it('are the six the section can produce', () => {
+    it('are the seven the section can produce', () => {
         expect(FEEDBACK_MESSAGES).toEqual({
             votesLoadFailed: 'Unable to load community feedback.',
             voteSubmitFailed: 'Unable to submit your feedback. Please try again.',
             commentsLoadFailed: 'Unable to load comments.',
             commentSubmitFailed: 'Unable to post your comment. Please try again.',
+            replySubmitFailed: 'Unable to post your reply. Please try again.',
             commentEditFailed: 'Unable to update your comment. Please try again.',
             commentDeleteFailed: 'Unable to delete your comment. Please try again.',
         });

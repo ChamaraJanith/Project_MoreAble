@@ -388,7 +388,31 @@ export interface ReportCommentRecord {
      * never been edited, which is what tells the two apart.
      */
     editedAt?: string;
+    /**
+     * A photo attached as supporting evidence: the Cloudinary secure_url the
+     * app uploaded to, never image bytes. Absent on a comment with no photo.
+     */
+    imageUrl?: string;
+    /**
+     * The top-level comment this one replies to, on the same report. Absent on
+     * a top-level comment. Replies go one level deep only: a reply's parent is
+     * never itself a reply.
+     */
+    parentCommentId?: string;
+    /**
+     * Set on a top-level comment its author (or an admin) deleted while other
+     * passengers' replies still hung off it. The words and the photo are gone;
+     * the record stays only so those replies keep their place in the thread.
+     */
+    deleted?: boolean;
 }
+
+/**
+ * The largest photo a comment or reply may carry. Smaller than a report's
+ * evidence cap: a comment photo is supporting detail, and a thread of them is
+ * downloaded by everybody who opens the report.
+ */
+export const MAX_COMMENT_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** How a report stands with the community, and where this session sits in it. */
 export interface ReportVoteSummary {

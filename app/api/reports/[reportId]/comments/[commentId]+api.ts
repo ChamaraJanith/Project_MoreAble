@@ -6,6 +6,7 @@ import {
   feedbackErrorResponse,
   loadFeedbackContext,
   normalizeReportComment,
+  removeReportComment,
   serializeReportComment,
 } from '../../../../../src/shared/server/reportFeedback';
 
@@ -42,6 +43,7 @@ async function loadComment(
 ): Promise<
   | {
       ok: true;
+      adminDb: any;
       commentRef: any;
       comment: Record<string, any>;
       commentId: string;
@@ -73,7 +75,7 @@ async function loadComment(
     return { ok: false, response: errorResponse(404, 'Comment not found.') };
   }
 
-  return { ok: true, commentRef, comment, commentId, passengerId, isAdmin };
+  return { ok: true, adminDb, commentRef, comment, commentId, passengerId, isAdmin };
 }
 
 /**
@@ -104,6 +106,12 @@ export async function PATCH(request: Request, context: any) {
     if (!loaded.ok) return loaded.response;
 
     const { commentRef, comment, commentId, passengerId } = loaded;
+
+    // A deleted comment kept as a placeholder for its replies has nothing
+    // left to edit.
+    if (comment.deleted) {
+      return errorResponse(404, 'Comment not found.');
+    }
 
     if (!isCommentAuthor(comment, passengerId)) {
       return errorResponse(403, 'You can only edit your own comments.');
@@ -151,26 +159,38 @@ export async function PATCH(request: Request, context: any) {
 //
 // The comment record is deleted outright rather than marked, so the thread and
 // the comment counts on the report list (both read from the comments
-// collection) drop it with no further change.
+// collection) drop it with no further change — except for a top-level comment
+// that other passengers have replied to, which is emptied into a `deleted`
+// placeholder so their replies are not deleted with it (removeReportComment).
 export async function DELETE(request: Request, context: any) {
   try {
     const loaded = await loadComment(request, context, 'moderate');
 
     if (!loaded.ok) return loaded.response;
 
-    const { commentRef, comment, commentId, passengerId, isAdmin } = loaded;
+    const { adminDb, commentRef, comment, commentId, passengerId, isAdmin } = loaded;
+
+    if (comment.deleted) {
+      return errorResponse(404, 'Comment not found.');
+    }
 
     if (!isAdmin && !isCommentAuthor(comment, passengerId)) {
       return errorResponse(403, 'You can only delete your own comments.');
     }
 
-    await commentRef.delete();
+    const outcome = await removeReportComment(adminDb, commentRef, comment, commentId);
 
     return Response.json(
       {
         success: true,
         message: 'Comment deleted.',
         commentId,
+        // Only when the thread rules did more than remove this one comment,
+        // so a plain delete answers exactly as it always has.
+        ...(outcome.alsoRemovedCommentIds.length > 0
+          ? { alsoRemovedCommentIds: outcome.alsoRemovedCommentIds }
+          : {}),
+        ...(outcome.placeholder ? { comment: outcome.placeholder } : {}),
       },
       { status: 200, headers: corsHeaders }
     );
