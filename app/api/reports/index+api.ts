@@ -14,6 +14,7 @@ import {
   ADMIN_ROLE,
   reviewErrorResponse,
   toAdminReviewReport,
+  withoutReviewerIdentity,
 } from '../../../src/shared/server/reportAdminReview';
 import {
   readReportContent,
@@ -473,7 +474,10 @@ export async function GET(request: Request) {
           )
         )
       : snapshot.docs.map((doc: any) => ({
-          ...doc.data(),
+          // Everything stored, less the reviewing admin's uid unless an admin
+          // is asking (`withoutReviewerIdentity`). The status, the review date
+          // and the remark — the outcome the author is owed — all stay.
+          ...withoutReviewerIdentity(doc.data() ?? {}, user),
           documentId: doc.id,
           // Firestore timestamps need to be converted to ISO strings or serialized
           createdAt: doc.data().createdAt?.toDate

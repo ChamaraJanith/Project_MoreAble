@@ -15,10 +15,18 @@ import {
     MAX_FEEDBACK_COMMENT_LENGTH,
     OWN_COMMENT_LABEL,
     commentInitial,
-    formatCommentTimestamp,
+    formatCommentTimestampLabel,
     isOwnComment,
     isSubmittableComment,
+    isSubmittableCommentEdit,
 } from '../utils/reportFeedback';
+import { PendingCommentAction } from '../utils/reportFeedbackState';
+
+/**
+ * Just past the smallest a touch target should be, for the small text actions
+ * under a comment: their text is 12pt, and the slop makes up the rest.
+ */
+const COMMENT_ACTION_HIT_SLOP = { top: 14, bottom: 14, left: 10, right: 10 };
 
 interface FeedbackCommentsProps {
     /** Stored comments, newest first, exactly as the API returned them. */
@@ -34,6 +42,22 @@ interface FeedbackCommentsProps {
     onSubmit: () => void;
     /** The signed-in passenger, whose own comments are marked "You". */
     viewerPassengerId?: string | null;
+
+    // ---- Managing the passenger's own comments (MOV-306) ----
+    /** The one comment open for editing, or null. */
+    editingCommentId?: string | null;
+    /** What is in that comment's editor. */
+    editDraft?: string;
+    onChangeEditDraft?: (text: string) => void;
+    onStartEdit?: (comment: ReportCommentRecord) => void;
+    onCancelEdit?: () => void;
+    onSaveEdit?: () => void;
+    /** Asks to delete — the caller confirms before anything is sent. */
+    onRequestDelete?: (comment: ReportCommentRecord) => void;
+    /** The edit or delete in flight, which that row draws busy. */
+    pendingCommentAction?: PendingCommentAction | null;
+    /** Why the last edit or delete failed, drawn inside this card. */
+    commentActionError?: string | null;
 }
 
 /**
@@ -58,8 +82,46 @@ export function FeedbackComments({
     onChangeDraft,
     onSubmit,
     viewerPassengerId = null,
+    editingCommentId = null,
+    editDraft = '',
+    onChangeEditDraft,
+    onStartEdit,
+    onCancelEdit,
+    onSaveEdit,
+    onRequestDelete,
+    pendingCommentAction = null,
+    commentActionError = null,
 }: FeedbackCommentsProps) {
     const canSubmit = isSubmittableComment(draft) && !isPosting;
+
+    /**
+     * Edit and Delete, for the signed-in passenger's own comment and nobody
+     * else's. Another passenger's comment gets no controls at all — the API
+     * would refuse them (403), and offering them would be a promise it breaks.
+     */
+    const ownCommentActions = (comment: ReportCommentRecord) => {
+        if (!isOwnComment(comment, viewerPassengerId)) return {};
+
+        const isEditing = editingCommentId === comment.commentId;
+        const isPending = pendingCommentAction?.commentId === comment.commentId;
+
+        return {
+            onEdit: onStartEdit ? () => onStartEdit(comment) : undefined,
+            onDelete: onRequestDelete ? () => onRequestDelete(comment) : undefined,
+            isEditing,
+            editDraft: isEditing ? editDraft : '',
+            onChangeEditDraft,
+            onCancelEdit,
+            onSaveEdit,
+            canSaveEdit:
+                isEditing &&
+                pendingCommentAction === null &&
+                isSubmittableCommentEdit(editDraft, comment.text),
+            isSaving: isPending && pendingCommentAction?.kind === 'edit',
+            isDeleting: isPending && pendingCommentAction?.kind === 'delete',
+            actionsDisabled: pendingCommentAction !== null,
+        };
+    };
 
     return (
         <View>
@@ -74,11 +136,17 @@ export function FeedbackComments({
                         comment={comment}
                         isFirst={index === 0}
                         isOwn={isOwnComment(comment, viewerPassengerId)}
+                        {...ownCommentActions(comment)}
                     />
                 ))
             ) : (
                 <EmptyComments />
             )}
+
+            {/* An edit or delete that did not go through, said inside the
+                thread it was about. A comment that failed to POST is still
+                reported under the votes, exactly as before. */}
+            {commentActionError && <CommentsError message={commentActionError} />}
 
             <View style={styles.composer}>
                 <TextInput
@@ -150,11 +218,28 @@ function CommentsError({ message }: { message: string }) {
  * without a composer under it: a reviewer reads what the community said, they
  * do not join the conversation. Drawing that thread from this row rather than
  * from a second one is what keeps the two readings identical.
+ *
+ * The actions under the text are opt-in (MOV-306). The passenger thread passes
+ * Edit and Delete for the viewer's own comments only; the admin review page
+ * passes Delete alone, labelled "Remove", for moderation. A row given neither
+ * draws exactly as it always has.
  */
 export function CommentRow({
     comment,
     isFirst,
     isOwn = false,
+    onEdit,
+    onDelete,
+    deleteLabel = 'Delete',
+    isEditing = false,
+    editDraft = '',
+    onChangeEditDraft,
+    onCancelEdit,
+    onSaveEdit,
+    canSaveEdit = false,
+    isSaving = false,
+    isDeleting = false,
+    actionsDisabled = false,
 }: {
     comment: ReportCommentRecord;
     isFirst: boolean;
@@ -164,7 +249,32 @@ export function CommentRow({
      * thread carries no "You" marker.
      */
     isOwn?: boolean;
+    /** Opens this comment for editing. Only ever passed for the viewer's own. */
+    onEdit?: () => void;
+    /** Asks to delete (or, for an admin, remove) this comment. */
+    onDelete?: () => void;
+    /** What the delete action is called: "Delete" for its author, "Remove" for an admin. */
+    deleteLabel?: string;
+    /** Whether the text is open in the inline editor. */
+    isEditing?: boolean;
+    editDraft?: string;
+    onChangeEditDraft?: (text: string) => void;
+    onCancelEdit?: () => void;
+    onSaveEdit?: () => void;
+    /** Whether Save may be pressed: not blank, not too long, not unchanged. */
+    canSaveEdit?: boolean;
+    /** The edit is on its way to the API. */
+    isSaving?: boolean;
+    /** The delete is on its way to the API. */
+    isDeleting?: boolean;
+    /** Something is in flight, so no further action may start. */
+    actionsDisabled?: boolean;
 }) {
+    const hasActions = !isEditing && (!!onEdit || !!onDelete);
+    const deleteAccessibilityLabel = isOwn
+        ? `${deleteLabel} your comment`
+        : `${deleteLabel} comment by ${comment.authorName}`;
+
     return (
         <View style={[styles.commentRow, !isFirst && styles.divided]}>
             <View style={styles.avatar}>
@@ -187,11 +297,112 @@ export function CommentRow({
                         )}
                     </View>
                     <Text style={styles.commentDate}>
-                        {formatCommentTimestamp(comment.createdAt)}
+                        {formatCommentTimestampLabel(comment)}
                     </Text>
                 </View>
 
-                <Text style={styles.commentText}>{comment.text}</Text>
+                {isEditing ? (
+                    <View>
+                        <TextInput
+                            style={styles.editInput}
+                            value={editDraft}
+                            onChangeText={onChangeEditDraft}
+                            maxLength={MAX_FEEDBACK_COMMENT_LENGTH}
+                            multiline
+                            autoFocus
+                            editable={!isSaving}
+                            accessibilityLabel="Edit your comment"
+                        />
+
+                        <View style={styles.editButtons}>
+                            <TouchableOpacity
+                                style={styles.editCancel}
+                                onPress={onCancelEdit}
+                                disabled={isSaving}
+                                accessibilityRole="button"
+                                accessibilityLabel="Cancel editing"
+                                accessibilityState={{ disabled: isSaving }}
+                            >
+                                <Text style={styles.editCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[styles.editSave, !canSaveEdit && styles.editSaveDisabled]}
+                                onPress={onSaveEdit}
+                                disabled={!canSaveEdit}
+                                accessibilityRole="button"
+                                accessibilityLabel={isSaving ? 'Saving comment' : 'Save comment'}
+                                accessibilityState={{ disabled: !canSaveEdit, busy: isSaving }}
+                            >
+                                {isSaving ? (
+                                    <ActivityIndicator size="small" color={adminColors.textPlaceholder} />
+                                ) : (
+                                    <Text
+                                        style={[
+                                            styles.editSaveText,
+                                            !canSaveEdit && styles.editSaveTextDisabled,
+                                        ]}
+                                    >
+                                        Save
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                ) : (
+                    <Text style={styles.commentText}>{comment.text}</Text>
+                )}
+
+                {hasActions && (
+                    <View style={styles.commentActions}>
+                        {onEdit && (
+                            <TouchableOpacity
+                                onPress={onEdit}
+                                disabled={actionsDisabled}
+                                hitSlop={COMMENT_ACTION_HIT_SLOP}
+                                accessibilityRole="button"
+                                accessibilityLabel="Edit your comment"
+                                accessibilityState={{ disabled: actionsDisabled }}
+                            >
+                                <Text
+                                    style={[
+                                        styles.commentAction,
+                                        actionsDisabled && styles.commentActionDisabled,
+                                    ]}
+                                >
+                                    Edit
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {onEdit && onDelete && <Text style={styles.commentActionDot}>·</Text>}
+
+                        {onDelete && (
+                            <TouchableOpacity
+                                onPress={onDelete}
+                                disabled={actionsDisabled}
+                                hitSlop={COMMENT_ACTION_HIT_SLOP}
+                                accessibilityRole="button"
+                                accessibilityLabel={deleteAccessibilityLabel}
+                                accessibilityState={{ disabled: actionsDisabled, busy: isDeleting }}
+                            >
+                                {isDeleting ? (
+                                    <ActivityIndicator size="small" color={adminColors.danger} />
+                                ) : (
+                                    <Text
+                                        style={[
+                                            styles.commentAction,
+                                            styles.commentActionDanger,
+                                            actionsDisabled && styles.commentActionDisabled,
+                                        ]}
+                                    >
+                                        {deleteLabel}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
             </View>
         </View>
     );
@@ -296,6 +507,78 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         marginTop: 4,
     },
+
+    // ---- Actions under a comment (MOV-306) ----
+    commentActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+    },
+    commentAction: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: adminColors.primary,
+    },
+    commentActionDanger: { color: adminColors.danger },
+    commentActionDisabled: { color: adminColors.textPlaceholder },
+    commentActionDot: {
+        fontSize: 12,
+        color: adminColors.textMuted,
+        marginHorizontal: 8,
+    },
+
+    // ---- Inline editor, styled as the composer is ----
+    editInput: {
+        minHeight: 44,
+        maxHeight: 110,
+        marginTop: 6,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surfaceMuted,
+        borderRadius: 10,
+        paddingHorizontal: 13,
+        paddingVertical: 11,
+        fontSize: 13,
+        color: adminColors.textPrimary,
+        lineHeight: 19,
+    },
+    editButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 8,
+        marginTop: 8,
+    },
+    editCancel: {
+        minHeight: 44,
+        minWidth: 72,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    editCancelText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.textSecondary,
+    },
+    editSave: {
+        minHeight: 44,
+        minWidth: 72,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+        backgroundColor: adminColors.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    editSaveDisabled: { backgroundColor: adminColors.borderSubtle },
+    editSaveText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#FFFFFF',
+    },
+    editSaveTextDisabled: { color: adminColors.textPlaceholder },
 
     // ---- Empty state ----
     empty: { alignItems: 'center', paddingVertical: 6 },

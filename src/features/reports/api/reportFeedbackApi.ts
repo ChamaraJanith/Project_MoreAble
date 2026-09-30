@@ -1,12 +1,12 @@
 /**
  * The client half of community feedback (MOV-145).
  *
- * Four calls, matching the two routes: read the votes, cast one, read the
- * thread, add to it. Nothing here draws anything — MOV-144's screen still owns
- * the controls, and wiring them to these functions is its own change.
+ * Read the votes, cast one, read the thread, add to it — and, since MOV-306,
+ * reword or remove one comment in it. Nothing here draws anything; the screens
+ * own the controls.
  *
- * Every call carries the session token, because all four routes refuse an
- * anonymous request. The passenger is identified by that token alone: there is
+ * Every call carries the session token, because every feedback route refuses
+ * an anonymous request. The passenger is identified by that token alone: there is
  * deliberately no passengerId parameter to pass, correctly or otherwise.
  */
 
@@ -16,7 +16,11 @@ import {
     ReportVoteSummary,
 } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
-import { reportCommentsApiPath, reportVoteApiPath } from '../utils/reportRoutes';
+import {
+    reportCommentApiPath,
+    reportCommentsApiPath,
+    reportVoteApiPath,
+} from '../utils/reportRoutes';
 
 /** What a vote left behind: this session's vote, and the tallies after it. */
 export interface ReportVoteResult extends ReportVoteSummary {
@@ -24,7 +28,16 @@ export interface ReportVoteResult extends ReportVoteSummary {
     requiresAdminReview: boolean;
 }
 
-export type FeedbackResult<T> = { ok: true; value: T } | { ok: false; message: string };
+/**
+ * What a feedback call produced, or why it did not.
+ *
+ * `status` rides on a failure the API answered, so a screen can tell a comment
+ * that is gone (404) from one it may not touch (403). It is absent when nothing
+ * came back at all — a request that never left the device has no status.
+ */
+export type FeedbackResult<T> =
+    | { ok: true; value: T }
+    | { ok: false; message: string; status?: number };
 
 function authHeaders(token: string, hasBody: boolean): Record<string, string> {
     return {
@@ -169,5 +182,79 @@ export async function submitReportComment(
         console.error('Submit Report Comment Error:', error);
 
         return { ok: false, message: 'Failed to add your comment.' };
+    }
+}
+
+/**
+ * PATCH /api/reports/:reportId/comments/:commentId — returns the stored comment.
+ *
+ * Sent under the same `comment` key the composer posts with. Only the comment's
+ * author can edit it; the route takes who is asking from the token.
+ */
+export async function updateReportComment(
+    reportId: string,
+    commentId: string,
+    comment: string,
+    token: string
+): Promise<FeedbackResult<ReportCommentRecord>> {
+    try {
+        const response = await fetch(`${API_BASE_URL}${reportCommentApiPath(reportId, commentId)}`, {
+            method: 'PATCH',
+            headers: authHeaders(token, true),
+            body: JSON.stringify({ comment }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result.success || !result.comment) {
+            return {
+                ok: false,
+                message: failureMessage(result, 'Failed to update your comment.'),
+                status: response.status,
+            };
+        }
+
+        return { ok: true, value: result.comment as ReportCommentRecord };
+    } catch (error) {
+        console.error('Update Report Comment Error:', error);
+
+        return { ok: false, message: 'Failed to update your comment.' };
+    }
+}
+
+/**
+ * DELETE /api/reports/:reportId/comments/:commentId — returns the removed id.
+ *
+ * Used by the comment's author, and by an admin moderating the thread.
+ */
+export async function deleteReportComment(
+    reportId: string,
+    commentId: string,
+    token: string
+): Promise<FeedbackResult<string>> {
+    try {
+        const response = await fetch(`${API_BASE_URL}${reportCommentApiPath(reportId, commentId)}`, {
+            method: 'DELETE',
+            headers: authHeaders(token, false),
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result.success) {
+            return {
+                ok: false,
+                message: failureMessage(result, 'Failed to delete the comment.'),
+                status: response.status,
+            };
+        }
+
+        return {
+            ok: true,
+            value: typeof result.commentId === 'string' ? result.commentId : commentId,
+        };
+    } catch (error) {
+        console.error('Delete Report Comment Error:', error);
+
+        return { ok: false, message: 'Failed to delete the comment.' };
     }
 }

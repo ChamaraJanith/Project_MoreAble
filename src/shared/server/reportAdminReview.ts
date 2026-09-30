@@ -486,6 +486,33 @@ export function buildReviewUpdate(
 }
 
 // ------------------------------------------------------------------
+// What a passenger is told about a review
+// ------------------------------------------------------------------
+
+/**
+ * A report as a non-admin session may receive it: without `reviewedBy`.
+ *
+ * `reviewedBy` is the uid of the admin account that decided the report. It
+ * names nobody to a passenger and is not theirs to be told — the review outcome
+ * a passenger reads is the status, `reviewedAt` and `adminRemark`, all of which
+ * are left in place. The stored record keeps `reviewedBy`, and so does every
+ * response to an admin, including GET /api/reports/:id/review.
+ *
+ * Only this one key is removed. `passengerId` stays: it is how the app tells a
+ * passenger which reports are their own.
+ */
+export function withoutReviewerIdentity<T extends Record<string, any>>(
+    report: T,
+    viewer: { role?: unknown } | null | undefined
+): T {
+    if (viewer?.role === ADMIN_ROLE) return report;
+
+    const { reviewedBy: _reviewedBy, ...visible } = report;
+
+    return visible as T;
+}
+
+// ------------------------------------------------------------------
 // The admin review view
 // ------------------------------------------------------------------
 

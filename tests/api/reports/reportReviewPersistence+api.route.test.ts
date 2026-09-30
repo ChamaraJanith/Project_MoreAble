@@ -747,7 +747,10 @@ describe('review persistence - the report reads back with its review', () => {
 
         expect(response.status).toBe(200);
         expect(json.report.status).toBe('REJECTED');
-        expect(json.report.reviewedBy).toBe(ADMIN_UID);
+        // The outcome reaches the passenger; the reviewing admin's uid does not
+        // (MOV-306 AC6). The stored record still names them.
+        expect(json.report).not.toHaveProperty('reviewedBy');
+        expect(stored.reviewedBy).toBe(ADMIN_UID);
         expect(json.report.reviewedAt).toBe(stored.reviewedAt);
         expect(json.report.adminRemark).toBe('Duplicate.');
         expect(json.report.description).toBe(DESCRIPTION);

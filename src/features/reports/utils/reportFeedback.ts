@@ -163,3 +163,35 @@ export function commentInitial(authorName: string): string {
 export function formatCommentTimestamp(createdAt: string): string {
     return formatReportDateTime(createdAt);
 }
+
+/** Beside the date on a comment its author has reworded since posting it. */
+export const COMMENT_EDITED_LABEL = 'Edited';
+
+/**
+ * The date line under a comment's author: when it was written, and "Edited"
+ * once its author has changed it — "20 Aug 2026 · 14:05 · Edited".
+ *
+ * The date stays the one it was first posted at, which is also what orders the
+ * thread; `editedAt` only says that the words have changed since.
+ */
+export function formatCommentTimestampLabel(
+    comment: Pick<ReportCommentRecord, 'createdAt' | 'editedAt'>
+): string {
+    const posted = formatCommentTimestamp(comment.createdAt);
+
+    return comment.editedAt ? `${posted} · ${COMMENT_EDITED_LABEL}` : posted;
+}
+
+/**
+ * Whether an edited comment is worth saving.
+ *
+ * The same rules a new comment has — something other than blank space, and no
+ * longer than the cap — measured after trimming, plus one more: it has to
+ * actually say something different. Saving the same words again would only
+ * stamp "Edited" on a comment nobody changed.
+ */
+export function isSubmittableCommentEdit(draft: string, original: string): boolean {
+    if (!isSubmittableComment(draft)) return false;
+
+    return draft.trim() !== original.trim();
+}

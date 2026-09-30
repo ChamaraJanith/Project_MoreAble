@@ -11,6 +11,7 @@ import {
     View
 } from 'react-native';
 import {
+    ReportCommentRecord,
     ReportReviewAction,
     adminReportDisplayStatus,
     requiresAdminReview,
@@ -36,6 +37,7 @@ import {
 } from '../../admin/ui/AdminStates';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
+import { deleteReportComment } from '../api/reportFeedbackApi';
 import { fetchReportForReview, submitReportReview } from '../api/reportReviewApi';
 import {
     ADMIN_REMARK_HELPER,
@@ -60,6 +62,7 @@ import {
     isActionPending,
     isReviewBusy,
     reportReviewReducer,
+    shouldSendCommentRemoval,
     shouldSendDecision,
     shouldSendRemark,
 } from '../utils/reportReviewState';
@@ -137,6 +140,9 @@ export const AdminReportReviewScreen = () => {
 
     /** Which photo the full-screen viewer is showing, or null when closed. */
     const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+    /** The comment awaiting removal confirmation, or null when no dialog is open. */
+    const [commentToRemove, setCommentToRemove] = useState<ReportCommentRecord | null>(null);
 
     // Opening a complaint from a VERIFIED issue report (MOV-176). Kept apart
     // from the review reducer: it writes a complaint, not the report, and the
@@ -293,6 +299,40 @@ export const AdminReportReviewScreen = () => {
         if (!shouldSendRemark(state, remark)) return;
 
         runAction(REMARK_ACTION);
+    };
+
+    /**
+     * Removes one comment from the report's discussion (MOV-306 moderation).
+     *
+     * Tracked apart from Verify, Reject and Save Remark (`removingCommentId`),
+     * so none of them waits on it. The dialog stays open and busy while the
+     * request runs. On success the comment leaves the thread and the tally at
+     * once, and the page reloads behind it to take the server's figures; a 404
+     * means it is already gone, so the page reloads then too.
+     */
+    const confirmRemoveComment = async () => {
+        const target = commentToRemove;
+
+        if (!reportId || !token || !target || !shouldSendCommentRemoval(state, target.commentId)) {
+            setCommentToRemove(null);
+            return;
+        }
+
+        dispatch({ type: 'commentRemovalStarted', commentId: target.commentId });
+
+        const result = await deleteReportComment(reportId, target.commentId, token);
+
+        setCommentToRemove(null);
+
+        if (result.ok) {
+            dispatch({ type: 'commentRemovalSucceeded', commentId: target.commentId });
+            loadReport();
+            return;
+        }
+
+        dispatch({ type: 'commentRemovalFailed', message: result.message });
+
+        if (result.status === 404) loadReport();
     };
 
     /**
@@ -495,10 +535,16 @@ export const AdminReportReviewScreen = () => {
                 <View style={reportDetailStyles.card}>
                     {state.comments.length > 0 ? (
                         state.comments.map((comment, index) => (
+                            // Remove only: an admin moderates the thread, but
+                            // never rewords what a passenger said.
                             <CommentRow
                                 key={comment.commentId}
                                 comment={comment}
                                 isFirst={index === 0}
+                                onDelete={() => setCommentToRemove(comment)}
+                                deleteLabel="Remove"
+                                isDeleting={state.removingCommentId === comment.commentId}
+                                actionsDisabled={state.removingCommentId !== null}
                             />
                         ))
                     ) : (
@@ -506,6 +552,10 @@ export const AdminReportReviewScreen = () => {
                             icon="chatbubble-ellipses-outline"
                             message="No passengers have commented on this report."
                         />
+                    )}
+
+                    {state.commentRemovalError && (
+                        <InlineMessage tone="error" message={state.commentRemovalError} />
                     )}
                 </View>
 
@@ -846,6 +896,18 @@ export const AdminReportReviewScreen = () => {
                 isBusy={isCreatingComplaint}
                 onCancel={() => setIsConfirmingComplaint(false)}
                 onConfirm={confirmCreateComplaint}
+            />
+
+            {/* Removing a comment cannot be taken back, so it is confirmed. */}
+            <ConfirmDialog
+                visible={commentToRemove !== null}
+                title="Remove Comment?"
+                message="This permanently removes the comment from the report's discussion."
+                confirmLabel="Remove Comment"
+                destructive
+                isBusy={state.removingCommentId !== null}
+                onCancel={() => setCommentToRemove(null)}
+                onConfirm={confirmRemoveComment}
             />
         </View>
     );
