@@ -369,7 +369,7 @@ function CommentActionButton({
             {isBusy ? (
                 <ActivityIndicator size="small" color={color} />
             ) : (
-                <Ionicons name={icon} size={14} color={color} />
+                <Ionicons name={icon} size={16} color={color} />
             )}
             <Text style={[styles.actionLabel, { color }]}>{label}</Text>
         </TouchableOpacity>
@@ -624,8 +624,10 @@ const styles = StyleSheet.create({
     threadDivided: {
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,
-        marginTop: 14,
-        paddingTop: 14,
+        // Small above the line: the action buttons' own 32pt height already
+        // leaves room under the comment before it.
+        marginTop: 6,
+        paddingTop: 12,
     },
     threadRail: {
         // The 2pt rail sits under the centre of the 34pt parent avatar.
@@ -710,8 +712,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: 2,
-        marginTop: 4,
+        gap: 4,
+        marginTop: 2,
         // Pulls the first button's padding back so its icon lines up with
         // the comment text above it.
         marginLeft: -8,
@@ -725,8 +727,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     actionLabel: {
-        fontSize: 12,
-        fontWeight: '600',
+        fontSize: 13,
+        fontWeight: '700',
     },
 
     // ---- Inline editor, styled as the composer is ----
