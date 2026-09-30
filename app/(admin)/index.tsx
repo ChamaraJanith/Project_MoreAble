@@ -22,6 +22,7 @@ import { getRoutes } from '../../src/features/admin/api/routeAdminApi';
 import { getStops } from '../../src/features/admin/api/stopAdminApi';
 import { getTrips } from '../../src/features/admin/api/tripAdminApi';
 import { getUsers } from '../../src/features/admin/api/userAdminApi';
+import { getEmergencies } from '../../src/features/admin/api/emergencyAdminApi';
 import {
     countActiveTrips,
     countActiveVehicles,
@@ -51,6 +52,7 @@ export default function AdminDashboard() {
     const [trips, setTrips] = useState<Trip[] | null>(null);
     const [stops, setStops] = useState<Stop[] | null>(null);
     const [users, setUsers] = useState<AdminUserSummary[] | null>(null);
+    const [emergencyStats, setEmergencyStats] = useState<{ pending: number; total: number } | null>(null);
     const [isLoadingOverview, setIsLoadingOverview] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [overviewError, setOverviewError] = useState('');
@@ -65,26 +67,24 @@ export default function AdminDashboard() {
         setOverviewError('');
 
         try {
-            const [busList, routeList, tripList, stopList, userList] = await Promise.all([
+            const [busList, routeList, tripList, stopList, userList, emergencyList] = await Promise.all([
                 getBuses(),
                 getRoutes(),
                 getTrips(),
                 getStops(),
-                // Every registered account, not just the passengers (MOV-134).
-                //
-                // `getUsers()` defaults to PASSENGER because that is what
-                // "Manage Users" administers. Total Users is a statistic about
-                // the platform, so the Overview has to ask for all three roles.
-                // The default itself is deliberately untouched — UserListScreen
-                // still calls `getUsers()` bare and must keep listing
-                // passengers only.
                 getUsers('ALL'),
+                getEmergencies({ status: 'ALL' }).catch(() => []),
             ]);
             setBuses(busList);
             setRoutes(routeList);
             setTrips(tripList);
             setStops(stopList);
             setUsers(userList);
+            const emList = Array.isArray(emergencyList) ? emergencyList : [];
+            setEmergencyStats({
+                pending: emList.filter((e) => e.status === 'PENDING').length,
+                total: emList.length,
+            });
         } catch (error: any) {
             setOverviewError(error?.message || 'Unable to load dashboard data.');
         } finally {
@@ -234,6 +234,11 @@ export default function AdminDashboard() {
         router.push('/(admin)/analytics' as any);
     };
 
+    // Manage Emergency Requests (MOV-236)
+    const handleEmergencies = () => {
+        router.push('/(admin)/emergencies' as any);
+    };
+
     return (
         <View style={styles.container}>
             {/* Header */}
@@ -287,6 +292,33 @@ export default function AdminDashboard() {
                         information from here.
                     </Text>
                 </View>
+
+                {/* Emergency Alert Banner (MOV-238) */}
+                {emergencyStats && emergencyStats.pending > 0 && (
+                    <TouchableOpacity
+                        style={styles.emergencyAlertBanner}
+                        onPress={handleEmergencies}
+                        activeOpacity={0.8}
+                        accessibilityRole="alert"
+                        accessibilityLabel={`Active Emergency Alert: ${emergencyStats.pending} pending requests`}
+                    >
+                        <View style={styles.emergencyPulseIcon}>
+                            <Ionicons name="warning" size={24} color="#FFFFFF" />
+                        </View>
+                        <View style={styles.emergencyAlertTextGroup}>
+                            <Text style={styles.emergencyAlertTitle}>
+                                🚨 ACTIVE EMERGENCY ALERT ({emergencyStats.pending})
+                            </Text>
+                            <Text style={styles.emergencyAlertSubtitle}>
+                                {emergencyStats.pending === 1
+                                    ? '1 commuter emergency request requires immediate support.'
+                                    : `${emergencyStats.pending} commuter emergency requests require immediate support.`}{' '}
+                                Tap to coordinate dispatch.
+                            </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
+                )}
 
                 {/* Overview */}
                 <Text style={styles.sectionTitle}>
@@ -518,6 +550,38 @@ export default function AdminDashboard() {
                                 {userBreakdown.unverified > 0
                                     ? ` · ${userBreakdown.unverified} unverified`
                                     : ''}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* Active Emergencies (MOV-236 / MOV-238) */}
+                    <TouchableOpacity
+                        style={[
+                            styles.statCard,
+                            (emergencyStats?.pending ?? 0) > 0 && styles.statCardEmergencyAlert,
+                        ]}
+                        onPress={handleEmergencies}
+                        activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Emergencies: ${emergencyStats?.pending ?? 0} pending out of ${emergencyStats?.total ?? 0} total.`}
+                    >
+                        <View style={[styles.statIconRed, (emergencyStats?.pending ?? 0) > 0 && styles.statIconPulse]}>
+                            <Ionicons name="alert-circle-outline" size={28} color="#DC2626" />
+                        </View>
+
+                        {isLoadingOverview ? (
+                            <ActivityIndicator size="small" color="#DC2626" style={styles.statLoader} />
+                        ) : (
+                            <Text style={[styles.statNumber, (emergencyStats?.pending ?? 0) > 0 && { color: '#DC2626' }]}>
+                                {overviewError ? '—' : emergencyStats?.pending ?? 0}
+                            </Text>
+                        )}
+
+                        <Text style={styles.statLabel}>Active SOS</Text>
+
+                        {!isLoadingOverview && !overviewError && (
+                            <Text style={styles.statBreakdown} numberOfLines={2}>
+                                {emergencyStats?.pending ?? 0} pending · {emergencyStats?.total ?? 0} total
                             </Text>
                         )}
                     </TouchableOpacity>
@@ -797,6 +861,48 @@ export default function AdminDashboard() {
 
                         <Text style={styles.cardDescription}>
                             Monitor accessibility performance across routes and vehicles
+                        </Text>
+                    </View>
+
+                    <Ionicons
+                        name="chevron-forward"
+                        size={24}
+                        color="#7A8793"
+                    />
+                </TouchableOpacity>
+
+                {/* Emergency Requests (MOV-236 / MOV-238) */}
+                <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={handleEmergencies}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel="Manage Emergency Requests"
+                >
+                    <View style={[styles.iconContainer, { backgroundColor: '#FEE2E2' }]}>
+                        <Ionicons
+                            name="alert-circle"
+                            size={30}
+                            color="#DC2626"
+                        />
+                    </View>
+
+                    <View style={styles.cardTextContainer}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={styles.cardTitle}>
+                                Emergency Requests
+                            </Text>
+                            {(emergencyStats?.pending ?? 0) > 0 && (
+                                <View style={styles.emergencyPendingBadge}>
+                                    <Text style={styles.emergencyPendingBadgeText}>
+                                        {emergencyStats?.pending} PENDING
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        <Text style={styles.cardDescription}>
+                            Monitor passenger SOS alerts and coordinate rapid incident support
                         </Text>
                     </View>
 
@@ -1244,5 +1350,69 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#1A2530',
+    },
+    emergencyAlertBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#DC2626',
+        borderRadius: 12,
+        padding: 14,
+        marginBottom: 16,
+        gap: 12,
+        shadowColor: '#DC2626',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    emergencyPulseIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emergencyAlertTextGroup: {
+        flex: 1,
+    },
+    emergencyAlertTitle: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '800',
+        letterSpacing: 0.3,
+    },
+    emergencyAlertSubtitle: {
+        color: '#FEE2E2',
+        fontSize: 12,
+        marginTop: 2,
+        lineHeight: 16,
+    },
+    statCardEmergencyAlert: {
+        borderColor: '#F87171',
+        borderWidth: 1.5,
+        backgroundColor: '#FEF2F2',
+    },
+    statIconRed: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#FEE2E2',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    statIconPulse: {
+        backgroundColor: '#FECACA',
+    },
+    emergencyPendingBadge: {
+        backgroundColor: '#DC2626',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    emergencyPendingBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '800',
     },
 });

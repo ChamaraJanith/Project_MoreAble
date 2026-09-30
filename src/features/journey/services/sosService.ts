@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { useJourneyStore } from '../../../shared/store/journeyStore';
-// import { firestore } from '@/api/firebase';
+import { createEmergencyRequestApi } from '../../admin/api/emergencyAdminApi';
 
 export const triggerSOSAlert = async () => {
   try {
@@ -35,8 +35,12 @@ export const triggerSOSAlert = async () => {
     // Trigger local state update for driver/vehicle dashboard
     useJourneyStore.getState().triggerLocalSOS();
 
-    // TODO: Save to Firebase or your backend API here
-    // await firestore().collection('emergencies').add(sosData);
+    // Save to Firebase or your backend API here
+    try {
+      await createEmergencyRequestApi(sosData as any);
+    } catch (apiErr) {
+      console.warn("Could not save to remote backend, local SOS active:", apiErr);
+    }
 
     return { success: true, message: 'Emergency SOS Sent Successfully!' };
   } catch (error: any) {
