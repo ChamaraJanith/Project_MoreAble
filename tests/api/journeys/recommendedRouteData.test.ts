@@ -575,6 +575,9 @@ describe('what the journey response does not expose', () => {
         expect(Object.keys(vehicle).sort()).toEqual([
             'accessibilityFacilities',
             'accessibilityScore',
+            // Added by the score breakdown: the three factors of the score above,
+            // derived from the same evidence. Declared so the list stays exhaustive.
+            'accessibilityScoreBreakdown',
             'busId',
             'busModel',
             'manufacturer',
