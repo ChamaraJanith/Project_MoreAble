@@ -599,4 +599,78 @@ describe('GET /api/journeys/completed', () => {
         expect(journey.route.road).not.toBeNull();
         expect(journey).not.toHaveProperty('liveStatus');
     });
+
+    // MOV-309: the run's scheduled service, only from the trip's own record
+    // while it is still the completed run.
+    describe('the completed run’s scheduled service', () => {
+        const NO_SCHEDULE = { scheduledDepartureAt: null, scheduledArrivalAt: null };
+
+        it('exposes the persisted scheduled departure and arrival when the trip record is the same run', async () => {
+            const run = await tripJourneyRecord();
+            const [journey] = (await completed('token-a')).body.journeys;
+
+            expect(journey.completion.journeyStartedAt).toBe(run.startedAt);
+            expect(journey.schedule).toEqual({
+                scheduledDepartureAt: run.scheduledDepartureAt,
+                scheduledArrivalAt: run.scheduledArrivalAt,
+            });
+            expect(typeof run.scheduledDepartureAt).toBe('string');
+            expect(typeof run.scheduledArrivalAt).toBe('string');
+        });
+
+        it('keeps them once the bus has ended that same run', async () => {
+            await bus('TRIP-001', 'END');
+            const run = await tripJourneyRecord();
+
+            const { body } = await completed('token-b');
+
+            expect(body.journeys[0].completion.completionReason).toBe('BUS_JOURNEY_ENDED');
+            expect(body.journeys[0].schedule).toEqual({
+                scheduledDepartureAt: run.scheduledDepartureAt,
+                scheduledArrivalAt: run.scheduledArrivalAt,
+            });
+        });
+
+        it('returns null once a later run of the trip has replaced the record — never the new run’s times', async () => {
+            await bus('TRIP-001', 'END');
+            jest.useFakeTimers({ now: new Date(Date.now() + 60 * 60_000), doNotFake: ['nextTick', 'setImmediate'] });
+            await bus('TRIP-001', 'START');
+            const later = await tripJourneyRecord();
+
+            const [journey] = (await completed('token-a')).body.journeys;
+
+            expect(later.startedAt).not.toBe(journey.completion.journeyStartedAt);
+            expect(journey.schedule).toEqual(NO_SCHEDULE);
+        });
+
+        it('returns null when the trip has no journey record', async () => {
+            await db.collection('trips').doc('TRIP-001').update({ journey: null });
+
+            expect((await completed('token-a')).body.journeys[0].schedule).toEqual(NO_SCHEDULE);
+        });
+
+        it('returns null when the trip itself is gone', async () => {
+            await db.collection('trips').doc('TRIP-001').delete();
+
+            expect((await completed('token-a')).body.journeys[0].schedule).toEqual(NO_SCHEDULE);
+        });
+
+        it('returns null for a matching run whose record never stored scheduled times', async () => {
+            const { scheduledDepartureAt, scheduledArrivalAt, ...legacy } = await tripJourneyRecord();
+            await db.collection('trips').doc('TRIP-001').update({ journey: legacy });
+
+            expect((await completed('token-a')).body.journeys[0].schedule).toEqual(NO_SCHEDULE);
+        });
+
+        it('adds only the schedule block, and leaves the recorded start and end untouched', async () => {
+            const before = (await stored('BK-A')).passengerJourney;
+            const [journey] = (await completed('token-a')).body.journeys;
+
+            expect(Object.keys(journey).sort()).toEqual(['booking', 'completion', 'schedule']);
+            expect(Object.keys(journey.schedule).sort()).toEqual(['scheduledArrivalAt', 'scheduledDepartureAt']);
+            expect(journey.completion.journeyStartedAt).toBe(before.journeyStartedAt);
+            expect(journey.completion.completedAt).toBe(before.completedAt);
+            expect((await stored('BK-A')).passengerJourney).toEqual(before);
+        });
+    });
 });

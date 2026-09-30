@@ -120,7 +120,13 @@ function journey(latitude: number, longitude: number, withRoute = false): Passen
             vehicle: { numberPlate: 'NB-8899', busModel: 'Viking', manufacturer: 'Ashok Leyland' },
             fare: { totalFare: 56, currency: 'LKR', isEstimate: false },
         },
-        activeJourney: { tripId: 'TRIP-001', startedAt: '2026-09-22T03:30:00.000Z', expiresAt: '2026-09-23T02:30:00.000Z' },
+        activeJourney: {
+            tripId: 'TRIP-001',
+            startedAt: '2026-09-22T03:30:00.000Z',
+            expiresAt: '2026-09-23T02:30:00.000Z',
+            scheduledDepartureAt: null,
+            scheduledArrivalAt: null,
+        },
         busId: 'BUS-A',
         liveStatus: {
             available: true,

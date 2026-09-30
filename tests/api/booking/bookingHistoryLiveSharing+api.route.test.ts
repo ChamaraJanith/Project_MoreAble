@@ -63,7 +63,15 @@ function seed(overrides: Record<string, any[]> = {}) {
                 tripId: 'TRIP-A',
                 routeId: 'ROUTE-177',
                 busId: 'BUS-A',
-                journey: { status: 'STARTED', startedAt: minutesAgo(30), endedAt: null, busId: 'BUS-A', expiresAt: minutesAgo(-120) },
+                journey: {
+                    status: 'STARTED',
+                    startedAt: minutesAgo(30),
+                    endedAt: null,
+                    busId: 'BUS-A',
+                    scheduledDepartureAt: minutesAgo(25),
+                    scheduledArrivalAt: minutesAgo(-90),
+                    expiresAt: minutesAgo(-120),
+                },
             },
             { tripId: 'TRIP-B', routeId: 'ROUTE-177', busId: 'BUS-B' },
         ],
@@ -99,6 +107,33 @@ describe('GET /api/booking/history?include=liveSharing — activeJourney', () =>
             tripId: 'TRIP-A',
             startedAt: minutesAgo(30),
             expiresAt: minutesAgo(-120),
+            scheduledDepartureAt: minutesAgo(25),
+            scheduledArrivalAt: minutesAgo(-90),
+        });
+    });
+
+    it('reports a scheduled time the journey record does not have as null (MOV-309)', async () => {
+        mockGetAdminDb.mockReturnValue(
+            seed({
+                trips: [
+                    {
+                        tripId: 'TRIP-A',
+                        routeId: 'ROUTE-177',
+                        busId: 'BUS-A',
+                        journey: { status: 'STARTED', startedAt: minutesAgo(30), endedAt: null, busId: 'BUS-A', expiresAt: minutesAgo(-120) },
+                    },
+                ],
+            })
+        );
+
+        const { body } = await history(`passengerId=${PASSENGER_A}&include=liveSharing`);
+
+        expect(bookingIn(body, 'BK-A').activeJourney).toEqual({
+            tripId: 'TRIP-A',
+            startedAt: minutesAgo(30),
+            expiresAt: minutesAgo(-120),
+            scheduledDepartureAt: null,
+            scheduledArrivalAt: null,
         });
     });
 

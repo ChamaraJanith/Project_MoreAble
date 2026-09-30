@@ -26,11 +26,13 @@
 // and that only selects among journeys already authorised for the session.
 
 import {
+    JourneyRunSchedule,
     PassengerCompletedJourney,
     PassengerJourneyCompletion,
     PassengerJourneyCompletionReason,
 } from '../../entities/booking/model/types';
 import { isJourneyActive, TripJourneyRecord } from '../utils/journeyLifecycle';
+import { loadTrip, storedRunSchedule } from './bookingLiveSharing';
 import { createOngoingRouteCaches, loadOngoingJourneyRoute, loadPlannedJourney, OngoingRouteCaches } from './ongoingJourneyRoute';
 import { boardedBeforeRun, loadPassengerOngoingJourneys, ongoingBookingView } from './passengerOngoingJourney';
 import { PASSENGER_JOURNEY_FIELD, readPassengerJourneyCompletion } from './passengerJourneyRecord';
@@ -268,13 +270,34 @@ export async function completePassengersForEndedRun(adminDb: any, tripId: string
 // Completed journeys
 // ------------------------------------------------------------------
 
+const NO_SCHEDULE: JourneyRunSchedule = { scheduledDepartureAt: null, scheduledArrivalAt: null };
+
+/**
+ * The completed run's scheduled service (MOV-309), or nulls.
+ *
+ * The trip keeps only its latest run (trips/{tripId}.journey), so its stored
+ * scheduled times describe this completion only while that record is still
+ * the same run — the one whose startedAt the completion recorded. Once a later
+ * run has replaced it, the original times are gone: both are null, and they
+ * are never rebuilt from the timetable, startedAt, completedAt or now.
+ */
+async function completedRunSchedule(
+    adminDb: any,
+    completion: PassengerJourneyCompletion,
+    trips: Map<string, Promise<any | null>>
+): Promise<JourneyRunSchedule> {
+    const journey = (await loadTrip(adminDb, completion.tripId, trips))?.journey;
+    return journey?.startedAt === completion.journeyStartedAt ? storedRunSchedule(journey) : NO_SCHEDULE;
+}
+
 /**
  * The signed-in passenger's completed journeys, most recently finished first.
  *
  * Only bookings carrying a completion record, and only through the same
  * allow-listed booking view as an ongoing journey (MOV-296) — never the raw
- * document. `includeRoute` adds the planned path for the detail screen, drawn
- * from the stops saved when the journey finished.
+ * document. Each carries its run's scheduled service when it is still known
+ * (MOV-309, see completedRunSchedule). `includeRoute` adds the planned path for
+ * the detail screen, drawn from the stops saved when the journey finished.
  */
 export async function loadPassengerCompletedJourneys(
     adminDb: any,
@@ -283,6 +306,7 @@ export async function loadPassengerCompletedJourneys(
 ): Promise<PassengerCompletedJourney[]> {
     const snapshot = await adminDb.collection('bookings').where('userId', '==', passengerId).get();
     const caches = createOngoingRouteCaches();
+    const trips = new Map<string, Promise<any | null>>();
 
     const journeys = await Promise.all(
         snapshot.docs.map(async (doc: any): Promise<PassengerCompletedJourney | null> => {
@@ -293,7 +317,11 @@ export async function loadPassengerCompletedJourneys(
             if (!completion) return null;
 
             const booking = { ...data, bookingId: text(data.bookingId) ?? doc.id };
-            const journey: PassengerCompletedJourney = { booking: ongoingBookingView(booking), completion };
+            const journey: PassengerCompletedJourney = {
+                booking: ongoingBookingView(booking),
+                completion,
+                schedule: await completedRunSchedule(adminDb, completion, trips),
+            };
 
             if (includeRoute) {
                 journey.route = await loadOngoingJourneyRoute(

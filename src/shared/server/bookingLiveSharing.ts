@@ -19,7 +19,7 @@
 // belongs to the live tracking work (MOV-295 / MOV-297) and its authorisation
 // (MOV-296); the Activities list only needs to know that it is reporting.
 
-import { BookingActiveJourney, BookingLiveSharing } from '../../entities/booking/model/types';
+import { BookingActiveJourney, BookingLiveSharing, JourneyRunSchedule } from '../../entities/booking/model/types';
 import { VehicleLocation } from '../../entities/bus/model/types';
 import { isJourneyActive, journeyExpiresAt } from '../utils/journeyLifecycle';
 import { loadVehicleLocation, locationAgeSeconds } from './vehicleLocations';
@@ -122,6 +122,25 @@ export async function loadBookingLiveSharing(
     };
 }
 
+/** A stored ISO time exactly as stored, or null when it is missing or unreadable. */
+function storedTime(value: unknown): string | null {
+    return typeof value === 'string' && !Number.isNaN(new Date(value).getTime()) ? value : null;
+}
+
+/**
+ * The scheduled service a persisted journey record names (MOV-309).
+ *
+ * Copied field by field from what Start Journey stored — never recalculated
+ * from the timetable or from any other time — so a record without them reports
+ * null rather than a guess.
+ */
+export function storedRunSchedule(journey: any): JourneyRunSchedule {
+    return {
+        scheduledDepartureAt: storedTime(journey?.scheduledDepartureAt),
+        scheduledArrivalAt: storedTime(journey?.scheduledArrivalAt),
+    };
+}
+
 /**
  * The running journey of this booking's own trip, or null.
  *
@@ -151,5 +170,7 @@ export async function loadBookingActiveJourney(
 
     const expiresAt = journeyExpiresAt(journey);
 
-    return expiresAt ? { tripId, startedAt: journey.startedAt, expiresAt: expiresAt.toISOString() } : null;
+    return expiresAt
+        ? { tripId, startedAt: journey.startedAt, expiresAt: expiresAt.toISOString(), ...storedRunSchedule(journey) }
+        : null;
 }
