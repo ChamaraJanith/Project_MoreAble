@@ -13,8 +13,10 @@ interface JourneyState {
   passengerDetails: { id: string; name: string; phone: string } | null;
   caregiverId: string | null;
   activeSOS: ActiveSOS | null;
-  triggerLocalSOS: () => void;
+  isJourneyStarted: boolean;
+  triggerLocalSOS: (passengerName?: string) => void;
   clearSOS: () => void;
+  setJourneyStarted: (started: boolean) => void;
 }
 
 export const useJourneyStore = create<JourneyState>((set) => ({
@@ -24,12 +26,14 @@ export const useJourneyStore = create<JourneyState>((set) => ({
   passengerDetails: { id: 'PAS-554', name: 'Nimal Silva', phone: '0771234567' },
   caregiverId: 'CG-887',
   activeSOS: null,
-  triggerLocalSOS: () => set((state) => ({
+  isJourneyStarted: false,
+  triggerLocalSOS: (passengerName?: string) => set((state) => ({
     activeSOS: {
       isActive: true,
-      passengerName: state.passengerDetails?.name || 'Unknown Passenger',
+      passengerName: passengerName || state.passengerDetails?.name || 'Unknown Passenger',
       timestamp: new Date().toISOString()
     }
   })),
-  clearSOS: () => set({ activeSOS: null })
+  clearSOS: () => set({ activeSOS: null }),
+  setJourneyStarted: (started: boolean) => set({ isJourneyStarted: started })
 }));
