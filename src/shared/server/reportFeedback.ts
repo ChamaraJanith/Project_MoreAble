@@ -22,6 +22,7 @@ import {
     REPORT_ADMIN_REVIEW_AGREE_THRESHOLD,
     ReportCommentRecord,
     ReportVoteChoice,
+    canViewReport,
     isReportVoteChoice,
 } from '../../entities/report/model/types';
 import { authenticateRequest, unauthorizedResponse } from '../api/authMiddleware';
@@ -117,10 +118,11 @@ export interface FeedbackContext {
  * one of them, and so no route can forget to check that the report exists
  * before writing a vote or a comment against its id.
  *
- * Reading and writing feedback are open to any authenticated passenger, matching
- * GET /api/reports/[reportId]: the report itself is already visible to
- * everybody, and community feedback is the one part of it that is explicitly
- * not the author's alone.
+ * Reading and writing feedback are open to any authenticated passenger who can
+ * see the report, matching GET /api/reports/[reportId]: a report in the public
+ * feed, the caller's own report in any status, or any report for an admin.
+ * Community feedback is the one part of a report that is explicitly not the
+ * author's alone.
  */
 export async function loadFeedbackContext(
     request: Request,
@@ -146,7 +148,13 @@ export async function loadFeedbackContext(
     const reportRef = adminDb.collection(REPORTS_COLLECTION).doc(reportId);
     const reportDoc = await reportRef.get();
 
-    if (!reportDoc.exists) {
+    const report = reportDoc.exists ? reportDoc.data() ?? {} : null;
+
+    // A report this session cannot see is answered exactly as one that does not
+    // exist: votes and comments on somebody else's PENDING or REJECTED issue
+    // are neither readable nor writable, the same visibility the report itself
+    // has (`canViewReport`).
+    if (!report || !canViewReport(report, user)) {
         return { ok: false, response: feedbackErrorResponse(404, 'Report not found.') };
     }
 
@@ -156,7 +164,7 @@ export async function loadFeedbackContext(
             passengerId: user.passengerId,
             reportId,
             reportRef,
-            report: reportDoc.data() ?? {},
+            report,
             adminDb,
         },
     };

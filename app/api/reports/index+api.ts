@@ -2,8 +2,14 @@ import {
     authenticateRequest,
     unauthorizedResponse,
 } from '../../../src/shared/api/authMiddleware';
-import { isReportStatus } from '../../../src/entities/report/model/types';
+import {
+  initialReportStatus,
+  isPubliclyVisibleReport,
+  isReportStatus,
+} from '../../../src/entities/report/model/types';
 import { getAdminDb } from '../../../src/shared/config/firebaseAdmin';
+import { recordAccessibilityScoreSafely } from '../../../src/shared/server/accessibilityScoreHistory';
+import { isCountedCommunityReport } from '../../../src/shared/utils/accessibility';
 import {
   ADMIN_ROLE,
   reviewErrorResponse,
@@ -288,7 +294,10 @@ export async function POST(request: Request) {
       // Absent rather than an empty array when no photos were attached.
       ...(reportPhotoUrls.length > 0 ? { photoUrls: reportPhotoUrls } : {}),
 
-      status: 'PENDING',
+      // An issue waits for an admin (PENDING). Positive feedback needs no
+      // review and is accepted as filed (PUBLISHED) — never VERIFIED, since
+      // no admin verified it.
+      status: initialReportStatus(reportType),
 
       createdAt: now,
 
@@ -302,6 +311,15 @@ export async function POST(request: Request) {
       .collection('reports')
       .doc(reportId)
       .set(report);
+
+    // Positive feedback about a bus counts toward its accessibility score the
+    // moment it is filed, so the score history records it (MOV-113). An issue
+    // does not count until it is verified. Best effort: the report is saved.
+    const reportBusId = (report as Record<string, any>).busId;
+
+    if (isCountedCommunityReport(report) && typeof reportBusId === 'string' && reportBusId) {
+      await recordAccessibilityScoreSafely(adminDb, reportBusId);
+    }
 
     // --------------------------------
     // Success response
@@ -483,16 +501,17 @@ export async function GET(request: Request) {
     // equality filter on `status` combined with the orderBy above needs a
     // composite index, and the queue is a screen's worth of reports either way.
     //
-    // `scope=all` is the browsable feed every passenger sees, and a report an
-    // admin has REJECTED is one they found not to hold. Leaving it in that feed
-    // publishes a finding nobody stands behind, beside the reports that were
-    // upheld, and makes a rejection the one review outcome that changes nothing
-    // a passenger can see.
+    // `scope=all` (and a request with no scope) is the public community feed
+    // every passenger sees: VERIFIED issue reports and positive feedback only
+    // (`isPubliclyVisibleReport`). A PENDING issue is one passenger's
+    // unreviewed allegation and a REJECTED one was found not to hold, so
+    // neither is published to other passengers — whoever is asking, admin
+    // included; the admin's full view is `scope=review`.
     //
-    // It is dropped from that scope alone. `scope=my` deliberately keeps it:
-    // the passenger who filed the report is exactly who ought to learn it was
-    // rejected, and hiding it there would answer their own report with silence.
-    // `scope=verified` already asks for VERIFIED and so never held one.
+    // `scope=my` deliberately keeps everything: it is already only the
+    // caller's own reports, and the author is exactly who ought to see their
+    // pending report, and learn if it was rejected. `scope=verified` asks
+    // Firestore for VERIFIED and so never held a pending or rejected one.
     const visibleReports = isReviewScope
       ? reports.filter(
           (report: any) =>
@@ -501,7 +520,7 @@ export async function GET(request: Request) {
         )
       : scope === 'my'
         ? reports
-        : reports.filter((report: any) => report.status !== 'REJECTED');
+        : reports.filter((report: any) => isPubliclyVisibleReport(report));
 
     // --------------------------------
     // Success response

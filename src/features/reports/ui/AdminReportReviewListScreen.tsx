@@ -28,6 +28,7 @@ import {
     adminReviewCardSummary,
     adminReviewQueueSummary,
     filterReportsByType,
+    reportsForReviewFilter,
     reviewErrorMessage,
 } from '../utils/reportReview';
 import { adminReviewDetailsPath } from '../utils/reportRoutes';
@@ -106,8 +107,9 @@ export const AdminReportReviewListScreen = () => {
             if (result.ok) {
                 // Replaces the list outright, so a refresh can never duplicate
                 // rows or leave a decided report on a queue that no longer
-                // contains it.
-                setReports(result.value.reports);
+                // contains it. Kept to the tab by type as well as status, so
+                // positive feedback never sits on Pending or Verified.
+                setReports(reportsForReviewFilter(result.value.reports, target));
             } else {
                 setError(reviewErrorMessage(result.status, result.message));
             }
@@ -241,7 +243,7 @@ export const AdminReportReviewListScreen = () => {
         <View style={styles.container}>
             <AdminScreenHeader
                 title="Review Reports"
-                subtitle="Verify or reject passenger reports and feedback"
+                subtitle="Verify or reject issue reports. Positive feedback is accepted automatically."
             />
 
             <ScrollView
@@ -258,8 +260,8 @@ export const AdminReportReviewListScreen = () => {
                 }
             >
                 {/* How the queue divides, before any of it is narrowed: how
-                    much positive feedback and how many issue reports there
-                    are, and how much of each has been upheld. Four numbers off
+                    much positive feedback there is (never reviewed), and how
+                    many issue reports — in total, waiting and upheld. Four numbers off
                     the reports already loaded — no second request, and nothing
                     an admin has to open a report to find out. */}
                 {canSearch && (
@@ -270,13 +272,13 @@ export const AdminReportReviewListScreen = () => {
                             tone={adminColors.success}
                         />
                         <CountTile
-                            label="Verified Positive Feedback"
-                            value={typeCounts.verifiedPositive}
-                            tone={adminColors.success}
-                        />
-                        <CountTile
                             label="Issue Reports"
                             value={typeCounts.issue}
+                            tone={adminColors.warning}
+                        />
+                        <CountTile
+                            label="Pending Issue Reports"
+                            value={typeCounts.pendingIssue}
                             tone={adminColors.warning}
                         />
                         <CountTile
@@ -287,9 +289,9 @@ export const AdminReportReviewListScreen = () => {
                     </View>
                 )}
 
-                {/* Each filter is a parameter on the review scope, so the queue
-                    asks the API for the slice it means to show rather than
-                    narrowing a wider list here. */}
+                {/* Pending and Verified are the issue review workflow; Published
+                    is positive feedback, accepted without review. See
+                    isInReviewFilter for exactly what each tab holds. */}
                 <View style={styles.segmentedControl} accessibilityRole="tablist">
                     {ADMIN_REVIEW_FILTERS.map((tab) => {
                         const isSelected = filter === tab.value;
@@ -443,6 +445,13 @@ function ReviewQueueCard({
                         <Ionicons name="flag" size={12} color={adminColors.warning} />
                         <Text style={styles.needsReviewText}>{NEEDS_REVIEW_LABEL}</Text>
                     </View>
+                ) : summary.statusNote ? (
+                    // Beside the "Verified" badge of positive feedback, so it
+                    // is not read as an admin having reviewed it.
+                    <View style={styles.autoAcceptedBanner}>
+                        <Ionicons name="checkmark-circle-outline" size={12} color={adminColors.textMuted} />
+                        <Text style={styles.autoAcceptedText}>{summary.statusNote}</Text>
+                    </View>
                 ) : null
             }
         />
@@ -562,6 +571,22 @@ const styles = StyleSheet.create({
         color: adminColors.warning,
         marginLeft: 4,
         letterSpacing: 0.2,
+    },
+    autoAcceptedBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: adminColors.surfaceMuted,
+        borderRadius: 8,
+        paddingHorizontal: 9,
+        paddingVertical: 4,
+        marginBottom: 10,
+    },
+    autoAcceptedText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: adminColors.textSecondary,
+        marginLeft: 4,
     },
 
 });

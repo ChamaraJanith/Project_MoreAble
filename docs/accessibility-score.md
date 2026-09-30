@@ -18,7 +18,7 @@ weights are fixed.
 | Factor     | Weight | Source                                   | No evidence |
 |------------|--------|------------------------------------------|-------------|
 | Facilities | 50%    | `buses/{busId}.accessibilityFacilities`  | 0 (unavailable) |
-| Community  | 30%    | `reports` where `busId` matches, VERIFIED only | 50 |
+| Community  | 30%    | `reports` where `busId` matches: VERIFIED issues + positive feedback | 50 |
 | Ratings    | 20%    | `busRatings` where `busId` matches       | 50 |
 
 ## 1. Facilities
@@ -43,10 +43,21 @@ away; it never adds one.
 
 ## 2. Community reports
 
-Only `VERIFIED` reports that name this bus count. `PENDING`, `REJECTED` and
-every other status are ignored, as are reports with no `busId`. A report is
+Only reports that name this bus count, and which ones is decided by
+`isCountedCommunityReport` in `src/shared/utils/accessibility.ts`. A report is
 positive when `type === 'POSITIVE'` (`reportTypeOf`); anything else is an
 issue.
+
+- **Issue reports** need an admin to confirm them. Only `VERIFIED` issues count;
+  `PENDING`, `REJECTED` and every other status are ignored. `VERIFIED` means
+  the issue was confirmed, not that it was fixed.
+- **Positive feedback** needs no admin review. It is filed as `PUBLISHED` and
+  counts as filed. It is never stored as `VERIFIED`, because nobody verified
+  it. Positive feedback an admin `REJECTED` under the earlier workflow stays
+  excluded; legacy positive feedback still stored as `PENDING` or `VERIFIED`
+  counts.
+
+Reports with no `busId` never count.
 
 ```
 n   = positive + issue
@@ -90,7 +101,7 @@ score     = 37.5 + 21 + 14.8 = 73.3  -> 73
 `loadAccessibilityScoreEvidence(adminDb, busId, cache?)` in
 `src/shared/server/accessibilityScoreEvidence.ts` reads both collections with
 single-field `busId ==` queries. It hands the documents to the pure tallies
-(`tallyVerifiedCommunityReports`, `tallyPassengerRatings`) and caches per
+(`tallyCommunityReports`, `tallyPassengerRatings`) and caches per
 request. Its callers are:
 
 - `POST /api/journeys/search`
@@ -109,16 +120,18 @@ call that changes nothing stores nothing, so these are safe to repeat:
 
 | Event | Snapshot? | Where |
 |---|---|---|
-| Report verified (`VERIFY`) | yes | `app/api/reports/[reportId]/review+api.ts` |
-| Report rejected or remarked | no — neither ever counted | same route, guarded on `VERIFIED` |
-| Report created / edited | no — a report is `PENDING` when filed, and a decided one is closed to edits (409) | `app/api/reports/index+api.ts`, `[reportId]+api.ts` |
-| Verified report deleted | yes | `app/api/reports/[reportId]+api.ts` |
+| Issue report verified (`VERIFY`) | yes | `app/api/reports/[reportId]/review+api.ts` |
+| Report rejected or remarked | no — neither changes what counts | same route, guarded on `VERIFIED` |
+| Issue report created / edited | no — an issue is `PENDING` when filed, and a decided one is closed to edits (409) | `app/api/reports/index+api.ts`, `[reportId]+api.ts` |
+| Positive feedback created | yes — it counts as filed | `app/api/reports/index+api.ts` |
+| Positive feedback edited | yes, for the old and new bus — it can be moved to another bus | `app/api/reports/[reportId]+api.ts` |
+| Counted report deleted (verified issue or positive feedback) | yes | `app/api/reports/[reportId]+api.ts` |
 | Passenger rating stored | yes | `app/api/journeys/completed/rating+api.ts` |
 | Bus facilities changed | yes | `app/api/buses/[busId]+api.ts` |
 | Bus created | yes, the baseline entry | `app/api/buses/index+api.ts` |
 
-Only `VERIFIED` counts. A report that names no bus, or names a bus that no
-longer exists, is verified normally and records nothing. `accessibilityScoreLatest`
+A report that names no bus, or names a bus that no longer exists, is handled
+normally and records nothing. `accessibilityScoreLatest`
 exists for change detection only and is never read to answer a score.
 
 ## Not yet supplied

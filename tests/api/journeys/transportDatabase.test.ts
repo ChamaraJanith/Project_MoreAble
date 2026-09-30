@@ -13,7 +13,10 @@ import { POST as createBus } from '../../../app/api/buses/index+api';
 import { POST as searchJourneys } from '../../../app/api/journeys/search+api';
 import { POST as createRoute } from '../../../app/api/routes/index+api';
 import { POST as createTrip } from '../../../app/api/trips/index+api';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import {
+    computeAccessibilityScore,
+    computeAccessibilityScoreBreakdown,
+} from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { buildTestPassword } from '../../testUtils/testPassword';
 
@@ -149,6 +152,9 @@ describe('transport records written by admin are read back by journey search', (
             accessibilityFacilities: busPayload.accessibilityFacilities,
             // Derived from the facilities the admin recorded (MOV-89).
             accessibilityScore: computeAccessibilityScore(busPayload.accessibilityFacilities),
+            // The three factors of that score, from the same facilities and
+            // (here, no) evidence, by the shared helper.
+            accessibilityScoreBreakdown: computeAccessibilityScoreBreakdown(busPayload.accessibilityFacilities),
             // The passenger rating travels beside the score (MOV-80); this bus
             // has no ratings, which reads as no average rather than zero stars.
             passengerRating: { busId, average: null, count: 0 },
@@ -178,6 +184,9 @@ describe('transport records written by admin are read back by journey search', (
             // Added by MOV-89. The list stays exhaustive on purpose: it is what
             // makes a credential stored beside the vehicle unable to travel.
             'accessibilityScore',
+            // Added by the score breakdown: the three factors of the score above,
+            // derived from the same evidence. Declared so the list stays exhaustive.
+            'accessibilityScoreBreakdown',
             'busId',
             'busModel',
             'manufacturer',

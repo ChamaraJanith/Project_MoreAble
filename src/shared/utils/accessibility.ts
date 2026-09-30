@@ -77,7 +77,7 @@ export function isFacilityConfigured(
     return facilities[key] === true;
 }
 
-/** Verified positive and issue reports about one bus. */
+/** Counted positive feedback and verified issue reports about one bus. */
 export interface CommunityReportTally {
     positiveCount: number;
     issueCount: number;
@@ -192,13 +192,71 @@ export function computeAccessibilityScore(
     return Math.round(clamped);
 }
 
+/** The three factors of the accessibility score, in the order it weighs them. */
+export type AccessibilityFactorKey = 'FACILITIES' | 'COMMUNITY' | 'RATINGS';
+
+/** One factor of one bus's score, exactly as MOV-79 produced it. */
+export interface AccessibilityFactorBreakdown {
+    key: AccessibilityFactorKey;
+    /** 0–100, unrounded — the value computeAccessibilityScore weighed. */
+    score: number;
+    /** 0.5, 0.3 or 0.2: MOV-79's own weight constant. */
+    weight: number;
+    /** score * weight, the share of the total this factor carried. */
+    contribution: number;
+}
+
 /**
- * Verified community reports about `busId`, split by the report system's own
- * reading of type: an explicit POSITIVE is positive, anything else is an issue
- * (`reportTypeOf`). PENDING, REJECTED and every other status are ignored, as is
- * a report naming another bus or none.
+ * The three factors `computeAccessibilityScore` weighs, one by one.
+ *
+ * Not a second formula: each factor is the same function call, with the same
+ * evidence and the same weight constant, that the score above is built from.
+ * The contributions are unclamped and unrounded, so their sum can differ from
+ * the whole-number score by a fraction.
  */
-export function tallyVerifiedCommunityReports(
+export function computeAccessibilityScoreBreakdown(
+    facilities?: BusAccessibilityFacilities | null,
+    evidence?: AccessibilityScoreEvidence | null
+): AccessibilityFactorBreakdown[] {
+    return [
+        {
+            key: 'FACILITIES' as const,
+            score: computeFacilityScore(facilities, evidence?.unavailableFacilities),
+            weight: FACILITY_WEIGHT,
+        },
+        { key: 'COMMUNITY' as const, score: computeCommunityScore(evidence?.community), weight: COMMUNITY_WEIGHT },
+        { key: 'RATINGS' as const, score: computeRatingScore(evidence?.ratings), weight: RATING_WEIGHT },
+    ].map((factor) => ({ ...factor, contribution: factor.score * factor.weight }));
+}
+
+/**
+ * Whether a report counts toward the community factor.
+ *
+ * - An accessibility ISSUE counts only once an admin has VERIFIED it. PENDING
+ *   and REJECTED issues, and any other status, do not.
+ * - POSITIVE feedback needs no admin review and counts as filed (PUBLISHED).
+ *   The one exception is feedback an admin REJECTED under the old workflow:
+ *   that was found not to hold and stays out.
+ *
+ * The type is read through `reportTypeOf`, so a report with no `type` field is
+ * an issue, as it always has been.
+ */
+export function isCountedCommunityReport(
+    report: Partial<Pick<AccessibilityReport, 'status' | 'type'>> | null | undefined
+): boolean {
+    if (!report) return false;
+
+    if (reportTypeOf(report) === 'POSITIVE') return report.status !== 'REJECTED';
+
+    return report.status === 'VERIFIED';
+}
+
+/**
+ * The community evidence about `busId`: counted positive feedback and verified
+ * issue reports (`isCountedCommunityReport`), split by the report system's own
+ * reading of type. A report naming another bus or none is ignored.
+ */
+export function tallyCommunityReports(
     reports: readonly (Partial<Pick<AccessibilityReport, 'busId' | 'status' | 'type'>> | null | undefined)[],
     busId: string
 ): CommunityReportTally {
@@ -206,7 +264,7 @@ export function tallyVerifiedCommunityReports(
     if (typeof busId !== 'string' || !busId) return tally;
 
     for (const report of reports) {
-        if (!report || report.status !== 'VERIFIED' || report.busId !== busId) continue;
+        if (!report || report.busId !== busId || !isCountedCommunityReport(report)) continue;
 
         if (reportTypeOf(report) === 'POSITIVE') tally.positiveCount += 1;
         else tally.issueCount += 1;

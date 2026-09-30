@@ -1,10 +1,15 @@
 import { Bus, VehicleLocation } from '../../../src/entities/bus/model/types';
 import {
   JourneySearchMatch,
+  JourneySearchOption,
+  JourneySearchWindowSummary,
   JourneyStopPoint,
   Route,
 } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
+import { apiTimeToMinutes } from '../../../src/features/journey/utils/dateTime';
+import { buildJourneyLegs } from '../../../src/features/journey/utils/journeyRecommendations';
+import { resolveJourneyTiming } from '../../../src/features/journey/utils/journeyTiming';
 import { Coordinates, GeocodedLocation, geocodeLocation } from '../../../src/shared/api/locationService';
 import {
   getRouteBetweenCoordinates,
@@ -20,6 +25,7 @@ import {
   AccessibilityRequirementKey,
   AccessibilityScoreEvidence,
   computeAccessibilityScore,
+  computeAccessibilityScoreBreakdown,
   meetsAccessibilityRequirements,
   parseAccessibilityRequirements,
 } from '../../../src/shared/utils/accessibility';
@@ -454,20 +460,158 @@ export function isUsableDocumentId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-// Returns every ACTIVE trip departing at/after the requested travel time,
-// earliest first. Trips that have already departed are ignored. Keeps the
-// previously-existing route matching untouched — this only filters trips
-// already known to belong to one matched route.
-export function selectUpcomingTrips(trips: Trip[], travelTime: string): Trip[] {
+// MOV-308 intentionally uses a SYMMETRIC ±60-minute search window around the
+// requested time: a journey boarding up to an hour earlier is as relevant to the
+// passenger as one boarding up to an hour later. Both boundaries are inclusive.
+export const JOURNEY_SEARCH_WINDOW_MINUTES = 60;
+
+export type BoardingTimeMatch = 'EXACT' | 'NEARBY' | 'OUTSIDE';
+
+/**
+ * Whole minutes between a passenger's boarding time and the time they asked
+ * for, earlier or later alike, or null when either is unreadable. Compared as
+ * minutes since midnight and never wrapped (see `classifyBoardingTime`).
+ *
+ * The one definition of "how close" MOV-308 uses: the ±60 window and EXACT are
+ * decided from it, and recommendations are ordered by it (R3).
+ */
+export function minutesFromRequestedTime(
+  boardingTime: string | null,
+  travelTime: string
+): number | null {
+  const boarding = apiTimeToMinutes(boardingTime);
+  const requested = apiTimeToMinutes(travelTime);
+  if (boarding === null || requested === null) return null;
+
+  return Math.abs(boarding - requested);
+}
+
+/**
+ * How close a passenger's boarding time is to the time they asked for (MOV-308).
+ *
+ * Both values are 'HH:MM' times of day on the same travel date. They are
+ * compared as plain minutes since midnight — deliberately never wrapped — so
+ * 23:50 and 00:10 are 23h 40m apart, not 20 minutes: the search has no date
+ * semantics that put them on the same travel date. Null when either time is
+ * unreadable, which callers treat as "not a candidate".
+ */
+export function classifyBoardingTime(
+  boardingTime: string | null,
+  travelTime: string
+): BoardingTimeMatch | null {
+  const difference = minutesFromRequestedTime(boardingTime, travelTime);
+  if (difference === null) return null;
+
+  if (difference === 0) return 'EXACT';
+  return difference <= JOURNEY_SEARCH_WINDOW_MINUTES ? 'NEARBY' : 'OUTSIDE';
+}
+
+/**
+ * The passenger's boarding time at their OWN origin stop for one trip, or null
+ * when it cannot be derived from stored data.
+ *
+ * Measured by `resolveJourneyTiming` over the same legs the passenger screens
+ * build. Never the trip's first-stop `departureTime` standing in for a
+ * mid-route stop.
+ *
+ * That helper only reports a mid-route boarding time when the passenger's
+ * whole ride is timed, so one untimed gap AFTER the origin would hide a boarding
+ * time the timings BEFORE the origin fully determine. In that case the same
+ * helper measures the ride from the route's first stop to the origin instead:
+ * its arrival there is the boarding time — the same departure-plus-timings sum,
+ * reading no segment after the origin. When those earlier timings are
+ * incomplete too, the result is still null and the trip is not a candidate.
+ */
+export function resolvePassengerBoardingTime(match: JourneySearchMatch, trip: Trip): string | null {
+  // Only `trip` is read when the legs are built; bus and live status play no
+  // part in timing.
+  const option = { trip } as Pick<JourneySearchOption, 'trip'> as JourneySearchOption;
+  const [leg] = buildJourneyLegs(match, option);
+
+  const boardingTime = resolveJourneyTiming([leg]).boardingTime;
+  if (boardingTime !== null) return boardingTime;
+
+  // The route's own end-of-line arrival plays no part in reaching the origin.
+  const toOrigin = {
+    ...leg,
+    boardStop: leg.stops[0],
+    alightStop: leg.boardStop,
+    scheduledArrivalTime: null,
+  };
+  return resolveJourneyTiming([toOrigin]).alightingTime;
+}
+
+// MoreAble's travel dates and HH:MM times are Sri Lanka wall-clock values, so
+// "today" and "now" are read in Asia/Colombo explicitly — never in whatever
+// timezone the server happens to run in (MOV-308 R4).
+export const MOREABLE_TIME_ZONE = 'Asia/Colombo';
+
+const moreAbleClock = new Intl.DateTimeFormat('en-CA', {
+  timeZone: MOREABLE_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * The Asia/Colombo calendar date ('YYYY-MM-DD', the API's travel-date format)
+ * and minutes since Colombo midnight for one instant.
+ */
+export function toMoreAbleClock(instant: Date): { date: string; minutes: number } {
+  const parts: Record<string, string> = {};
+  for (const part of moreAbleClock.formatToParts(instant)) parts[part.type] = part.value;
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute),
+  };
+}
+
+/**
+ * The ACTIVE trips a passenger could board within ±60 minutes of their
+ * requested time at their selected origin stop (MOV-308), earliest first.
+ *
+ *   - R1: closeness is judged on the passenger's boarding time at `match.origin`,
+ *     not the bus's first-stop departure. A trip whose boarding time there
+ *     cannot be derived is excluded — never estimated, never replaced by
+ *     `trip.departureTime`.
+ *   - R2: symmetric, inclusive ±60-minute window (see above).
+ *   - R4: only when `travelDate` is today's date in Asia/Colombo is a trip
+ *     that has already left the passenger's origin stop (in Colombo time)
+ *     excluded. A future date is never judged against the current clock.
+ *
+ * Keeps the previously-existing route matching untouched — this only filters
+ * trips already known to belong to one matched route.
+ */
+export function selectUpcomingTrips(
+  trips: Trip[],
+  match: JourneySearchMatch,
+  travelTime: string,
+  travelDate: string,
+  now: Date
+): Trip[] {
+  const clock = toMoreAbleClock(now);
+  const isToday = travelDate === clock.date;
+
   return trips
-    .filter(
-      (trip) =>
-        // A trip with no id cannot be selected, booked or matched back to the
-        // Route Details screen, so it is not offered as a departure.
-        isUsableDocumentId(trip?.tripId) &&
-        trip.status === 'ACTIVE' &&
-        trip.departureTime >= travelTime
-    )
+    .filter((trip) => {
+      // A trip with no id cannot be selected, booked or matched back to the
+      // Route Details screen, so it is not offered as a departure.
+      if (!isUsableDocumentId(trip?.tripId) || trip.status !== 'ACTIVE') return false;
+
+      const boardingTime = resolvePassengerBoardingTime(match, trip);
+      const closeness = classifyBoardingTime(boardingTime, travelTime);
+      if (closeness === null || closeness === 'OUTSIDE') return false;
+
+      // Already gone from the passenger's origin stop today. Boarding at this
+      // very minute still counts as catchable.
+      if (isToday && (apiTimeToMinutes(boardingTime) as number) < clock.minutes) return false;
+
+      return true;
+    })
     .sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 }
 
@@ -521,6 +665,7 @@ async function attachUpcomingTrips(
   adminDb: any,
   match: JourneySearchMatch,
   travelTime: string,
+  travelDate: string,
   busCache: Map<string, Promise<Bus | null>>,
   locationCache: Map<string, Promise<VehicleLocation | null>>,
   evidenceCache: Map<string, Promise<AccessibilityScoreEvidence>>,
@@ -532,7 +677,7 @@ async function attachUpcomingTrips(
     ? await fetchActiveTripsForRoute(adminDb, match.routeId)
     : [];
 
-  const upcomingTrips = selectUpcomingTrips(trips, travelTime);
+  const upcomingTrips = selectUpcomingTrips(trips, match, travelTime, travelDate, now);
 
   const options = await Promise.all(
     upcomingTrips.map(async (trip) => {
@@ -565,6 +710,14 @@ async function attachUpcomingTrips(
               // with a different vehicle. The same function the booking flow
               // uses — one definition of how accessible a bus is (MOV-79).
               accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
+              // The three factors that score was made of, from the same
+              // facilities and the same evidence, so a passenger can see how
+              // the figure above was reached. The shared breakdown the admin
+              // Analytics page reads; no second formula, no extra read.
+              accessibilityScoreBreakdown: computeAccessibilityScoreBreakdown(
+                bus.accessibilityFacilities,
+                evidence
+              ),
               // How passengers rated this bus (MOV-80), from the very evidence
               // the score above was built from — already read, already cached
               // per request, so the figure costs no extra query and cannot
@@ -578,6 +731,13 @@ async function attachUpcomingTrips(
             }
           : null,
         liveStatus: buildLiveStatus(vehicleLocation, now),
+        // MOV-308 R3: measured from the very boarding time this trip was
+        // selected on, so the screen can order by closeness without repeating
+        // the timing (0 is an exact match).
+        minutesFromRequestedTime: minutesFromRequestedTime(
+          resolvePassengerBoardingTime(match, trip),
+          travelTime
+        ),
       };
     })
   );
@@ -811,6 +971,8 @@ export async function POST(request: Request) {
     };
 
     if (matchedRoutes.length === 0) {
+      const searchWindow: JourneySearchWindowSummary = { matchedRouteCount: 0, departureCount: 0 };
+
       return Response.json(
         {
           success: true,
@@ -819,6 +981,7 @@ export async function POST(request: Request) {
           count: 0,
           routes: [],
           geo,
+          searchWindow,
         },
         {
           status: 200,
@@ -832,15 +995,35 @@ export async function POST(request: Request) {
     const busCache = new Map<string, Promise<Bus | null>>();
     const locationCache = new Map<string, Promise<VehicleLocation | null>>();
     const evidenceCache = new Map<string, Promise<AccessibilityScoreEvidence>>();
-    // One instant for the whole response, so every reported location age is
-    // measured against the same clock.
+    // One instant for the whole response, so every reported location age — and
+    // today's "already departed" check (MOV-308) — is measured against the same
+    // clock.
     const now = new Date();
 
     const routesWithDepartures = await Promise.all(
       matchedRoutes.map((match) =>
-        attachUpcomingTrips(adminDb, match, travelTime, busCache, locationCache, evidenceCache, now)
+        attachUpcomingTrips(
+          adminDb,
+          match,
+          travelTime,
+          travelDate,
+          busCache,
+          locationCache,
+          evidenceCache,
+          now
+        )
       )
     );
+
+    // What the time window found, counted BEFORE the requirements below remove
+    // anything (MOV-308 AC6). The filter drops a route left with no suitable
+    // departure, so without this an empty filtered response could not say
+    // whether the requirements or the requested time left it empty. Counted
+    // from the trips already selected above: no read, and no change to them.
+    const searchWindow: JourneySearchWindowSummary = {
+      matchedRouteCount: matchedRoutes.length,
+      departureCount: routesWithDepartures.reduce((total, match) => total + match.trips.length, 0),
+    };
 
     // MOV-92, applied here and only here: after the vehicles are known, so
     // suitability can be judged, and before the road enrichment below, so a
@@ -862,13 +1045,17 @@ export async function POST(request: Request) {
         message:
           enrichedRoutes.length === 0
             ? // Only reachable once requirements are filtering: routes did match
-              // this journey, so saying none did would be untrue.
-              'No routes match your accessibility requirements.'
+              // this journey, so saying none did would be untrue. Nor is it the
+              // requirements' doing when nothing left within the hour at all.
+              searchWindow.departureCount === 0
+              ? 'No departures within an hour of the requested time.'
+              : 'No routes match your accessibility requirements.'
             : `${enrichedRoutes.length} matching route${enrichedRoutes.length > 1 ? 's' : ''} found.`,
         searchCriteria,
         count: enrichedRoutes.length,
         routes: enrichedRoutes,
         geo,
+        searchWindow,
       },
       {
         status: 200,

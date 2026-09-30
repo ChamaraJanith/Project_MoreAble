@@ -73,7 +73,8 @@ export interface SelectedVehicle {
   busModel: string;
   departureTime: string;
   estimatedArrivalTime: string;
-  accessibilityScore: number;
+  /** Null when the vehicle's score was never measured — never a stand-in number (MOV-308). */
+  accessibilityScore: number | null;
   origin: string;        // ADD — passenger's actual boarding stop
   destination: string; // ADD — passenger's actual alighting stop
   selectedAt: number;

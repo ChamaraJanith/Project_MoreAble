@@ -392,6 +392,40 @@ describe('the analytics response', () => {
         ]);
     });
 
+    it('lists every bus, whatever its status, each with its own score', async () => {
+        seed(platform());
+
+        const body = await readJson(
+            await getAnalytics(analyticsRequest({ token: ADMIN_SESSION }))
+        );
+
+        expect(body.buses.map((bus: any) => [bus.busId, bus.status])).toEqual([
+            ['BUS-00001', 'ACTIVE'],
+            ['BUS-00002', 'ACTIVE'],
+            // In maintenance: not in the old fleet average, but on the list.
+            ['BUS-00003', 'MAINTENANCE'],
+        ]);
+
+        for (const bus of body.buses) {
+            expect(Number.isInteger(bus.accessibilityScore)).toBe(true);
+            expect(bus.factors.map((factor: any) => [factor.key, factor.weight])).toEqual([
+                ['FACILITIES', 0.5],
+                ['COMMUNITY', 0.3],
+                ['RATINGS', 0.2],
+            ]);
+            expect(bus.facilities).toHaveLength(8);
+        }
+
+        // Only VERIFIED reports are evidence: BUS-00002's pending and
+        // rejected reports are not counted, and BUS-00001's pending issue is not.
+        const [first, second] = body.buses;
+
+        expect(second.community).toEqual({ issueCount: 1, positiveCount: 0 });
+        expect(first.community).toEqual({ issueCount: 0, positiveCount: 1 });
+        expect(first.ratings).toEqual({ count: 1, average: 5 });
+        expect(second.availableFacilityCount).toBe(5);
+    });
+
     it('answers with twelve weekly buckets, oldest first', async () => {
         seed(platform());
 
@@ -697,6 +731,56 @@ describe('the analytics score matches the existing accessibility score', () => {
 
         expect(canonical).toBeGreaterThan(63);
         expect(analytics).toBe(canonical);
+    });
+
+    it('lists each bus with the score the booking API reports for it', async () => {
+        seed({
+            buses: [
+                storedBus('BUS-00001'),
+                // ACTIVE because the booking API only scores a bus in service;
+                // the list's other statuses are covered above.
+                storedBus('BUS-00002', {
+                    accessibilityFacilities: facilities({ wheelchairRamp: false, audioAnnouncement: false }),
+                }),
+            ],
+            trips: [
+                storedTrip('TRIP-0001', 'R-138-OUT', 'BUS-00001'),
+                storedTrip('TRIP-0002', 'R-138-OUT', 'BUS-00002'),
+            ],
+            routes: [storedRoute('R-138-OUT', '138')],
+            bookings: [],
+            reports: [
+                positiveReport('REP-00001', 'BUS-00001'),
+                positiveReport('REP-00002', 'BUS-00001'),
+                storedReport('REP-00003', 'BUS-00002', 'VERIFIED'),
+                storedReport('REP-00004', 'BUS-00002', 'PENDING'),
+            ],
+            busRatings: [
+                storedRating('RAT-1', 'BUS-00001', 5),
+                storedRating('RAT-2', 'BUS-00002', 2),
+            ],
+        });
+
+        const canonical = async (tripId: string) =>
+            (
+                await readJson(await getSeatAvailability(seatsRequest(tripId), { tripId }))
+            ).accessibilityScore;
+
+        const body = await readJson(
+            await getAnalytics(analyticsRequest({ token: ADMIN_SESSION }))
+        );
+        const scoreOf = (busId: string) =>
+            body.buses.find((bus: any) => bus.busId === busId).accessibilityScore;
+
+        expect(scoreOf('BUS-00001')).toBe(await canonical('TRIP-0001'));
+        expect(scoreOf('BUS-00002')).toBe(await canonical('TRIP-0002'));
+
+        // The weighted contributions are what the total was made of.
+        for (const bus of body.buses) {
+            const total = bus.factors.reduce((sum: number, factor: any) => sum + factor.contribution, 0);
+
+            expect(bus.accessibilityScore).toBe(Math.round(Math.min(100, Math.max(0, total))));
+        }
     });
 
     it('averages two buses to the mean of their canonical scores', async () => {

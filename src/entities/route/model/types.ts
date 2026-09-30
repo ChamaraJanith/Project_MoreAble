@@ -1,6 +1,7 @@
 import { BusAccessibilityFacilities, VehicleLocation } from '../../bus/model/types';
 import { BusRatingSummary } from '../../rating/model/types';
 import { Stop } from '../../stop/model/types';
+import type { AccessibilityFactorBreakdown } from '../../../shared/utils/accessibility';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -83,6 +84,17 @@ export interface JourneySearchBus {
     accessibilityScore: number;
 
     /**
+     * The three weighted factors `accessibilityScore` was made of — facilities,
+     * community, passenger ratings — from the same facilities and evidence, by
+     * the shared `computeAccessibilityScoreBreakdown`.
+     *
+     * Optional because a journey saved before the search carried it, or a
+     * response from an older server, has none. Absent means "not known": a
+     * screen shows no breakdown rather than building one of its own.
+     */
+    accessibilityScoreBreakdown?: AccessibilityFactorBreakdown[] | null;
+
+    /**
      * How passengers rated this bus (MOV-80): the plain average and the number
      * of ratings behind it.
      *
@@ -143,6 +155,12 @@ export interface JourneySearchOption {
      * from "not implemented" without guessing.
      */
     liveStatus: JourneyLiveStatus;
+    /**
+     * Minutes between the passenger's boarding time at their own origin and
+     * the time they asked for, earlier or later alike (MOV-308). 0 is an exact
+     * match. Optional because only the journey search sets it.
+     */
+    minutesFromRequestedTime?: number | null;
 }
 
 // ------------------------------------------------------------------
@@ -195,6 +213,26 @@ export interface JourneyGeoInformation {
      */
     stops?: JourneyStopPoint[];
     message?: string;
+}
+
+/**
+ * What the journey search's ±60-minute window found BEFORE accessibility
+ * requirements were applied (MOV-308 AC6).
+ *
+ * Needed because the filtered response alone cannot say why it is empty: a
+ * requirement drops every route left with no suitable departure, so "no route
+ * serves this journey", "the route runs but nothing leaves within an hour" and
+ * "departures leave within the hour but none meets the requirements" all reach
+ * the screen as the same empty list. These two counts are what tells them apart.
+ *
+ * Derived per request from records already read. Never stored, and it carries
+ * no trip, vehicle or accessibility detail — only how many.
+ */
+export interface JourneySearchWindowSummary {
+    /** Routes serving origin -> destination, whatever their timetable. */
+    matchedRouteCount: number;
+    /** Catchable departures within ±60 minutes, before accessibility requirements. */
+    departureCount: number;
 }
 
 export interface JourneySearchMatch {

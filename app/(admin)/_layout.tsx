@@ -41,6 +41,7 @@ export default function AdminLayout() {
 
       <Stack.Screen name="emergencies/index" options={{ title: 'Emergency Dashboard' }} />
       <Stack.Screen name="emergencies/[emergencyId]" options={{ title: 'Emergency Details' }} />
+      <Stack.Screen name="analytics/[busId]" options={{ title: 'Bus Accessibility' }} />
     </Stack>
   );
 }

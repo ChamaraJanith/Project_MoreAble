@@ -19,9 +19,13 @@ import { ACCESSIBILITY_REQUIREMENTS, meetsAccessibilityRequirement } from '../ut
 import {
     buildJourneyLegs,
     describeJourneyForDisplay,
+    isExactTimeMatch,
     JourneyDisplay,
+    knownAccessibilityScore,
 } from '../utils/journeyRecommendations';
+import { accessibilityScoreBreakdownView } from '../utils/accessibilityScoreBreakdown';
 import { formatDisplayDate } from '../utils/dateTime';
+import { AccessibilityScoreBreakdownSheet } from './AccessibilityScoreBreakdownSheet';
 import { JourneyTiming, resolveJourneyTiming } from '../utils/journeyTiming';
 
 interface JourneyOptionCardProps {
@@ -121,6 +125,33 @@ export function JourneyOptionCard({
     const hasMeasuredScore =
         typeof accessibilityScore === 'number' && Number.isFinite(accessibilityScore);
 
+    // How the score on the badge was reached, when the search sent the factors
+    // for this same bus and they add up to it. Null otherwise — no breakdown is
+    // ever assembled here — and the badge then stays non-interactive.
+    const scoreBreakdown = accessibilityScoreBreakdownView(
+        accessibilityScore,
+        bus?.accessibilityScoreBreakdown
+    );
+    const [isBreakdownOpen, setBreakdownOpen] = React.useState(false);
+
+    const scoreBadgeContent = hasMeasuredScore ? (
+        <>
+            <Ionicons
+                name="accessibility"
+                size={13}
+                color={accessibilityScoreColor(accessibilityScore as number)}
+            />
+            <Text
+                style={[
+                    styles.scoreText,
+                    { color: accessibilityScoreColor(accessibilityScore as number) },
+                ]}
+            >
+                {accessibilityScore}%
+            </Text>
+        </>
+    ) : null;
+
     // Counted from the journey's real legs. The search matches only routes that
     // carry the passenger the whole way on one bus, so this is 0 today -- a fact
     // worth stating, since "no changes" is useful to a passenger who needs it.
@@ -154,7 +185,7 @@ export function JourneyOptionCard({
             busModel: bus.busModel,
             departureTime: departureLabel || trip.departureTime || '',
             estimatedArrivalTime: arrivalLabel || trip.estimatedArrivalTime || '',
-            accessibilityScore: typeof accessibilityScore === 'number' ? accessibilityScore : (bus as any)?.accessibilityScore ?? 100,
+            accessibilityScore: knownAccessibilityScore(accessibilityScore, (bus as any)?.accessibilityScore),
             origin: route.origin,
             destination: route.destination,
             selectedAt: Date.now(),
@@ -170,7 +201,13 @@ export function JourneyOptionCard({
         });
     };
 
+    // Which results group this journey sits in (MOV-310), said first so a
+    // screen-reader user moving card to card hears it without the heading.
+    // Read from the search's own measurement through the shared helper.
+    const isExactTime = isExactTimeMatch(option.minutesFromRequestedTime);
+
     const summaryLabel =
+        `${isExactTime ? 'At your requested time. ' : 'Nearby alternative, within an hour of your requested time. '}` +
         `Route ${route.routeNumber}, ${route.routeName}. ` +
         `${hasMeasuredScore ? `Accessibility score ${accessibilityScore} percent. ` : 'Accessibility score not available. '}` +
         `${departureLabel ? `Departs ${departureLabel}` : 'Departure time from this stop not available'}, ` +
@@ -187,43 +224,82 @@ export function JourneyOptionCard({
 
     return (
         <View style={styles.card}>
-            {/* Route identity */}
-            <View style={styles.topRow} accessible accessibilityLabel={summaryLabel}>
-                <View style={styles.routeNumberBadge}>
-                    <Text style={styles.routeNumberText}>{route.routeNumber}</Text>
+            {/*
+              Route identity. The summary and the score button are two
+              separate accessibility elements: a button inside an `accessible`
+              group cannot be reached on its own by a screen reader.
+            */}
+            <View style={styles.topRow}>
+                <View style={styles.routeIdentity} accessible accessibilityLabel={summaryLabel}>
+                    <View style={styles.routeNumberBadge}>
+                        <Text style={styles.routeNumberText}>{route.routeNumber}</Text>
+                    </View>
+                    <Text style={styles.routeNameText} numberOfLines={1}>
+                        {route.routeName}
+                    </Text>
                 </View>
-                <Text style={styles.routeNameText} numberOfLines={1}>
-                    {route.routeName}
-                </Text>
 
                 {/*
                   MOV-89's score, shown the way the booking flow already shows
                   it. The number and the icon carry the meaning; the colour only
                   reinforces it, so nothing here depends on colour alone.
+
+                  It opens its breakdown only when the search sent one that
+                  explains this very figure. Otherwise it stays the plain badge
+                  it always was, and N/A stays N/A — hidden from screen readers
+                  because the route summary already reads the score out.
                 */}
-                {hasMeasuredScore ? (
-                    <View style={styles.scoreBadge}>
+                {scoreBreakdown ? (
+                    <TouchableOpacity
+                        style={[styles.scoreBadge, styles.scoreBadgeButton]}
+                        onPress={() => setBreakdownOpen(true)}
+                        hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('journey.scoreBreakdown.badgeLabel', {
+                            score: accessibilityScore,
+                            defaultValue: 'Accessibility score {{score}} percent',
+                        })}
+                        accessibilityHint={t(
+                            'journey.scoreBreakdown.badgeHint',
+                            'Opens a breakdown of how this score is calculated'
+                        )}
+                    >
+                        {scoreBadgeContent}
                         <Ionicons
-                            name="accessibility"
+                            name="information-circle-outline"
                             size={13}
-                            color={accessibilityScoreColor(accessibilityScore as number)}
+                            color="#64748B"
+                            style={styles.scoreInfoIcon}
                         />
-                        <Text
-                            style={[
-                                styles.scoreText,
-                                { color: accessibilityScoreColor(accessibilityScore as number) },
-                            ]}
-                        >
-                            {accessibilityScore}%
-                        </Text>
+                    </TouchableOpacity>
+                ) : hasMeasuredScore ? (
+                    <View
+                        style={styles.scoreBadge}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                    >
+                        {scoreBadgeContent}
                     </View>
                 ) : (
-                    <View style={styles.scoreBadge}>
+                    <View
+                        style={styles.scoreBadge}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                    >
                         <Ionicons name="help-circle-outline" size={13} color="#64748B" />
                         <Text style={[styles.scoreText, styles.scoreTextUnknown]}>N/A</Text>
                     </View>
                 )}
             </View>
+
+            {scoreBreakdown && (
+                <AccessibilityScoreBreakdownSheet
+                    visible={isBreakdownOpen}
+                    score={accessibilityScore}
+                    breakdown={bus?.accessibilityScoreBreakdown}
+                    onClose={() => setBreakdownOpen(false)}
+                />
+            )}
 
             {travelDate && (
                 <View style={styles.travelDateBadge}>
@@ -445,6 +521,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 16,
     },
+    routeIdentity: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     routeNumberBadge: {
         backgroundColor: '#EBF3FA',
         borderRadius: 12,
@@ -472,6 +553,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         paddingVertical: 4,
         marginLeft: 8,
+    },
+    // Visually the same badge; the hitSlop takes the touch target to 44pt.
+    scoreBadgeButton: {
+        minHeight: 24,
+    },
+    scoreInfoIcon: {
+        marginLeft: 3,
     },
     scoreText: {
         fontSize: 12,

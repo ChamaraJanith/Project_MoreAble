@@ -410,6 +410,27 @@ describe('POST /api/complaints', () => {
             expect((await response.json()).message).toContain(status);
         });
 
+        it('answers 409 for PUBLISHED positive feedback, the status it is filed in, creating nothing', async () => {
+            const db = seedFirestore({
+                reports: [
+                    verifiedReport({
+                        type: 'POSITIVE',
+                        status: 'PUBLISHED',
+                        issueCategory: undefined,
+                        category: 'HELPFUL_DRIVER',
+                    }),
+                ],
+            });
+
+            const response = await create({ reportId: REPORT_ID });
+
+            expect(response.status).toBe(409);
+            expect((await response.json()).message).toBe(
+                'A complaint can only be created from an accessibility issue report.'
+            );
+            expect((await db.collection('complaints').get()).docs).toHaveLength(0);
+        });
+
         it('answers 409 for VERIFIED positive feedback', async () => {
             seedFirestore({
                 reports: [
@@ -548,6 +569,45 @@ describe('GET /api/complaints', () => {
         expect(await ids('?status=RESOLVED&assignedTo=ADM-2026-00002')).toEqual(['CMP-00004']);
     });
 
+    it.each([
+        [REPORT_ID, 'CMP-00001', 'PENDING'],
+        ['REP-00026', 'CMP-00002', 'ASSIGNED'],
+        ['REP-00027', 'CMP-00003', 'IN_PROGRESS'],
+        ['REP-00028', 'CMP-00004', 'RESOLVED'],
+    ])('finds the complaint opened from report %s, with its own status', async (reportId, complaintId, status) => {
+        seedList();
+
+        const json = await (await list(`?reportId=${reportId}`)).json();
+
+        expect(json.complaints).toHaveLength(1);
+        expect(json.complaints[0]).toMatchObject({ complaintId, reportId, status });
+    });
+
+    it('answers an empty list for a report with no complaint', async () => {
+        seedList();
+
+        expect(await ids('?reportId=REP-99999')).toEqual([]);
+    });
+
+    it('asks Firestore by reportId, the query the duplicate check makes', async () => {
+        const db = seedList();
+
+        await list('?reportId=REP-00028');
+
+        const query = db.collection.mock.results
+            .map((result: any) => result.value)
+            .find((value: any) => value.where.mock.calls.length > 0);
+
+        expect(query.where).toHaveBeenCalledWith('reportId', '==', 'REP-00028');
+    });
+
+    it('applies reportId together with status', async () => {
+        seedList();
+
+        expect(await ids('?reportId=REP-00028&status=RESOLVED')).toEqual(['CMP-00004']);
+        expect(await ids('?reportId=REP-00028&status=PENDING')).toEqual([]);
+    });
+
     it('serialises timestamps as ISO strings and keeps workflow fields', async () => {
         seedList();
 
@@ -567,6 +627,9 @@ describe('GET /api/complaints', () => {
         ['an empty assignedTo', '?assignedTo='],
         ['an assignedTo containing "/"', '?assignedTo=ADM%2F1'],
         ['two assignedTo filters', '?assignedTo=A&assignedTo=B'],
+        ['an empty reportId', '?reportId='],
+        ['a reportId containing "/"', '?reportId=REP%2F1'],
+        ['two reportId filters', '?reportId=REP-1&reportId=REP-2'],
     ])('answers 400 for %s', async (_case, query) => {
         seedList();
 

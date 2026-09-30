@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AccessibilityReport } from '../../../entities/report/model/types';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { reportSubmissionReceipt } from '../utils/reportSummary';
+import { receiptNote, reportSubmissionReceipt } from '../utils/reportSummary';
 import { ReportTypeBadge } from './ReportTypeBadge';
 
 interface ReportSubmittedViewProps {
@@ -68,9 +68,12 @@ export function ReportSubmittedView({
                     <Text style={styles.value}>{receipt.submittedLabel}</Text>
                 </DetailRow>
 
-                <DetailRow label="Status">
-                    <StatusBadge status={receipt.status} size="small" />
-                </DetailRow>
+                {/* Positive feedback has no status on the passenger side. */}
+                {!!receipt.status && (
+                    <DetailRow label="Status">
+                        <StatusBadge status={receipt.status} size="small" />
+                    </DetailRow>
+                )}
 
                 <DetailRow label="Report Type">
                     <ReportTypeBadge type={receipt.reportType} />
@@ -86,7 +89,7 @@ export function ReportSubmittedView({
             <View style={styles.infoNote}>
                 <Ionicons name="information-circle-outline" size={18} color={adminColors.primary} />
                 <Text style={styles.infoNoteText}>
-                    You can edit or delete it from My Reports while it is pending review.
+                    {receiptNote(receipt.reportType)}
                 </Text>
             </View>
 

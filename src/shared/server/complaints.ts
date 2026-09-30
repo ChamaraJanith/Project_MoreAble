@@ -149,6 +149,8 @@ export function isComplaintId(value: unknown): value is string {
 export interface ComplaintListFilters {
     status: ComplaintStatus | null;
     assignedTo: string | null;
+    /** The report a complaint was opened from — at most one complaint, by the create rule. */
+    reportId?: string | null;
 }
 
 /**
@@ -163,6 +165,7 @@ export function readComplaintListFilters(
 ): FeedbackValidation<ComplaintListFilters> {
     const statuses = searchParams.getAll('status');
     const assignees = searchParams.getAll('assignedTo');
+    const reportIds = searchParams.getAll('reportId');
 
     if (statuses.length > 1) {
         return { ok: false, message: 'Only one status filter may be given.' };
@@ -170,6 +173,20 @@ export function readComplaintListFilters(
 
     if (assignees.length > 1) {
         return { ok: false, message: 'Only one assignedTo filter may be given.' };
+    }
+
+    if (reportIds.length > 1) {
+        return { ok: false, message: 'Only one reportId filter may be given.' };
+    }
+
+    let reportId: string | null = null;
+
+    if (reportIds.length === 1) {
+        reportId = readDocumentId(reportIds[0]);
+
+        if (!reportId) {
+            return { ok: false, message: 'Invalid reportId filter.' };
+        }
     }
 
     let status: ComplaintStatus | null = null;
@@ -196,7 +213,7 @@ export function readComplaintListFilters(
         assignedTo = requested;
     }
 
-    return { ok: true, value: { status, assignedTo } };
+    return { ok: true, value: { status, assignedTo, reportId } };
 }
 
 // ------------------------------------------------------------------
@@ -446,7 +463,11 @@ export async function listComplaints(
 ): Promise<SerializedComplaint[]> {
     let query: any = adminDb.collection(COMPLAINTS_COLLECTION);
 
-    if (filters.status) {
+    // reportId first: it names at most one complaint, the query the create
+    // transaction's own duplicate check already makes.
+    if (filters.reportId) {
+        query = query.where('reportId', '==', filters.reportId);
+    } else if (filters.status) {
         query = query.where('status', '==', filters.status);
     } else if (filters.assignedTo) {
         query = query.where('assignedTo', '==', filters.assignedTo);
@@ -458,6 +479,7 @@ export async function listComplaints(
         .map((doc: any) => serializeComplaint(doc.data() ?? {}, doc.id))
         .filter(
             (complaint: SerializedComplaint) =>
+                (!filters.reportId || complaint.reportId === filters.reportId) &&
                 (!filters.status || complaint.status === filters.status) &&
                 (!filters.assignedTo || complaint.assignedTo === filters.assignedTo)
         )

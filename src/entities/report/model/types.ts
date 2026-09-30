@@ -118,6 +118,7 @@ export const REPORT_STATUSES = [
     'REJECTED',
     'REVIEWED',
     'RESOLVED',
+    'PUBLISHED',
 ] as const;
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
@@ -428,6 +429,124 @@ export const REPORT_REVIEW_ACTION_STATUS: Record<ReportReviewAction, ReportStatu
 export const REPORT_REVIEW_REQUIRED_STATUS: ReportStatus = 'PENDING';
 
 /**
+ * The status positive feedback is filed in: accepted as it stands, with no
+ * admin review.
+ *
+ * Deliberately not VERIFIED. VERIFIED is the record of an admin confirming an
+ * accessibility issue, and positive feedback never goes through that — calling
+ * it verified would claim a review that did not happen. Nor PENDING, which
+ * would leave it waiting for a decision that is never coming.
+ */
+export const POSITIVE_FEEDBACK_STATUS: ReportStatus = 'PUBLISHED';
+
+/**
+ * Whether a report goes through the admin Verify/Reject workflow.
+ *
+ * Accessibility issues do; positive feedback does not.
+ */
+export function requiresAdminReview(report: { type?: unknown } | null | undefined): boolean {
+    return reportTypeOf(report) === 'ISSUE';
+}
+
+// ==================================================================
+// Visibility and display
+//
+// Every rule below reads a report's TYPE and STATUS together, never its status
+// alone. None of them changes what is stored.
+// ==================================================================
+
+/**
+ * Whether a report is part of the public community feed.
+ *
+ *   ISSUE      only once an admin has VERIFIED it — an unreviewed or rejected
+ *              issue is one passenger's allegation, not a community finding
+ *   POSITIVE   as soon as it is filed (PUBLISHED), with no review; legacy
+ *              feedback stored PENDING or VERIFIED is visible too. Only
+ *              feedback an admin REJECTED under the old workflow stays hidden.
+ *
+ * The same set of reports the accessibility score counts
+ * (`isCountedCommunityReport`), so what the public sees is what the score weighs.
+ */
+export function isPubliclyVisibleReport(
+    report: { type?: unknown; status?: unknown } | null | undefined
+): boolean {
+    if (!report) return false;
+
+    if (reportTypeOf(report) === 'POSITIVE') return report.status !== 'REJECTED';
+
+    return report.status === 'VERIFIED';
+}
+
+/** The role that sees every report, for the admin review workflow. */
+const REPORT_ADMIN_ROLE = 'ADMIN';
+
+/**
+ * Whether a session may see a report at all: an admin sees everything, an
+ * author sees their own in any status, and everybody else sees only the
+ * public feed.
+ */
+export function canViewReport(
+    report: { type?: unknown; status?: unknown; passengerId?: unknown } | null | undefined,
+    viewer: { passengerId?: unknown; role?: unknown } | null | undefined
+): boolean {
+    if (!report) return false;
+    if (viewer?.role === REPORT_ADMIN_ROLE) return true;
+
+    const isOwner =
+        typeof viewer?.passengerId === 'string' &&
+        !!viewer.passengerId &&
+        report.passengerId === viewer.passengerId;
+
+    return isOwner || isPubliclyVisibleReport(report);
+}
+
+/**
+ * The admin UI's display key for accepted positive feedback: a badge that
+ * reads "Verified", kept apart from the VERIFIED an admin's decision stores.
+ * Display only — never stored, never sent as an action.
+ */
+export const ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS = 'AUTO_VERIFIED';
+
+/**
+ * The status the ADMIN screens badge a report with.
+ *
+ * An issue shows its stored review status (none reads as PENDING). Positive
+ * feedback, which is accepted without review, shows as "Verified" through its
+ * own display key — the stored status stays PUBLISHED, and nothing about it
+ * enters the issue verification workflow. Legacy feedback an admin REJECTED
+ * keeps saying so.
+ */
+export function adminReportDisplayStatus(
+    report: { type?: unknown; status?: unknown } | null | undefined
+): string {
+    const stored = reportDecisionStatus(report);
+
+    if (reportTypeOf(report) !== 'POSITIVE') return stored;
+
+    return stored === 'REJECTED' ? 'REJECTED' : ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS;
+}
+
+/**
+ * The status badge a PASSENGER screen shows for a report, or null for none.
+ *
+ * Positive feedback has no status badge on the passenger side — its type
+ * (POSITIVE) is the whole story, and PUBLISHED is an internal state. An issue
+ * shows its review status, which is how its author follows their own report.
+ */
+export function passengerReportStatusBadge(
+    report: { type?: unknown; status?: unknown } | null | undefined
+): string | null {
+    if (reportTypeOf(report) === 'POSITIVE') return null;
+
+    return reportDecisionStatus(report);
+}
+
+/** The status a newly filed report of this type is stored with. */
+export function initialReportStatus(type: ReportType): ReportStatus {
+    return type === 'POSITIVE' ? POSITIVE_FEEDBACK_STATUS : REPORT_REVIEW_REQUIRED_STATUS;
+}
+
+/**
  * The status a report is in, for the purpose of deciding what may still be
  * done to it.
  *
@@ -461,7 +580,11 @@ export function reportDecisionStatus(
 export function isReportDecided(
     report: { status?: unknown } | null | undefined
 ): boolean {
-    return reportDecisionStatus(report) !== REPORT_REVIEW_REQUIRED_STATUS;
+    const status = reportDecisionStatus(report);
+
+    // PUBLISHED positive feedback was never decided by anyone: it stays open
+    // to its author, exactly as an undecided report is.
+    return status !== REPORT_REVIEW_REQUIRED_STATUS && status !== POSITIVE_FEEDBACK_STATUS;
 }
 
 /**

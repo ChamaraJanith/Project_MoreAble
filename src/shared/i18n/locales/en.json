@@ -154,6 +154,11 @@
     "busUnavailable": "Bus details unavailable",
     "bookBtn": "Book",
     "viewDetailsBtn": "View details",
+    "exactTimeHeading": "At your requested time ({{time}})",
+    "nearbyHeading": "Nearby alternatives within an hour",
+    "noExactNotice": "No journey at exactly {{time}}. These journeys depart within an hour of it.",
+    "noSuitableTitle": "No journeys near this time",
+    "noSuitableDesc": "No suitable journey between {{origin}} and {{destination}} departs within an hour of {{time}}, earlier or later.",
     "favourites": {
       "title": "Favourite Routes",
       "viewAll": "View all favourites",
@@ -167,6 +172,25 @@
       "removeTitle": "Remove favourite route?",
       "removeConfirm": "Remove",
       "errorTitle": "Unable to load favourite routes"
+    },
+    "scoreBreakdown": {
+      "title": "Accessibility Score",
+      "intro": "This score combines three factors. Each one counts for a fixed share of the total.",
+      "finalScore": "Final score",
+      "finalScoreSpoken": "Final score {{score}} out of 100",
+      "facilities": "Facilities",
+      "community": "Community",
+      "ratings": "Passenger Ratings",
+      "score": "Score: {{value}}",
+      "weight": "Weight: {{value}}",
+      "contributes": "Contributes: {{value}}",
+      "factorSpoken": "{{factor}}: score {{score}} out of 100, weight {{weight}} percent, contributes {{contribution}} of {{max}} points",
+      "roundingNote": "Each contribution is shown to one decimal place, and their total is rounded to a whole number: {{parts}} ≈ {{score}}",
+      "roundingNoteSpoken": "Each contribution is shown to one decimal place, and their total is rounded to a whole number: {{parts}} is approximately {{score}}.",
+      "close": "Close",
+      "closeLabel": "Close accessibility score breakdown",
+      "badgeLabel": "Accessibility score {{score}} percent",
+      "badgeHint": "Opens a breakdown of how this score is calculated"
     }
   },
   "explore": {

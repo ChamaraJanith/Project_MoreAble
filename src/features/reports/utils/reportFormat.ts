@@ -41,6 +41,11 @@ const STATUS_LABELS: Record<string, string> = {
     REJECTED: 'Rejected',
     REVIEWED: 'Reviewed',
     RESOLVED: 'Resolved',
+    // Positive feedback: accepted as filed, with no admin review.
+    PUBLISHED: 'Published',
+    // The admin screens' display key for that same feedback (see
+    // ADMIN_POSITIVE_FEEDBACK_DISPLAY_STATUS). Display only, never stored.
+    AUTO_VERIFIED: 'Verified',
 };
 
 export function reportStatusLabel(status: string): string {

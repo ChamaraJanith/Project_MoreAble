@@ -140,26 +140,28 @@ type VehicleName = 'full' | 'mostly' | 'partly' | 'assist' | 'walking' | 'none';
 
 const FLEET: Record<VehicleName, { bus: Stored<Bus>; trip: ReturnType<typeof makeTrip> }> = {
     // Departure times are distinct, so a journey is identifiable in a ranked
-    // list and a tie-break never decides one of these assertions.
+    // list and a tie-break never decides one of these assertions. All of them
+    // board within ±60 minutes of the default 06:45 request, at Kaduwela and at
+    // Malabe (8 minutes on) alike (MOV-308).
     full: {
         bus: makeBus('BUS-FULL', 'NB-3001', FULLY_EQUIPPED),
-        trip: makeTrip('T-FULL', ROUTE_ID, 'BUS-FULL', '08:00'),
+        trip: makeTrip('T-FULL', ROUTE_ID, 'BUS-FULL', '06:45'),
     },
     mostly: {
         bus: makeBus('BUS-MOSTLY', 'NB-3002', MOSTLY_EQUIPPED),
-        trip: makeTrip('T-MOSTLY', ROUTE_ID, 'BUS-MOSTLY', '07:00'),
+        trip: makeTrip('T-MOSTLY', ROUTE_ID, 'BUS-MOSTLY', '06:30'),
     },
     partly: {
         bus: makeBus('BUS-PARTLY', 'NB-3003', PARTLY_EQUIPPED),
-        trip: makeTrip('T-PARTLY', ROUTE_ID, 'BUS-PARTLY', '06:30'),
+        trip: makeTrip('T-PARTLY', ROUTE_ID, 'BUS-PARTLY', '06:15'),
     },
     assist: {
         bus: makeBus('BUS-ASSIST', 'NB-3004', ASSIST_EQUIPPED),
-        trip: makeTrip('T-ASSIST', ROUTE_ID, 'BUS-ASSIST', '09:00'),
+        trip: makeTrip('T-ASSIST', ROUTE_ID, 'BUS-ASSIST', '07:00'),
     },
     walking: {
         bus: makeBus('BUS-WALKING', 'NB-3005', WALKING_EQUIPPED),
-        trip: makeTrip('T-WALKING', ROUTE_ID, 'BUS-WALKING', '09:30'),
+        trip: makeTrip('T-WALKING', ROUTE_ID, 'BUS-WALKING', '07:15'),
     },
     none: {
         bus: makeBus('BUS-NONE', 'NB-3006', NOT_EQUIPPED),
@@ -203,7 +205,7 @@ async function search(
         origin: options.origin ?? 'Kaduwela',
         destination: options.destination ?? 'Borella',
         travelDate: '2026-08-25',
-        travelTime: options.travelTime ?? '05:00',
+        travelTime: options.travelTime ?? '06:45',
     };
 
     if (!options.omitRequirements) {
@@ -550,10 +552,11 @@ describe('a request the endpoint cannot honour', () => {
 // ==================================================================
 describe('accessibility filtering together with the rest of the search', () => {
     it('applies the travel time and the requirements together', async () => {
-        const { journeys } = await search(['walkingAssistance'], { travelTime: '09:15' });
+        const { journeys } = await search(['walkingAssistance'], { travelTime: '08:10' });
 
-        // T-FULL (08:00) and T-ASSIST (09:00) have departed; T-WALKING (09:30)
-        // is both upcoming and suitable.
+        // ±60 minutes either side (MOV-308): T-FULL (06:45) and T-ASSIST (07:00)
+        // are more than an hour early; T-WALKING (07:15) is 55 minutes early,
+        // inside the window, and suitable.
         expect(orderOf(journeys)).toEqual(['T-WALKING']);
     });
 

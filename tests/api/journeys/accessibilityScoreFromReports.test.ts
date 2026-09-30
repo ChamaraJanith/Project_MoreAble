@@ -10,9 +10,12 @@
 // So everything here goes through the real routes, in the order a person would
 // reach them:
 //
-//     POST /api/reports              a passenger files it            (PENDING)
-//     POST /api/reports/:id/review   an admin decides it   VERIFY / REJECT
+//     POST /api/reports              a passenger files it   issue PENDING / positive PUBLISHED
+//     POST /api/reports/:id/review   an admin decides an issue   VERIFY / REJECT
 //     POST /api/journeys/search      the next passenger reads the score
+//
+// Positive feedback needs no admin review: it counts from the moment it is
+// filed, and the review route refuses to verify or reject it.
 //
 // Nothing below calls computeAccessibilityScore or recordAccessibilityScore to
 // obtain a score under test. The expected values are written out as the
@@ -24,7 +27,7 @@
 //
 //     no evidence          75*0.5 + 50.000*0.3 + 50*0.2 = 62.5    -> 63
 //     1 verified ISSUE     75*0.5 + 41.667*0.3 + 50*0.2 = 60.0    -> 60
-//     1 verified POSITIVE  75*0.5 + 58.333*0.3 + 50*0.2 = 65.0    -> 65
+//     1 POSITIVE feedback  75*0.5 + 58.333*0.3 + 50*0.2 = 65.0    -> 65
 //     2 ISSUE + 1 POSITIVE 75*0.5 + 43.750*0.3 + 50*0.2 = 60.625  -> 61
 //
 // No credential appears here: sessions are plain test strings and no bus record
@@ -34,6 +37,10 @@ import { DELETE as deleteBus } from '../../../app/api/buses/[busId]+api';
 import { POST as searchJourneys } from '../../../app/api/journeys/search+api';
 import { POST as createReport } from '../../../app/api/reports/index+api';
 import { POST as reviewReport } from '../../../app/api/reports/[reportId]/review+api';
+import {
+    DELETE as deleteReport,
+    PUT as updateReport,
+} from '../../../app/api/reports/[reportId]+api';
 import { BusAccessibilityFacilities } from '../../../src/entities/bus/model/types';
 import { geocodeLocation } from '../../../src/shared/api/locationService';
 import {
@@ -173,7 +180,8 @@ async function searchScore(db: FakeDb, tripId: string): Promise<number> {
             origin: 'Kaduwela',
             destination: 'Borella',
             travelDate: '2026-09-22',
-            travelTime: '08:00',
+            // Every departure here (09:00-09:30) boards within ±60 minutes (MOV-308).
+            travelTime: '09:00',
         })
     );
 
@@ -185,7 +193,11 @@ async function searchScore(db: FakeDb, tripId: string): Promise<number> {
     return option.bus.accessibilityScore;
 }
 
-/** A passenger files a report. It is stored PENDING, whatever the body says. */
+/**
+ * A passenger files a report. An issue is stored PENDING (it waits for an
+ * admin); positive feedback is stored PUBLISHED (it needs no review) —
+ * whatever the body says.
+ */
 async function fileReport(db: FakeDb, body: Record<string, unknown>): Promise<string> {
     mockGetAdminDb.mockReturnValue(db);
 
@@ -195,7 +207,7 @@ async function fileReport(db: FakeDb, body: Record<string, unknown>): Promise<st
     const json = await response.json();
 
     expect(response.status).toBe(201);
-    expect(json.report.status).toBe('PENDING');
+    expect(json.report.status).toBe(body.type === 'POSITIVE' ? 'PUBLISHED' : 'PENDING');
 
     return json.report.reportId;
 }
@@ -299,40 +311,61 @@ describe('a report a passenger files and an admin verifies', () => {
         expect(await searchScore(db, 'TRIP-ONE')).toBe(60);
     });
 
-    it('raises it for verified positive feedback, filed the same way', async () => {
+    it('raises it for positive feedback the moment it is filed, with no admin verification', async () => {
         const db = seed();
 
         expect(await searchScore(db, 'TRIP-ONE')).toBe(NO_EVIDENCE_SCORE);
 
-        // The same collection and the same review route — positive feedback is
-        // a kind of report, not a separate system (MOV-301).
+        // The same collection as an issue report (MOV-301), but no review:
+        // the feedback is PUBLISHED and counts as filed.
         const reportId = await fileReport(db, positiveReport('BUS-ONE'));
+        const stored = await storedReport(db, reportId);
 
-        await verify(db, reportId);
-
-        expect((await storedReport(db, reportId))?.type).toBe('POSITIVE');
+        expect(stored?.type).toBe('POSITIVE');
+        expect(stored?.status).toBe('PUBLISHED');
+        expect(stored).not.toHaveProperty('reviewedBy');
 
         // 75*0.5 + ((1/6)*100 + (5/6)*50)*0.3 + 50*0.2 = 37.5 + 17.5 + 10.
         expect(await searchScore(db, 'TRIP-ONE')).toBe(65);
+
+        // It changed the score, so filing it recorded a snapshot.
+        const history = await historyOf(db, 'BUS-ONE');
+
+        expect(history).toHaveLength(1);
+        expect(history[0].communityScore).toBe(computeCommunityScore({ positiveCount: 1, issueCount: 0 }));
     });
 
-    it('weighs several verified reports together, not one at a time', async () => {
+    it('cannot be verified or rejected: positive feedback has no review workflow', async () => {
+        const db = seed();
+
+        const reportId = await fileReport(db, positiveReport('BUS-ONE'));
+
+        expect((await review(db, reportId, 'VERIFY')).status).toBe(409);
+        expect((await review(db, reportId, 'REJECT')).status).toBe(409);
+
+        // Still counted exactly as it was filed.
+        expect((await storedReport(db, reportId))?.status).toBe('PUBLISHED');
+        expect(await searchScore(db, 'TRIP-ONE')).toBe(65);
+    });
+
+    it('weighs verified issues and positive feedback together, not one at a time', async () => {
         const db = seed();
 
         const first = await fileReport(db, issueReport('BUS-ONE'));
         const second = await fileReport(db, issueReport('BUS-ONE'));
-        const third = await fileReport(db, positiveReport('BUS-ONE'));
 
         await verify(db, first);
         await verify(db, second);
-        await verify(db, third);
+
+        // Counted as filed — no verify step.
+        await fileReport(db, positiveReport('BUS-ONE'));
 
         // n = 3, one of them positive:
         // 75*0.5 + ((3/8)*33.333 + (5/8)*50)*0.3 + 50*0.2 = 37.5 + 13.125 + 10.
         expect(await searchScore(db, 'TRIP-ONE')).toBe(61);
 
-        // Each verification changed the community component, so each was
-        // recorded — three entries, in order, none skipped and none repeated.
+        // Each step changed the community component, so each was recorded —
+        // three entries, in order, none skipped and none repeated.
         const history = await historyOf(db, 'BUS-ONE');
 
         expect(history.map((entry) => entry.sequence)).toEqual([1, 2, 3]);
@@ -341,6 +374,49 @@ describe('a report a passenger files and an admin verifies', () => {
             computeCommunityScore({ positiveCount: 0, issueCount: 2 }),
             computeCommunityScore({ positiveCount: 1, issueCount: 2 }),
         ]);
+    });
+
+    it('drops positive feedback from the score, and records it, when its author deletes it', async () => {
+        const db = seed();
+        const reportId = await fileReport(db, positiveReport('BUS-ONE'));
+
+        expect(await searchScore(db, 'TRIP-ONE')).toBe(65);
+
+        mockGetAdminDb.mockReturnValue(db);
+        const removal = await deleteReport(
+            jsonRequest(`http://localhost/api/reports/${reportId}`, 'DELETE', undefined, PASSENGER_SESSION),
+            { params: { reportId } }
+        );
+
+        expect(removal.status).toBe(200);
+        expect(await searchScore(db, 'TRIP-ONE')).toBe(NO_EVIDENCE_SCORE);
+        expect((await historyOf(db, 'BUS-ONE')).map((entry) => entry.communityScore)).toEqual([
+            computeCommunityScore({ positiveCount: 1, issueCount: 0 }),
+            computeCommunityScore({ positiveCount: 0, issueCount: 0 }),
+        ]);
+    });
+
+    it('moves positive feedback between buses when its author edits the bus, recording both', async () => {
+        const db = seed({ buses: [bus('BUS-ONE'), bus('BUS-TWO')] });
+        const reportId = await fileReport(db, positiveReport('BUS-ONE'));
+
+        mockGetAdminDb.mockReturnValue(db);
+        const response = await updateReport(
+            jsonRequest(
+                `http://localhost/api/reports/${reportId}`,
+                'PUT',
+                positiveReport('BUS-TWO'),
+                PASSENGER_SESSION
+            ),
+            { params: { reportId } }
+        );
+
+        expect(response.status).toBe(200);
+        // BUS-ONE lost its only piece of evidence; BUS-TWO gained it.
+        expect((await latestOf(db, 'BUS-ONE'))?.communityScore).toBe(50);
+        expect((await latestOf(db, 'BUS-TWO'))?.communityScore).toBe(
+            computeCommunityScore({ positiveCount: 1, issueCount: 0 })
+        );
     });
 });
 

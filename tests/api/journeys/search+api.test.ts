@@ -2,13 +2,16 @@ import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import {
     buildRouteWaypoints,
+    classifyBoardingTime,
     collectJourneyStopPoints,
     collectKnownLocations,
     findMatchingRoutes,
     isKnownLocation,
     isSameLocation,
     normalizeLocation,
+    resolvePassengerBoardingTime,
     selectUpcomingTrips,
+    toMoreAbleClock,
 } from '../../../app/api/journeys/search+api';
 
 const forwardRoute: Route = {
@@ -135,60 +138,436 @@ function buildTrip(overrides: Partial<Trip>): Trip {
     };
 }
 
+// ------------------------------------------------------------------
+// MOV-308 — time selection around the passenger's own boarding time
+// ------------------------------------------------------------------
+
+// Kaduwela -(10)- Malabe -(8)- Battaramulla -(7)- Rajagiriya -(12)- Borella -(15)- Kollupitiya
+const timedRoute: Route = { ...forwardRoute, segmentDurationsMinutes: [10, 8, 7, 12, 15] };
+
+// A Malabe -> Borella passenger boards 10 minutes after the bus leaves Kaduwela.
+const [malabeMatch] = findMatchingRoutes([timedRoute], 'Malabe', 'Borella');
+const [kaduwelaMatch] = findMatchingRoutes([timedRoute], 'Kaduwela', 'Borella');
+
+// Search "now": 29 Sep 2026, 08:15 in Colombo (UTC+05:30) — an explicit instant,
+// so nothing depends on the timezone of the machine running the tests.
+const NOW = new Date('2026-09-29T02:45:00.000Z');
+const TODAY = '2026-09-29';
+const FUTURE_DATE = '2026-10-05';
+
+function selectedIds(trips: Trip[], travelTime: string, travelDate = FUTURE_DATE, match = malabeMatch) {
+    return selectUpcomingTrips(trips, match, travelTime, travelDate, NOW).map((trip) => trip.tripId);
+}
+
+describe('resolvePassengerBoardingTime', () => {
+    it('is the time the bus reaches the passenger origin, not its first-stop departure', () => {
+        const trip = buildTrip({ departureTime: '08:00' });
+
+        expect(resolvePassengerBoardingTime(malabeMatch, trip)).toBe('08:10');
+        expect(resolvePassengerBoardingTime(kaduwelaMatch, trip)).toBe('08:00');
+    });
+
+    it('is null when the timings before a mid-route origin are not configured', () => {
+        const [untimed] = findMatchingRoutes([forwardRoute], 'Malabe', 'Borella');
+
+        expect(resolvePassengerBoardingTime(untimed, buildTrip({ departureTime: '08:00' }))).toBeNull();
+    });
+});
+
+describe('classifyBoardingTime', () => {
+    it('is EXACT only for a zero-minute difference', () => {
+        expect(classifyBoardingTime('08:10', '08:10')).toBe('EXACT');
+        expect(classifyBoardingTime('08:11', '08:10')).toBe('NEARBY');
+        expect(classifyBoardingTime('08:09', '08:10')).toBe('NEARBY');
+    });
+
+    it('treats both 60-minute boundaries as NEARBY and anything beyond as OUTSIDE', () => {
+        expect(classifyBoardingTime('07:10', '08:10')).toBe('NEARBY');
+        expect(classifyBoardingTime('09:10', '08:10')).toBe('NEARBY');
+        expect(classifyBoardingTime('07:09', '08:10')).toBe('OUTSIDE');
+        expect(classifyBoardingTime('09:11', '08:10')).toBe('OUTSIDE');
+    });
+
+    it('never wraps across midnight', () => {
+        expect(classifyBoardingTime('23:50', '00:10')).toBe('OUTSIDE');
+        expect(classifyBoardingTime('00:10', '23:50')).toBe('OUTSIDE');
+    });
+
+    it('is null when a boarding time is not known', () => {
+        expect(classifyBoardingTime(null, '08:10')).toBeNull();
+    });
+});
+
 describe('selectUpcomingTrips', () => {
-    it('selects the earliest trip departing at or after the requested time', () => {
-        const trips = [
-            buildTrip({ tripId: 'TRIP-00001', departureTime: '06:00' }),
-            buildTrip({ tripId: 'TRIP-00003', departureTime: '09:00' }),
+    describe('R1 — the passenger-origin boarding time decides', () => {
+        it('makes a mid-route boarding an EXACT match even though the bus left its first stop earlier', () => {
+            const trip = buildTrip({ tripId: 'TRIP-EXACT', departureTime: '08:00' });
+            const boardingTime = resolvePassengerBoardingTime(malabeMatch, trip);
+
+            expect(classifyBoardingTime(boardingTime, '08:10')).toBe('EXACT');
+            // The first-stop departure alone would only have been NEARBY.
+            expect(classifyBoardingTime(trip.departureTime, '08:10')).toBe('NEARBY');
+            expect(selectedIds([trip], '08:10')).toEqual(['TRIP-EXACT']);
+        });
+
+        it('includes a trip whose first-stop departure is outside the window but whose boarding is inside', () => {
+            // Leaves Kaduwela 07:05 (65 min before 08:10); reaches Malabe 07:15 (55 min before).
+            const trip = buildTrip({ tripId: 'TRIP-IN', departureTime: '07:05' });
+
+            expect(selectedIds([trip], '08:10')).toEqual(['TRIP-IN']);
+        });
+
+        it('excludes a trip whose first-stop departure is inside the window but whose boarding is outside', () => {
+            // Leaves Kaduwela 09:05 (55 min after 08:10); reaches Malabe 09:15 (65 min after).
+            const trip = buildTrip({ tripId: 'TRIP-OUT', departureTime: '09:05' });
+
+            expect(selectedIds([trip], '08:10')).toEqual([]);
+        });
+    });
+
+    describe('R2 — symmetric ±60-minute window around the requested boarding time', () => {
+        // Requested boarding at Malabe 08:10; departures are 10 minutes earlier.
+        const windowTrips = [
+            buildTrip({ tripId: 'TOO-EARLY', departureTime: '06:59' }), // boards 07:09 (-61)
+            buildTrip({ tripId: 'EDGE-EARLY', departureTime: '07:00' }), // boards 07:10 (-60)
+            buildTrip({ tripId: 'EARLIER', departureTime: '07:30' }), // boards 07:40 (-30)
+            buildTrip({ tripId: 'LATER', departureTime: '08:30' }), // boards 08:40 (+30)
+            buildTrip({ tripId: 'EDGE-LATE', departureTime: '09:00' }), // boards 09:10 (+60)
+            buildTrip({ tripId: 'TOO-LATE', departureTime: '09:01' }), // boards 09:11 (+61)
         ];
 
-        expect(selectUpcomingTrips(trips, '08:30')[0]?.tripId).toBe('TRIP-00003');
+        it('includes an earlier journey inside the window', () => {
+            expect(selectedIds(windowTrips, '08:10')).toContain('EARLIER');
+        });
+
+        it('includes a later journey inside the window', () => {
+            expect(selectedIds(windowTrips, '08:10')).toContain('LATER');
+        });
+
+        it('includes a journey boarding exactly 60 minutes earlier', () => {
+            expect(selectedIds(windowTrips, '08:10')).toContain('EDGE-EARLY');
+        });
+
+        it('includes a journey boarding exactly 60 minutes later', () => {
+            expect(selectedIds(windowTrips, '08:10')).toContain('EDGE-LATE');
+        });
+
+        it('excludes a journey boarding more than 60 minutes earlier', () => {
+            expect(selectedIds(windowTrips, '08:10')).not.toContain('TOO-EARLY');
+        });
+
+        it('excludes a journey boarding more than 60 minutes later', () => {
+            expect(selectedIds(windowTrips, '08:10')).not.toContain('TOO-LATE');
+        });
+
+        it('returns exactly the in-window journeys, earliest first', () => {
+            expect(selectedIds([...windowTrips].reverse(), '08:10')).toEqual([
+                'EDGE-EARLY',
+                'EARLIER',
+                'LATER',
+                'EDGE-LATE',
+            ]);
+        });
+
+        it('does not pair clock times across midnight', () => {
+            const lateTrip = buildTrip({ tripId: 'LATE-NIGHT', departureTime: '23:40' }); // boards 23:50
+
+            expect(selectedIds([lateTrip], '00:10')).toEqual([]);
+        });
     });
 
-    it('excludes trips that have already departed', () => {
-        const trips = [buildTrip({ tripId: 'TRIP-00001', departureTime: '06:00' })];
-
-        expect(selectUpcomingTrips(trips, '08:30')).toEqual([]);
-    });
-
-    it('includes a trip departing at exactly the requested time', () => {
-        const trips = [buildTrip({ tripId: 'TRIP-00001', departureTime: '08:30' })];
-
-        expect(selectUpcomingTrips(trips, '08:30')[0]?.tripId).toBe('TRIP-00001');
-    });
-
-    it('excludes inactive trips', () => {
-        const trips = [buildTrip({ tripId: 'TRIP-INACTIVE', departureTime: '08:45', status: 'INACTIVE' })];
-
-        expect(selectUpcomingTrips(trips, '08:30')).toEqual([]);
-    });
-
-    it('returns an empty list when there are no trips at all', () => {
-        expect(selectUpcomingTrips([], '08:30')).toEqual([]);
-    });
-
-    it('returns every qualifying trip ordered earliest first', () => {
-        const trips = [
-            buildTrip({ tripId: 'TRIP-LATE', departureTime: '12:00' }),
-            buildTrip({ tripId: 'TRIP-EARLIEST', departureTime: '09:00' }),
-            buildTrip({ tripId: 'TRIP-MID', departureTime: '10:30' }),
+    describe('R4 — today versus a future date', () => {
+        // Now is 08:15; requested boarding at Malabe 08:10.
+        const todayTrips = [
+            buildTrip({ tripId: 'DEPARTED', departureTime: '07:55' }), // boards 08:05 — gone
+            buildTrip({ tripId: 'BOARDING-NOW', departureTime: '08:05' }), // boards 08:15 — catchable
+            // Left Kaduwela at 08:10, before now, but reaches Malabe at 08:20.
+            buildTrip({ tripId: 'LEFT-FIRST-STOP', departureTime: '08:10' }),
         ];
 
-        expect(selectUpcomingTrips(trips, '08:30').map((trip) => trip.tripId)).toEqual([
-            'TRIP-EARLIEST',
-            'TRIP-MID',
-            'TRIP-LATE',
-        ]);
+        it('excludes a journey that has already left the passenger origin today', () => {
+            expect(selectedIds(todayTrips, '08:10', TODAY)).not.toContain('DEPARTED');
+        });
+
+        it('keeps a journey boarding at the current minute today', () => {
+            expect(selectedIds(todayTrips, '08:10', TODAY)).toContain('BOARDING-NOW');
+        });
+
+        it('judges already-departed at the passenger origin, not the first stop', () => {
+            expect(selectedIds(todayTrips, '08:10', TODAY)).toContain('LEFT-FIRST-STOP');
+        });
+
+        it('never uses the current clock to exclude a future-date journey', () => {
+            expect(selectedIds(todayTrips, '08:10', FUTURE_DATE)).toEqual([
+                'DEPARTED',
+                'BOARDING-NOW',
+                'LEFT-FIRST-STOP',
+            ]);
+        });
+
+        it('keeps only still-catchable journeys when the requested time today is already past', () => {
+            const trips = [
+                buildTrip({ tripId: 'GONE', departureTime: '07:20' }), // boards 07:30
+                buildTrip({ tripId: 'STILL-AHEAD', departureTime: '08:20' }), // boards 08:30
+            ];
+
+            expect(selectedIds(trips, '07:45', TODAY)).toEqual(['STILL-AHEAD']);
+        });
     });
 
-    it('keeps several trips of the same route as separate options', () => {
-        const trips = [
-            buildTrip({ tripId: 'TRIP-00001', departureTime: '06:00' }),
-            buildTrip({ tripId: 'TRIP-00003', departureTime: '09:00' }),
-            buildTrip({ tripId: 'TRIP-00005', departureTime: '11:00' }),
-        ];
+    describe('R4 — "today" and "now" are Asia/Colombo, whatever the server timezone', () => {
+        // Simulates a server running in UTC, deterministically on any machine:
+        // every local-time reading of a Date reports the UTC value instead. An
+        // explicit Asia/Colombo reading is unaffected, which is the point.
+        const localGetters = {
+            getFullYear: 'getUTCFullYear',
+            getMonth: 'getUTCMonth',
+            getDate: 'getUTCDate',
+            getDay: 'getUTCDay',
+            getHours: 'getUTCHours',
+            getMinutes: 'getUTCMinutes',
+        } as const;
 
-        expect(selectUpcomingTrips(trips, '08:30')).toHaveLength(2);
+        beforeAll(() => {
+            for (const [local, utc] of Object.entries(localGetters)) {
+                jest.spyOn(Date.prototype, local as keyof typeof localGetters).mockImplementation(
+                    function (this: Date) {
+                        return this[utc]();
+                    }
+                );
+            }
+        });
+
+        afterAll(() => {
+            jest.restoreAllMocks();
+        });
+
+        // 18:40 UTC on 29 Sep is 00:10 on 30 Sep in Colombo.
+        const JUST_AFTER_COLOMBO_MIDNIGHT = new Date('2026-09-29T18:40:00.000Z');
+
+        const selectAt = (instant: Date, trips: Trip[], travelTime: string, travelDate: string) =>
+            selectUpcomingTrips(trips, kaduwelaMatch, travelTime, travelDate, instant).map(
+                (trip) => trip.tripId
+            );
+
+        it('really is running on a clock that is not Colombo', () => {
+            expect(NOW.getHours()).toBe(2);
+            expect(JUST_AFTER_COLOMBO_MIDNIGHT.getDate()).toBe(29);
+        });
+
+        it('reads the Colombo date and minute, not the runtime ones', () => {
+            expect(toMoreAbleClock(NOW)).toEqual({ date: '2026-09-29', minutes: 8 * 60 + 15 });
+            expect(toMoreAbleClock(JUST_AFTER_COLOMBO_MIDNIGHT)).toEqual({
+                date: '2026-09-30',
+                minutes: 10,
+            });
+        });
+
+        it('excludes a journey already departed in Colombo time on a Colombo-today search', () => {
+            // Boards Kaduwela 08:05 Colombo; the UTC clock reads 02:45, which would keep it.
+            const trips = [buildTrip({ tripId: 'GONE', departureTime: '08:05' })];
+
+            expect(selectAt(NOW, trips, '08:10', '2026-09-29')).toEqual([]);
+        });
+
+        it('keeps a journey not yet departed in Colombo time', () => {
+            const trips = [
+                buildTrip({ tripId: 'NOW', departureTime: '08:15' }),
+                buildTrip({ tripId: 'SOON', departureTime: '08:40' }),
+            ];
+
+            expect(selectAt(NOW, trips, '08:10', '2026-09-29')).toEqual(['NOW', 'SOON']);
+        });
+
+        it('treats the new Colombo date as today just after midnight, while UTC is still on the previous date', () => {
+            const trips = [
+                buildTrip({ tripId: 'GONE', departureTime: '00:05' }),
+                buildTrip({ tripId: 'NOW', departureTime: '00:10' }),
+                buildTrip({ tripId: 'SOON', departureTime: '00:40' }),
+            ];
+
+            expect(selectAt(JUST_AFTER_COLOMBO_MIDNIGHT, trips, '00:10', '2026-09-30')).toEqual([
+                'NOW',
+                'SOON',
+            ]);
+        });
+
+        it('does not treat the UTC date as today once Colombo has moved past it', () => {
+            // 29 Sep is already the past in Colombo, so the clock filters nothing.
+            const trips = [buildTrip({ tripId: 'LATE', departureTime: '00:05' })];
+
+            expect(selectAt(JUST_AFTER_COLOMBO_MIDNIGHT, trips, '00:10', '2026-09-29')).toEqual([
+                'LATE',
+            ]);
+        });
+
+        it('never filters a future Colombo date by the current clock', () => {
+            const trips = [
+                buildTrip({ tripId: 'EARLY', departureTime: '00:05' }),
+                buildTrip({ tripId: 'LATER', departureTime: '08:05' }),
+            ];
+
+            expect(selectAt(JUST_AFTER_COLOMBO_MIDNIGHT, trips, '00:10', '2026-10-01')).toEqual([
+                'EARLY',
+            ]);
+            expect(selectAt(NOW, trips, '08:10', '2026-09-30')).toEqual(['LATER']);
+        });
+    });
+
+    describe('journeys whose passenger boarding time cannot be derived', () => {
+        it('excludes a mid-route boarding on a route with no configured timings', () => {
+            const [untimed] = findMatchingRoutes([forwardRoute], 'Malabe', 'Borella');
+            // The first-stop departure is an exact hit, and must not be used as a stand-in.
+            const trip = buildTrip({ tripId: 'UNTIMED', departureTime: '08:10' });
+
+            expect(selectedIds([trip], '08:10', FUTURE_DATE, untimed)).toEqual([]);
+        });
+
+        it('excludes a mid-route boarding when a segment before the origin is untimed', () => {
+            const partlyTimed: Route = { ...forwardRoute, segmentDurationsMinutes: [null, 8, 7, 12, 15] };
+            const [match] = findMatchingRoutes([partlyTimed], 'Malabe', 'Borella');
+            const trip = buildTrip({ tripId: 'GAP', departureTime: '08:00' });
+
+            expect(selectedIds([trip], '08:10', FUTURE_DATE, match)).toEqual([]);
+        });
+
+        it('keeps a first-stop boarding on an untimed route, where the departure IS the boarding time', () => {
+            const [untimed] = findMatchingRoutes([forwardRoute], 'Kaduwela', 'Borella');
+            const trip = buildTrip({ tripId: 'FIRST-STOP', departureTime: '08:10' });
+
+            expect(selectedIds([trip], '08:10', FUTURE_DATE, untimed)).toEqual(['FIRST-STOP']);
+        });
+
+        it('excludes a trip whose stored departure time is unreadable', () => {
+            const trip = buildTrip({ tripId: 'BROKEN', departureTime: '' });
+
+            expect(selectedIds([trip], '08:10')).toEqual([]);
+        });
+    });
+
+    describe('an untimed segment AFTER the passenger origin', () => {
+        // Kaduwela -(10)- Malabe -(?)- Battaramulla -(7)- Rajagiriya -(12)- Borella -(15)- Kollupitiya
+        // Everything up to Malabe is timed; the gap straight after it is not.
+        const gapAfterMalabe: Route = {
+            ...forwardRoute,
+            segmentDurationsMinutes: [10, null, 7, 12, 15],
+        };
+        const [malabeOnGap] = findMatchingRoutes([gapAfterMalabe], 'Malabe', 'Borella');
+        const [battaramullaOnGap] = findMatchingRoutes([gapAfterMalabe], 'Battaramulla', 'Borella');
+
+        const idsOnGap = (trips: Trip[], travelTime: string, travelDate = FUTURE_DATE) =>
+            selectUpcomingTrips(trips, malabeOnGap, travelTime, travelDate, NOW).map(
+                (trip) => trip.tripId
+            );
+
+        it('A: still derives the boarding time from the timings before the origin', () => {
+            const trip = buildTrip({ departureTime: '08:00' });
+
+            expect(resolvePassengerBoardingTime(malabeOnGap, trip)).toBe('08:10');
+            // The same figure a fully timed route gives, so nothing is estimated.
+            expect(resolvePassengerBoardingTime(malabeMatch, trip)).toBe('08:10');
+        });
+
+        it('A: ignores an untimed gap further down the route as well', () => {
+            const lateGap: Route = { ...forwardRoute, segmentDurationsMinutes: [10, 8, 7, null, 15] };
+            const [match] = findMatchingRoutes([lateGap], 'Battaramulla', 'Borella');
+
+            expect(resolvePassengerBoardingTime(match, buildTrip({ departureTime: '08:00' }))).toBe(
+                '08:18'
+            );
+        });
+
+        it('B: stays unavailable when a gap BEFORE the origin is untimed, with no first-stop fallback', () => {
+            // Battaramulla needs Malabe -> Battaramulla, which is the untimed gap.
+            const trip = buildTrip({ tripId: 'GAP-BEFORE', departureTime: '08:10' });
+
+            expect(resolvePassengerBoardingTime(battaramullaOnGap, trip)).toBeNull();
+            expect(
+                selectUpcomingTrips([trip], battaramullaOnGap, '08:10', FUTURE_DATE, NOW)
+            ).toEqual([]);
+        });
+
+        it('C: leaves a fully timed journey exactly as it was', () => {
+            const trips = [
+                buildTrip({ tripId: 'T1', departureTime: '07:30' }),
+                buildTrip({ tripId: 'T2', departureTime: '08:00' }),
+            ];
+
+            expect(selectedIds(trips, '08:10')).toEqual(['T1', 'T2']);
+            expect(resolvePassengerBoardingTime(malabeMatch, trips[1])).toBe('08:10');
+        });
+
+        it('D: classifies on the Malabe boarding time, not the first-stop departure', () => {
+            // Leaves Kaduwela 07:05 (65 min early) but boards Malabe 07:15 (55 min early).
+            // Leaves Kaduwela 09:05 (55 min late) but boards Malabe 09:15 (65 min late).
+            const trips = [
+                buildTrip({ tripId: 'IN', departureTime: '07:05' }),
+                buildTrip({ tripId: 'OUT', departureTime: '09:05' }),
+            ];
+
+            expect(idsOnGap(trips, '08:10')).toEqual(['IN']);
+            expect(
+                classifyBoardingTime(
+                    resolvePassengerBoardingTime(malabeOnGap, buildTrip({ departureTime: '08:00' })),
+                    '08:10'
+                )
+            ).toBe('EXACT');
+        });
+
+        it('E: keeps the inclusive ±60-minute boundaries', () => {
+            const trips = [
+                buildTrip({ tripId: 'TOO-EARLY', departureTime: '06:59' }), // boards 07:09
+                buildTrip({ tripId: 'EDGE-EARLY', departureTime: '07:00' }), // boards 07:10
+                buildTrip({ tripId: 'EDGE-LATE', departureTime: '09:00' }), // boards 09:10
+                buildTrip({ tripId: 'TOO-LATE', departureTime: '09:01' }), // boards 09:11
+            ];
+
+            expect(idsOnGap(trips, '08:10')).toEqual(['EDGE-EARLY', 'EDGE-LATE']);
+        });
+
+        it('F: applies the Colombo today check at the origin, and never to a future date', () => {
+            // Now is 08:15 in Colombo.
+            const trips = [
+                buildTrip({ tripId: 'DEPARTED', departureTime: '07:55' }), // boards 08:05
+                buildTrip({ tripId: 'BOARDING-NOW', departureTime: '08:05' }), // boards 08:15
+                buildTrip({ tripId: 'LEFT-FIRST-STOP', departureTime: '08:10' }), // boards 08:20
+            ];
+
+            expect(idsOnGap(trips, '08:10', TODAY)).toEqual(['BOARDING-NOW', 'LEFT-FIRST-STOP']);
+            expect(idsOnGap(trips, '08:10', FUTURE_DATE)).toEqual([
+                'DEPARTED',
+                'BOARDING-NOW',
+                'LEFT-FIRST-STOP',
+            ]);
+        });
+    });
+
+    describe('behaviour outside the time window is unchanged', () => {
+        it('excludes inactive trips', () => {
+            const trips = [buildTrip({ tripId: 'TRIP-INACTIVE', departureTime: '08:00', status: 'INACTIVE' })];
+
+            expect(selectedIds(trips, '08:10')).toEqual([]);
+        });
+
+        it('excludes a trip with no usable id', () => {
+            const trips = [buildTrip({ tripId: '  ', departureTime: '08:00' })];
+
+            expect(selectedIds(trips, '08:10')).toEqual([]);
+        });
+
+        it('returns an empty list when there are no trips at all', () => {
+            expect(selectedIds([], '08:10')).toEqual([]);
+        });
+
+        it('keeps several trips of the same route as separate options', () => {
+            const trips = [
+                buildTrip({ tripId: 'TRIP-00001', departureTime: '07:45' }),
+                buildTrip({ tripId: 'TRIP-00002', departureTime: '08:00' }),
+                buildTrip({ tripId: 'TRIP-00003', departureTime: '08:30' }),
+            ];
+
+            expect(selectedIds(trips, '08:10')).toHaveLength(3);
+        });
     });
 });
 

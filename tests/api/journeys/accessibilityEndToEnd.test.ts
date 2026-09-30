@@ -224,7 +224,10 @@ async function search(options: SearchOptions = {}) {
         origin: options.origin ?? 'Kaduwela',
         destination: options.destination ?? 'Borella',
         travelDate: '2026-08-25',
-        travelTime: '05:00',
+        // Both departures board within ±60 minutes at Kaduwela (08:00, 08:30) and
+        // at Malabe (08:08, 08:38) (MOV-308). At Kaduwela they are equally close
+        // (15 minutes either side), so accessibility alone orders them (R3).
+        travelTime: '08:15',
     };
 
     if (options.requirements) body.accessibilityRequirements = options.requirements;

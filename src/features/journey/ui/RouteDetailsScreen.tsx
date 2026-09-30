@@ -23,7 +23,11 @@ import {
 } from '../utils/journeyNavigation';
 import { describeAccessibilityFacilities } from '../utils/accessibilityFacilities';
 import { formatDisplayDate } from '../utils/dateTime';
-import { buildJourneyLegs, describeJourneyForDisplay } from '../utils/journeyRecommendations';
+import {
+    buildJourneyLegs,
+    describeJourneyForDisplay,
+    knownAccessibilityScore,
+} from '../utils/journeyRecommendations';
 import { resolveJourneyTiming } from '../utils/journeyTiming';
 import { resolveIntermediateStops } from '../utils/routeMapStops';
 import { RouteMapCard } from './RouteMapCard';
@@ -258,7 +262,7 @@ function RouteDetailsContent({ selection }: { selection: SelectedJourney }) {
             busModel: bus.busModel,
             departureTime: departureLabel || trip.departureTime || '',
             estimatedArrivalTime: arrivalLabel || trip.estimatedArrivalTime || '',
-            accessibilityScore: typeof (bus as any).accessibilityScore === 'number' ? (bus as any).accessibilityScore : 100,
+            accessibilityScore: knownAccessibilityScore((bus as any).accessibilityScore),
             origin: route.origin,
             destination: route.destination,
             selectedAt: Date.now(),
