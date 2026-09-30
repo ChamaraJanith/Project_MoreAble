@@ -192,6 +192,43 @@ export function computeAccessibilityScore(
     return Math.round(clamped);
 }
 
+/** The three factors of the accessibility score, in the order it weighs them. */
+export type AccessibilityFactorKey = 'FACILITIES' | 'COMMUNITY' | 'RATINGS';
+
+/** One factor of one bus's score, exactly as MOV-79 produced it. */
+export interface AccessibilityFactorBreakdown {
+    key: AccessibilityFactorKey;
+    /** 0–100, unrounded — the value computeAccessibilityScore weighed. */
+    score: number;
+    /** 0.5, 0.3 or 0.2: MOV-79's own weight constant. */
+    weight: number;
+    /** score * weight, the share of the total this factor carried. */
+    contribution: number;
+}
+
+/**
+ * The three factors `computeAccessibilityScore` weighs, one by one.
+ *
+ * Not a second formula: each factor is the same function call, with the same
+ * evidence and the same weight constant, that the score above is built from.
+ * The contributions are unclamped and unrounded, so their sum can differ from
+ * the whole-number score by a fraction.
+ */
+export function computeAccessibilityScoreBreakdown(
+    facilities?: BusAccessibilityFacilities | null,
+    evidence?: AccessibilityScoreEvidence | null
+): AccessibilityFactorBreakdown[] {
+    return [
+        {
+            key: 'FACILITIES' as const,
+            score: computeFacilityScore(facilities, evidence?.unavailableFacilities),
+            weight: FACILITY_WEIGHT,
+        },
+        { key: 'COMMUNITY' as const, score: computeCommunityScore(evidence?.community), weight: COMMUNITY_WEIGHT },
+        { key: 'RATINGS' as const, score: computeRatingScore(evidence?.ratings), weight: RATING_WEIGHT },
+    ].map((factor) => ({ ...factor, contribution: factor.score * factor.weight }));
+}
+
 /**
  * Whether a report counts toward the community factor.
  *

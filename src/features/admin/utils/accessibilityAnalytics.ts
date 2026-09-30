@@ -41,7 +41,10 @@ import {
     ReportType,
     reportTypeOf,
 } from '../../../entities/report/model/types';
-import type { AccessibilityFacilityKey } from '../../../shared/utils/accessibility';
+import type {
+    AccessibilityFacilityKey,
+    AccessibilityFactorBreakdown,
+} from '../../../shared/utils/accessibility';
 import {
     ACTIVE_VEHICLE_STATUS,
     VERIFIED_REPORT_STATUS,
@@ -705,22 +708,14 @@ export function accessibilityAnalytics(
 // app can import these types without importing a formula.
 // ==================================================================
 
-/** The three factors of the accessibility score, in the order it weighs them. */
-export type AccessibilityFactorKey = 'FACILITIES' | 'COMMUNITY' | 'RATINGS';
+/**
+ * The factor shapes, defined beside the score they break down and re-exported
+ * here so the admin screens keep importing them from this module.
+ */
+export type { AccessibilityFactorBreakdown, AccessibilityFactorKey } from '../../../shared/utils/accessibility';
 
 /** The score band word, as accessibilityAnalyticsPresentation names it. */
 export type BusAccessibilityBand = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'NEEDS_IMPROVEMENT';
-
-/** One factor of one bus's score, exactly as MOV-79 produced it. */
-export interface AccessibilityFactorBreakdown {
-    key: AccessibilityFactorKey;
-    /** 0–100, unrounded — the value computeAccessibilityScore weighed. */
-    score: number;
-    /** 0.5, 0.3 or 0.2: MOV-79's own weight constant. */
-    weight: number;
-    /** score * weight, the share of the total this factor carried. */
-    contribution: number;
-}
 
 /** One of the eight canonical facilities, as the score reads it. */
 export interface BusFacilityAvailability {
