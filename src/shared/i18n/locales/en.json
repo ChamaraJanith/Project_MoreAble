@@ -172,6 +172,25 @@
       "removeTitle": "Remove favourite route?",
       "removeConfirm": "Remove",
       "errorTitle": "Unable to load favourite routes"
+    },
+    "scoreBreakdown": {
+      "title": "Accessibility Score",
+      "intro": "This score combines three factors. Each one counts for a fixed share of the total.",
+      "finalScore": "Final score",
+      "finalScoreSpoken": "Final score {{score}} out of 100",
+      "facilities": "Facilities",
+      "community": "Community",
+      "ratings": "Passenger Ratings",
+      "score": "Score: {{value}}",
+      "weight": "Weight: {{value}}",
+      "contributes": "Contributes: {{value}}",
+      "factorSpoken": "{{factor}}: score {{score}} out of 100, weight {{weight}} percent, contributes {{contribution}} of {{max}} points",
+      "roundingNote": "Each contribution is shown to one decimal place, and their total is rounded to a whole number: {{parts}} ≈ {{score}}",
+      "roundingNoteSpoken": "Each contribution is shown to one decimal place, and their total is rounded to a whole number: {{parts}} is approximately {{score}}.",
+      "close": "Close",
+      "closeLabel": "Close accessibility score breakdown",
+      "badgeLabel": "Accessibility score {{score}} percent",
+      "badgeHint": "Opens a breakdown of how this score is calculated"
     }
   },
   "explore": {
