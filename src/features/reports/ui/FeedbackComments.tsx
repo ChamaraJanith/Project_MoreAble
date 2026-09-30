@@ -13,12 +13,13 @@ import {
 import { ReportCommentRecord } from '../../../entities/report/model/types';
 import { adminColors } from '../../admin/ui/adminTheme';
 import {
+    COMMENT_EDITED_LABEL,
     DELETED_COMMENT_LABEL,
     MAX_FEEDBACK_COMMENT_LENGTH,
     OWN_COMMENT_LABEL,
     canSubmitCommentDraft,
     commentInitial,
-    formatCommentTimestampLabel,
+    formatCommentTimestamp,
     groupCommentThreads,
     isOwnComment,
     isSubmittableCommentEdit,
@@ -33,6 +34,9 @@ import { CommentImageAttachment } from './useCommentImageAttachment';
  * target should be (44pt) without making them look any larger.
  */
 const COMMENT_ACTION_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
+
+/** Takes the 32pt icon-only Edit and Delete controls to a 44pt square. */
+const COMMENT_ICON_HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 6 };
 
 interface FeedbackCommentsProps {
     /**
@@ -326,11 +330,12 @@ export function CommentThreadLayout({
 }
 
 /**
- * One secondary action under a comment — Reply, Edit, Delete.
+ * One secondary action on a comment.
  *
- * A quiet icon-and-label button: small enough not to compete with what was
- * said, but shaped like a control rather than a stray word. The visible box is
- * 32pt; the hit slop takes the touch target past 44pt.
+ * With a label (Reply) it is a quiet icon-and-label button under the text.
+ * Without one (Edit, Delete, Remove) it is an icon-only control in the corner
+ * of the comment, named for screen readers by its accessibility label. Either
+ * way the visible box is 32pt and the hit slop takes the target to 44pt.
  */
 function CommentActionButton({
     icon,
@@ -342,25 +347,29 @@ function CommentActionButton({
     isBusy = false,
 }: {
     icon: keyof typeof Ionicons.glyphMap;
-    label: string;
+    /** Omitted for an icon-only control. */
+    label?: string;
     onPress: () => void;
     disabled: boolean;
     accessibilityLabel: string;
     destructive?: boolean;
     isBusy?: boolean;
 }) {
+    const isIconOnly = !label;
     const color = disabled
         ? adminColors.textPlaceholder
         : destructive
           ? adminColors.danger
-          : adminColors.textSecondary;
+          : isIconOnly
+            ? adminColors.textMuted
+            : adminColors.textSecondary;
 
     return (
         <TouchableOpacity
-            style={styles.actionButton}
+            style={isIconOnly ? styles.iconButton : styles.actionButton}
             onPress={onPress}
             disabled={disabled}
-            hitSlop={COMMENT_ACTION_HIT_SLOP}
+            hitSlop={isIconOnly ? COMMENT_ICON_HIT_SLOP : COMMENT_ACTION_HIT_SLOP}
             activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
@@ -369,9 +378,9 @@ function CommentActionButton({
             {isBusy ? (
                 <ActivityIndicator size="small" color={color} />
             ) : (
-                <Ionicons name={icon} size={14} color={color} />
+                <Ionicons name={icon} size={isIconOnly ? 17 : 16} color={color} />
             )}
-            <Text style={[styles.actionLabel, { color }]}>{label}</Text>
+            {!isIconOnly && <Text style={[styles.actionLabel, { color }]}>{label}</Text>}
         </TouchableOpacity>
     );
 }
@@ -443,7 +452,8 @@ export function CommentRow({
 }) {
     // A deleted placeholder says so and nothing else: no actions, no photo.
     const isDeleted = !!comment.deleted;
-    const hasActions = !isDeleted && !isEditing && (!!onReply || !!onEdit || !!onDelete);
+    const showsReply = !isDeleted && !isEditing && !!onReply;
+    const showsCornerActions = !isDeleted && !isEditing && (!!onEdit || !!onDelete);
     const deleteAccessibilityLabel = isOwn
         ? `${deleteLabel} your comment`
         : `${deleteLabel} comment by ${comment.authorName}`;
@@ -457,22 +467,52 @@ export function CommentRow({
             </View>
 
             <View style={styles.commentBody}>
-                {/* Who, then when — stacked, so the name is never pushed
-                    against a date at the far edge of the card. */}
-                <View style={styles.commentAuthorRow}>
-                    <Text style={styles.commentAuthor} numberOfLines={1}>
-                        {isDeleted ? 'Deleted comment' : comment.authorName}
-                    </Text>
+                {/* Who — and whether it is theirs and has been reworded —
+                    with Edit and Delete tucked in the corner. The name is the
+                    one thing that gives way on a narrow screen. */}
+                <View style={styles.commentHeader}>
+                    <View style={styles.commentAuthorRow}>
+                        <Text style={styles.commentAuthor} numberOfLines={1}>
+                            {isDeleted ? 'Deleted comment' : comment.authorName}
+                        </Text>
 
-                    {/* Said in a word, not a colour: the chip is what
-                        marks the comment as the viewer's own. */}
-                    {isOwn && (
-                        <View style={styles.ownChip}>
-                            <Text style={styles.ownChipText}>{OWN_COMMENT_LABEL}</Text>
+                        {/* Said in a word, not a colour: the chip is what
+                            marks the comment as the viewer's own. */}
+                        {isOwn && (
+                            <View style={styles.ownChip}>
+                                <Text style={styles.ownChipText}>{OWN_COMMENT_LABEL}</Text>
+                            </View>
+                        )}
+
+                        {!isDeleted && !!comment.editedAt && (
+                            <Text style={styles.editedLabel}>{COMMENT_EDITED_LABEL}</Text>
+                        )}
+                    </View>
+
+                    {showsCornerActions && (
+                        <View style={styles.cornerActions}>
+                            {onEdit && (
+                                <CommentActionButton
+                                    icon="create-outline"
+                                    onPress={onEdit}
+                                    disabled={actionsDisabled}
+                                    accessibilityLabel="Edit your comment"
+                                />
+                            )}
+
+                            {onDelete && (
+                                <CommentActionButton
+                                    icon="trash-outline"
+                                    onPress={onDelete}
+                                    disabled={actionsDisabled}
+                                    accessibilityLabel={deleteAccessibilityLabel}
+                                    destructive
+                                    isBusy={isDeleting}
+                                />
+                            )}
                         </View>
                     )}
                 </View>
-                <Text style={styles.commentDate}>{formatCommentTimestampLabel(comment)}</Text>
 
                 {isEditing ? (
                     <View>
@@ -539,41 +579,24 @@ export function CommentRow({
                     />
                 )}
 
-                {hasActions && (
-                    <View style={styles.commentActions}>
-                        {onReply && (
-                            <CommentActionButton
-                                icon="arrow-undo-outline"
-                                label="Reply"
-                                onPress={onReply}
-                                disabled={actionsDisabled}
-                                accessibilityLabel={`Reply to ${comment.authorName}`}
-                            />
-                        )}
+                {/* Reply on the left, when it was posted on the right. */}
+                <View style={[styles.commentFooter, !showsReply && styles.commentFooterBare]}>
+                    {showsReply && onReply ? (
+                        <CommentActionButton
+                            icon="arrow-undo-outline"
+                            label="Reply"
+                            onPress={onReply}
+                            disabled={actionsDisabled}
+                            accessibilityLabel={`Reply to ${comment.authorName}`}
+                        />
+                    ) : (
+                        <View />
+                    )}
 
-                        {onEdit && (
-                            <CommentActionButton
-                                icon="create-outline"
-                                label="Edit"
-                                onPress={onEdit}
-                                disabled={actionsDisabled}
-                                accessibilityLabel="Edit your comment"
-                            />
-                        )}
-
-                        {onDelete && (
-                            <CommentActionButton
-                                icon="trash-outline"
-                                label={deleteLabel}
-                                onPress={onDelete}
-                                disabled={actionsDisabled}
-                                accessibilityLabel={deleteAccessibilityLabel}
-                                destructive
-                                isBusy={isDeleting}
-                            />
-                        )}
-                    </View>
-                )}
+                    <Text style={styles.commentDate} numberOfLines={1}>
+                        {formatCommentTimestamp(comment.createdAt)}
+                    </Text>
+                </View>
             </View>
         </View>
     );
@@ -624,8 +647,10 @@ const styles = StyleSheet.create({
     threadDivided: {
         borderTopWidth: 1,
         borderTopColor: adminColors.borderSubtle,
-        marginTop: 14,
-        paddingTop: 14,
+        // Small above the line: the action buttons' own 32pt height already
+        // leaves room under the comment before it.
+        marginTop: 6,
+        paddingTop: 12,
     },
     threadRail: {
         // The 2pt rail sits under the centre of the 34pt parent avatar.
@@ -655,8 +680,37 @@ const styles = StyleSheet.create({
     avatarReply: { width: 28, height: 28, borderRadius: 14 },
     avatarInitialReply: { fontSize: 12 },
     commentBody: { flex: 1, minWidth: 0, marginLeft: 10 },
-    commentAuthorRow: {
+    commentHeader: {
         flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: 24,
+    },
+    commentAuthorRow: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    editedLabel: {
+        marginLeft: 6,
+        fontSize: 11,
+        fontWeight: '500',
+        color: adminColors.textMuted,
+    },
+    cornerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: 6,
+        // The 32pt boxes would otherwise push the header taller than the
+        // name; pull them into the space around it, and to the card's edge.
+        marginVertical: -4,
+        marginRight: -8,
+    },
+    iconButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        justifyContent: 'center',
         alignItems: 'center',
     },
     commentAuthor: {
@@ -679,18 +733,19 @@ const styles = StyleSheet.create({
         letterSpacing: 0.4,
     },
     commentDate: {
+        flexShrink: 0,
+        marginLeft: 8,
         fontSize: 11,
         fontWeight: '500',
         color: adminColors.textMuted,
-        marginTop: 1,
     },
     commentText: {
         // The darkest thing in the row after the name: what was said
-        // outranks the controls under it.
+        // outranks the controls around it.
         fontSize: 13,
         color: adminColors.textPrimary,
         lineHeight: 19,
-        marginTop: 6,
+        marginTop: 2,
     },
     commentTextDeleted: {
         fontStyle: 'italic',
@@ -706,16 +761,17 @@ const styles = StyleSheet.create({
     },
 
     // ---- Actions under a comment: quiet icon-and-label buttons ----
-    commentActions: {
+    commentFooter: {
         flexDirection: 'row',
         alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 2,
-        marginTop: 4,
-        // Pulls the first button's padding back so its icon lines up with
-        // the comment text above it.
+        justifyContent: 'space-between',
+        marginTop: 2,
+        // Pulls Reply's padding back so its icon lines up with the text.
         marginLeft: -8,
     },
+    // No Reply to share the row with: the date alone, without the button's
+    // height under it.
+    commentFooterBare: { marginTop: 6, marginLeft: 0 },
     actionButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -725,8 +781,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     actionLabel: {
-        fontSize: 12,
-        fontWeight: '600',
+        fontSize: 13,
+        fontWeight: '700',
     },
 
     // ---- Inline editor, styled as the composer is ----
