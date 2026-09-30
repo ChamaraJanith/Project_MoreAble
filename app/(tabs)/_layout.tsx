@@ -1,11 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Href, router, Tabs } from 'expo-router';
 import React from 'react';
-import { useNotificationStore } from '../../src/shared/store/notificationStore';
+import { StyleSheet, Text } from 'react-native';
+import { accessibilityReportsPath } from '../../src/features/reports/utils/reportRoutes';
 
 export default function TabLayout() {
-  const unreadCount = useNotificationStore((state) => state.unreadCount);
-
   return (
     <Tabs
       screenOptions={{
@@ -84,15 +83,37 @@ export default function TabLayout() {
           }}
       />
       <Tabs.Screen
-          name="notifications"
+          name="accessibility-reports-tab"
           options={{
-              title: 'Notifications',
-              tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
-              tabBarBadgeStyle: { backgroundColor: '#EF4444', color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+              title: 'Accessibility Reports',
+              tabBarAccessibilityLabel: 'Accessibility Reports',
+              tabBarLabel: ({ color, position, children }) => (
+                  <Text
+                      numberOfLines={2}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={[position === 'below-icon' ? styles.twoLineLabel : styles.besideLabel, { color }]}
+                  >
+                      {children}
+                  </Text>
+              ),
               tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="notifications-outline" size={size} color={color} />
+                  <Ionicons name="accessibility-outline" size={size} color={color} />
               ),
           }}
+          listeners={{
+              // The reports screen lives in the root stack (app/accessibility-reports.tsx),
+              // so push it rather than switching tabs — Back then returns here.
+              tabPress: (e) => {
+                  e.preventDefault();
+                  router.push(accessibilityReportsPath() as Href);
+              },
+          }}
+      />
+      <Tabs.Screen
+          // Opened from the header bell (NotificationHeaderIcon), not a bottom tab.
+          name="notifications"
+          options={{ href: null }}
       />
 
 
@@ -121,3 +142,10 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  // Matches the default below-icon tab label (10pt, medium) but lets
+  // "Accessibility Reports" wrap onto two lines instead of truncating.
+  twoLineLabel: { fontSize: 10, lineHeight: 11, fontWeight: '500', textAlign: 'center' },
+  besideLabel: { fontSize: 13, marginStart: 5, fontWeight: '500' },
+});
