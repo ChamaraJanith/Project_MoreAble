@@ -8,8 +8,8 @@
 //   Actual start         activeJourney.startedAt, on the service clock
 //
 // and that a missing time reads "Not available" instead of borrowing another.
-// The same component renders Completed cards; those belong to MOV-316 and are
-// pinned here as unchanged.
+// The same component renders Completed cards; those were standardised by
+// MOV-316 (completedJourneyDateTime.test.ts), and group H keeps the two apart.
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -58,9 +58,10 @@ describe('A/B. journey date', () => {
         expect(ongoingBadge('activities.journeyDate').replace("t('activities.journeyDate'", '')).not.toContain(field);
     });
 
-    it("B. keeps the old date chain away from an ongoing card", () => {
-        // The chain still dates Completed cards (MOV-316); an ongoing card never gets it.
-        expect(definition('journeyDate')).toBe('isOngoing ? null : formatJourneyDate(rawDate)');
+    it('B. the card has no date fallback chain left at all (MOV-316 removed the Completed one too)', () => {
+        for (const gone of ['rawDate', 'booking.boardedAt', 'booking.journeyDate', 'booking.travelDate', 'journey?.journeyDate', 'journey?.departureDate', 'formatJourneyDate']) {
+            expect(source).not.toContain(gone);
+        }
     });
 });
 
@@ -72,9 +73,10 @@ describe('C/D/E. scheduled departure and actual start', () => {
         expect(badge).toContain('{ time: scheduledDeparture }');
     });
 
-    it('C. an ongoing card no longer shows the booking HH:MM route times', () => {
-        // The old badge survives only in the Completed side of the branch.
-        expect(source).toMatch(/\{isOngoing \? \([\s\S]*?activities\.scheduledDeparture[\s\S]*?\) : \([\s\S]*?\{departure\} → \{arrival\}/);
+    it('C. no card shows the booking HH:MM route times any more', () => {
+        for (const gone of ['{departure} → {arrival}', 'departureTime', 'estimatedArrivalTime', 'formatScheduledTime']) {
+            expect(source).not.toContain(gone);
+        }
     });
 
     it('D. actual start is startedAt, labelled as the actual start', () => {
@@ -125,24 +127,43 @@ describe('F/G. a missing time says so', () => {
     });
 });
 
-describe('H. the Completed card is unchanged (MOV-316)', () => {
+// MOV-316 standardised the Completed side of this component; its full
+// coverage is in completedJourneyDateTime.test.ts. Pinned here: the two sides
+// never read each other's data, and the rest of the Completed card is intact.
+describe('H. the Completed card (MOV-316) and the ongoing card stay apart', () => {
     it.each([
-        'const departure = formatScheduledTime(booking.journey?.departureTime);',
-        'const arrival = formatScheduledTime(booking.journey?.estimatedArrivalTime);',
-        'const completion = isOngoing ? undefined : booking.passengerJourney;',
-        'const rawDate = completion?.completedAt ?? booking.boardedAt ?? booking.journeyDate ?? booking.travelDate ?? booking.journey?.journeyDate ?? booking.journey?.departureDate;',
-        'const completedAt = completion ? formatStartedAt(completion.completedAt) : null;',
+        ['completion', 'isOngoing ? undefined : booking.passengerJourney'],
+        ['completedRun', 'isOngoing ? undefined : booking.passengerJourneySchedule'],
+        ['completedServiceDate', 'formatServiceDate(completedRun?.scheduledDepartureAt) ?? notAvailable'],
+        ['completedScheduledDeparture', 'formatServiceTime(completedRun?.scheduledDepartureAt) ?? notAvailable'],
+        ['completedScheduledArrival', 'formatServiceTime(completedRun?.scheduledArrivalAt) ?? notAvailable'],
+        ['completedActualStart', 'formatServiceTime(completion?.journeyStartedAt) ?? notAvailable'],
+        ['completedActualEnd', 'formatServiceTime(completion?.completedAt) ?? notAvailable'],
+    ])('the Completed %s is its own canonical value', (name, expected) => {
+        expect(definition(name)).toBe(expected);
+    });
+
+    it.each(['serviceDate', 'scheduledDeparture', 'actualStart'])('the ongoing %s never reads a completion', (name) => {
+        expect(definition(name)).not.toMatch(/completion|completedRun|passengerJourney/);
+    });
+
+    it('renders the Completed values only on a Completed card, after the ongoing badges', () => {
+        const group = source.indexOf('{!isOngoing && (');
+        expect(group).toBeGreaterThan(source.indexOf("t('activities.journeyDate'"));
+        expect(source.indexOf('completedServiceDate }')).toBeGreaterThan(group);
+    });
+
+    it.each([
         'const reason = completion ? completionReasonLabel(completion.completionReason) : null;',
-        '{departure} → {arrival}',
-        '{!!journeyDate && (',
-        "t('activities.completedAt', 'Completed {{time}}', { time: completedAt })",
         '{!!fare && (',
-    ])('keeps %s', (fragment) => {
+        '{!!reason && <Text style={styles.reasonText}>{reason}</Text>}',
+    ])('keeps the rest of the Completed card: %s', (fragment) => {
         expect(source).toContain(fragment);
     });
 
-    it('still formats the completion time with its existing formatter', () => {
-        expect(source).toContain('function formatStartedAt(');
-        expect(source).toContain('function formatJourneyDate(');
+    it('has no device-local formatter left', () => {
+        for (const gone of ['function formatStartedAt(', 'function formatJourneyDate(', '.getHours(', '.getMinutes(', 'formatFriendlyDate', "from '../../journey/utils/dateTime'"]) {
+            expect(source).not.toContain(gone);
+        }
     });
 });

@@ -175,6 +175,12 @@ export interface Booking {
   activeJourney?: BookingActiveJourney;
   /** Set once the passenger's journey on this booking has finished (MOV-297). */
   passengerJourney?: PassengerJourneyCompletion;
+  /**
+   * The finished run's scheduled service, attached on the client from GET
+   * /api/journeys/completed alongside `passengerJourney` (MOV-309). Never
+   * stored on the booking and never sent by the history endpoint.
+   */
+  passengerJourneySchedule?: JourneyRunSchedule;
   /** Receiver details for special seating (elderly/wheelchair) (MOV-XXX) */
   receiverDetails?: {
     name: string;

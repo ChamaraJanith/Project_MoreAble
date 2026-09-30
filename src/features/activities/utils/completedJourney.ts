@@ -10,7 +10,7 @@ import {
     PassengerJourneyCompletion,
     PassengerJourneyCompletionReason,
 } from '../../../entities/booking/model/types';
-import { formatDurationMinutes, formatFriendlyDate } from '../../journey/utils/dateTime';
+import { formatDurationMinutes } from '../../journey/utils/dateTime';
 
 // ------------------------------------------------------------------
 // End Journey
@@ -84,18 +84,6 @@ export function findCompletedJourney(
 /** How it finished, in the passenger's words. */
 export function completionReasonLabel(reason: PassengerJourneyCompletionReason | null | undefined): string {
     return reason === 'PASSENGER' ? 'Completed by you' : 'Completed when the bus journey ended';
-}
-
-/** The caption for the completion time, matching how it finished. */
-export function completionTimeCaption(reason: PassengerJourneyCompletionReason | null | undefined): string {
-    return reason === 'PASSENGER' ? 'You completed it at' : 'Journey completed at';
-}
-
-/** An ISO time's calendar day, e.g. 'Mon, 21 Sep 2026'; null when unreadable. */
-export function formatJourneyDay(value: string | null | undefined): string | null {
-    if (!value) return null;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : formatFriendlyDate(date);
 }
 
 /** '8.4 km', or null when the planned distance was not measurable. */

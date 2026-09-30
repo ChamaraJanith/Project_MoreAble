@@ -263,7 +263,9 @@
     "viewDetails": "View Details",
     "journeyDate": "Journey date: {{date}}",
     "scheduledDeparture": "Scheduled departure: {{time}}",
+    "scheduledArrival": "Scheduled arrival: {{time}}",
     "actualStart": "Actual start: {{time}}",
+    "actualEnd": "Actual end: {{time}}",
     "notAvailable": "Not available"
   },
   "ongoingJourney": {
@@ -273,6 +275,9 @@
     "actualStart": "Actual start",
     "notAvailable": "Not available",
     "scheduleNote": "Scheduled times are from the timetable. The actual start is when the bus started this journey. A live arrival estimate is not available yet."
+  },
+  "completedJourney": {
+    "actualEnd": "Actual end"
   },
   "auth": {
     "autoFill": "Auto-fill Saved Account",

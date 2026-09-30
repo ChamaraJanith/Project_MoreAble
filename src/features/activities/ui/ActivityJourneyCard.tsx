@@ -6,14 +6,6 @@ import { Booking } from '../../../entities/booking/model/types';
 import { AppText as Text } from '../../../shared/ui/AppText';
 import { statusBadgeStyles } from '../../../shared/ui/statusBadgeStyles';
 import { formatServiceDate, formatServiceTime } from '../../../shared/utils/serviceTime';
-import {
-    apiTimeToMinutes,
-    formatDisplayDate,
-    formatFriendlyDate,
-    formatFriendlyTime,
-    parseApiDateString,
-    parseApiTimeString,
-} from '../../journey/utils/dateTime';
 import { completionReasonLabel } from '../utils/completedJourney';
 
 export type ActivityCardVariant = 'ongoing' | 'completed';
@@ -28,34 +20,6 @@ interface ActivityJourneyCardProps {
      * this component.
      */
     onPress: (booking: Booking) => void;
-}
-
-/** '06:30' -> '6:30 AM'; anything unreadable is shown as stored rather than hidden. */
-function formatScheduledTime(value?: string): string {
-    if (apiTimeToMinutes(value) === null) return value || '—';
-    return formatFriendlyTime(parseApiTimeString(value as string));
-}
-
-/** When the bus actually pressed Start Journey, in local time. */
-function formatStartedAt(value?: string): string | null {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    const hour24 = date.getHours();
-    return formatFriendlyTime({
-        hour: hour24 % 12 === 0 ? 12 : hour24 % 12,
-        minute: date.getMinutes(),
-        period: hour24 >= 12 ? 'PM' : 'AM',
-    });
-}
-
-function formatJourneyDate(value?: string | null): string | null {
-    if (!value) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return formatFriendlyDate(parseApiDateString(value));
-    }
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : formatFriendlyDate(date);
 }
 
 /**
@@ -73,12 +37,7 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const routeName = booking.journey?.routeName && booking.journey.routeName !== '—' ? booking.journey.routeName : '';
     const origin = booking.journey?.startLocation || '—';
     const destination = booking.journey?.endLocation || '—';
-    const departure = formatScheduledTime(booking.journey?.departureTime);
-    const arrival = formatScheduledTime(booking.journey?.estimatedArrivalTime);
-    // A recorded completion (MOV-297) dates the journey by when it finished.
     const completion = isOngoing ? undefined : booking.passengerJourney;
-    const rawDate = completion?.completedAt ?? booking.boardedAt ?? booking.journeyDate ?? booking.travelDate ?? booking.journey?.journeyDate ?? booking.journey?.departureDate;
-    const journeyDate = isOngoing ? null : formatJourneyDate(rawDate);
     // An ongoing journey (MOV-309) is described only by its run's own persisted
     // times, on the service clock: the service date and scheduled departure from
     // scheduledDepartureAt, the actual start from startedAt. Never the booking's
@@ -88,7 +47,16 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
     const serviceDate = formatServiceDate(run?.scheduledDepartureAt) ?? notAvailable;
     const scheduledDeparture = formatServiceTime(run?.scheduledDepartureAt) ?? notAvailable;
     const actualStart = formatServiceTime(run?.startedAt) ?? notAvailable;
-    const completedAt = completion ? formatStartedAt(completion.completedAt) : null;
+    // A completed journey (MOV-309) the same way: its run's scheduled service,
+    // as the completed-journeys response gave it, and the recorded start and
+    // end of the passenger's journey. A run whose record a later run replaced
+    // has no scheduled times, and says so; nothing is rebuilt from 'HH:MM'.
+    const completedRun = isOngoing ? undefined : booking.passengerJourneySchedule;
+    const completedServiceDate = formatServiceDate(completedRun?.scheduledDepartureAt) ?? notAvailable;
+    const completedScheduledDeparture = formatServiceTime(completedRun?.scheduledDepartureAt) ?? notAvailable;
+    const completedScheduledArrival = formatServiceTime(completedRun?.scheduledArrivalAt) ?? notAvailable;
+    const completedActualStart = formatServiceTime(completion?.journeyStartedAt) ?? notAvailable;
+    const completedActualEnd = formatServiceTime(completion?.completedAt) ?? notAvailable;
     const reason = completion ? completionReasonLabel(completion.completionReason) : null;
     const fare =
         !isOngoing && typeof booking.fare?.totalFare === 'number'
@@ -138,18 +106,11 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
             </Text>
 
             <View style={styles.metaRow}>
-                {isOngoing ? (
+                {isOngoing && (
                     <View style={styles.metaBadge}>
                         <Ionicons name="time-outline" size={14} color="#0066CC" />
                         <Text style={styles.metaText}>
                             {t('activities.scheduledDeparture', 'Scheduled departure: {{time}}', { time: scheduledDeparture })}
-                        </Text>
-                    </View>
-                ) : (
-                    <View style={styles.metaBadge}>
-                        <Ionicons name="time-outline" size={14} color="#0066CC" />
-                        <Text style={styles.metaText}>
-                            {departure} → {arrival}
                         </Text>
                     </View>
                 )}
@@ -179,20 +140,39 @@ export function ActivityJourneyCard({ booking, variant, onPress }: ActivityJourn
                     </View>
                 )}
 
-                {!!journeyDate && (
-                    <View style={styles.metaBadge}>
-                        <Ionicons name="calendar-outline" size={14} color="#0066CC" />
-                        <Text style={styles.metaText}>{journeyDate}</Text>
-                    </View>
-                )}
-
-                {!!completedAt && (
-                    <View style={styles.metaBadge}>
-                        <Ionicons name="flag-outline" size={14} color="#0066CC" />
-                        <Text style={styles.metaText}>
-                            {t('activities.completedAt', 'Completed {{time}}', { time: completedAt })}
-                        </Text>
-                    </View>
+                {!isOngoing && (
+                    <>
+                        <View style={styles.metaBadge}>
+                            <Ionicons name="calendar-outline" size={14} color="#0066CC" />
+                            <Text style={styles.metaText}>
+                                {t('activities.journeyDate', 'Journey date: {{date}}', { date: completedServiceDate })}
+                            </Text>
+                        </View>
+                        <View style={styles.metaBadge}>
+                            <Ionicons name="time-outline" size={14} color="#0066CC" />
+                            <Text style={styles.metaText}>
+                                {t('activities.scheduledDeparture', 'Scheduled departure: {{time}}', { time: completedScheduledDeparture })}
+                            </Text>
+                        </View>
+                        <View style={styles.metaBadge}>
+                            <Ionicons name="flag-outline" size={14} color="#0066CC" />
+                            <Text style={styles.metaText}>
+                                {t('activities.scheduledArrival', 'Scheduled arrival: {{time}}', { time: completedScheduledArrival })}
+                            </Text>
+                        </View>
+                        <View style={styles.metaBadge}>
+                            <Ionicons name="play-circle-outline" size={14} color="#0066CC" />
+                            <Text style={styles.metaText}>
+                                {t('activities.actualStart', 'Actual start: {{time}}', { time: completedActualStart })}
+                            </Text>
+                        </View>
+                        <View style={styles.metaBadge}>
+                            <Ionicons name="checkmark-done-outline" size={14} color="#0066CC" />
+                            <Text style={styles.metaText}>
+                                {t('activities.actualEnd', 'Actual end: {{time}}', { time: completedActualEnd })}
+                            </Text>
+                        </View>
+                    </>
                 )}
 
                 {!!fare && (

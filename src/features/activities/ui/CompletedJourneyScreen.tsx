@@ -7,23 +7,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PassengerCompletedJourney } from '../../../entities/booking/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AppText as Text } from '../../../shared/ui/AppText';
+import { formatServiceDate, formatServiceTime } from '../../../shared/utils/serviceTime';
 import { RouteMapCard } from '../../journey/ui/RouteMapCard';
 import { RouteStopTimeline } from '../../journey/ui/RouteStopTimeline';
 import { getCompletedJourneys, OngoingJourneyRequestError } from '../api/ongoingJourneyApi';
-import {
-    completionReasonLabel,
-    completionTimeCaption,
-    findCompletedJourney,
-    formatDistanceKm,
-    formatJourneyDay,
-    timeOnBoardLabel,
-} from '../utils/completedJourney';
-import {
-    buildOngoingMapData,
-    describeOngoingSchedule,
-    formatClockTime,
-    formatOngoingFare,
-} from '../utils/ongoingJourneyTracking';
+import { completionReasonLabel, findCompletedJourney, formatDistanceKm, timeOnBoardLabel } from '../utils/completedJourney';
+import { buildOngoingMapData, describeOngoingSchedule, formatOngoingFare } from '../utils/ongoingJourneyTracking';
 
 type LoadState = 'LOADING' | 'READY' | 'NOT_FOUND' | 'UNAUTHORIZED' | 'ERROR';
 
@@ -174,13 +163,20 @@ export function CompletedJourneyScreen() {
     const fare = formatOngoingFare(journey);
     const distance = formatDistanceKm(completion.plannedDistanceKm);
     const onBoard = timeOnBoardLabel(booking, completion);
-    const journeyDay = formatJourneyDay(completion.journeyStartedAt);
-    const busStarted = formatClockTime(completion.journeyStartedAt);
-    const completedAt = formatClockTime(completion.completedAt);
     const reason = completionReasonLabel(completion.completionReason);
     const stops = route?.journeyStops ?? (completion.journeyStops.length >= 2 ? completion.journeyStops : [origin, destination]);
     const seat = booking.pairedSeatNumber ? `${booking.seatNumber} + ${booking.pairedSeatNumber}` : booking.seatNumber;
     const notAvailable = t('ongoingJourney.notAvailable', 'Not available');
+    // The finished run's scheduled service and the passenger's recorded start
+    // and end, on the service clock (MOV-309) — the same sources the Activities
+    // card uses. A run whose record a later run replaced has no scheduled times
+    // (they are null), and says so; nothing is rebuilt from the timetable.
+    const run = journey.schedule;
+    const serviceDate = formatServiceDate(run?.scheduledDepartureAt) ?? notAvailable;
+    const scheduledDeparture = formatServiceTime(run?.scheduledDepartureAt) ?? notAvailable;
+    const scheduledArrival = formatServiceTime(run?.scheduledArrivalAt) ?? notAvailable;
+    const actualStart = formatServiceTime(completion.journeyStartedAt) ?? notAvailable;
+    const actualEnd = formatServiceTime(completion.completedAt) ?? notAvailable;
 
     return (
         <View style={styles.container}>
@@ -211,16 +207,19 @@ export function CompletedJourneyScreen() {
                         {reason}
                     </Text>
 
-                    <InfoRow icon="calendar-outline" label={t('completedJourney.date', 'Journey date')} value={journeyDay ?? notAvailable} />
-                    <InfoRow icon="play-circle-outline" label={t('completedJourney.busStarted', 'Bus started the journey')} value={busStarted ?? notAvailable} />
+                    <InfoRow icon="calendar-outline" label={t('ongoingJourney.journeyDate', 'Journey date')} value={serviceDate} />
+                    <InfoRow
+                        icon="time-outline"
+                        label={t('ongoingJourney.scheduledDepartureTime', 'Scheduled departure')}
+                        value={scheduledDeparture}
+                    />
                     <InfoRow
                         icon="flag-outline"
-                        label={t(
-                            completion.completionReason === 'PASSENGER' ? 'completedJourney.youCompletedAt' : 'completedJourney.completedAt',
-                            completionTimeCaption(completion.completionReason)
-                        )}
-                        value={completedAt ?? notAvailable}
+                        label={t('ongoingJourney.scheduledArrivalTime', 'Scheduled arrival')}
+                        value={scheduledArrival}
                     />
+                    <InfoRow icon="play-circle-outline" label={t('ongoingJourney.actualStart', 'Actual start')} value={actualStart} />
+                    <InfoRow icon="checkmark-done-outline" label={t('completedJourney.actualEnd', 'Actual end')} value={actualEnd} />
                     {!!booking.vehicle?.numberPlate && (
                         <InfoRow icon="bus-outline" label={t('completedJourney.bus', 'Bus')} value={booking.vehicle.numberPlate} />
                     )}
@@ -244,24 +243,21 @@ export function CompletedJourneyScreen() {
                     <InfoRow icon="location" label={t('ongoingJourney.to', 'To')} value={destination} />
                     <InfoRow icon="navigate-outline" label={t('completedJourney.distance', 'Planned distance')} value={distance ?? notAvailable} />
                     {!!onBoard && <InfoRow icon="hourglass-outline" label={t('completedJourney.onBoard', 'Time on board')} value={onBoard} />}
-                    <InfoRow
-                        icon="time-outline"
-                        label={
-                            schedule.departure.isPassengerStop
-                                ? t('ongoingJourney.scheduledAtStop', 'Scheduled at {{stop}}', { stop: origin })
-                                : t('ongoingJourney.tripDeparture', 'Trip departure (route start)')
-                        }
-                        value={schedule.departure.time ?? notAvailable}
-                    />
-                    <InfoRow
-                        icon="time-outline"
-                        label={
-                            schedule.arrival.isPassengerStop
-                                ? t('ongoingJourney.scheduledArrival', 'Scheduled arrival at {{stop}}', { stop: destination })
-                                : t('ongoingJourney.tripArrival', 'Trip arrival (route end)')
-                        }
-                        value={schedule.arrival.time ?? notAvailable}
-                    />
+                    {/* The passenger's own stops, from the timetable, when the route can place them. */}
+                    {schedule.departure.isPassengerStop && (
+                        <InfoRow
+                            icon="time-outline"
+                            label={t('ongoingJourney.scheduledAtStop', 'Scheduled at {{stop}}', { stop: origin })}
+                            value={schedule.departure.time ?? notAvailable}
+                        />
+                    )}
+                    {schedule.arrival.isPassengerStop && (
+                        <InfoRow
+                            icon="time-outline"
+                            label={t('ongoingJourney.scheduledArrival', 'Scheduled arrival at {{stop}}', { stop: destination })}
+                            value={schedule.arrival.time ?? notAvailable}
+                        />
+                    )}
                     {!!schedule.durationLabel && (
                         <InfoRow icon="hourglass-outline" label={t('ongoingJourney.journeyTime', 'Scheduled journey time')} value={schedule.durationLabel} />
                     )}

@@ -263,7 +263,9 @@
     "viewDetails": "විස්තර බලන්න",
     "journeyDate": "ගමන් දිනය: {{date}}",
     "scheduledDeparture": "නියමිත පිටත් වීම: {{time}}",
+    "scheduledArrival": "නියමිත පැමිණීම: {{time}}",
     "actualStart": "සත්‍ය ආරම්භය: {{time}}",
+    "actualEnd": "සත්‍ය අවසානය: {{time}}",
     "notAvailable": "නොමැත"
   },
   "ongoingJourney": {
@@ -273,6 +275,9 @@
     "actualStart": "සත්‍ය ආරම්භය",
     "notAvailable": "නොමැත",
     "scheduleNote": "නියමිත වේලාවන් කාලසටහනෙන් ලබාගත් ඒවාය. සත්‍ය ආරම්භය යනු බස් රථය මෙම ගමන ආරම්භ කළ වේලාවයි. සජීවී පැමිණීමේ ඇස්තමේන්තුවක් තවම ලබා ගත නොහැක."
+  },
+  "completedJourney": {
+    "actualEnd": "සත්‍ය අවසානය"
   },
   "auth": {
     "autoFill": "සුරැකි ගිණුමෙන් පුරවන්න",
