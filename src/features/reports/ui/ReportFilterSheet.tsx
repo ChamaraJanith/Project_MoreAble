@@ -28,6 +28,11 @@ interface ReportFilterSheetProps {
     routeOptions: ReportFilterOption[];
     onApply: (filters: ReportListFilters) => void;
     onClose: () => void;
+    /**
+     * Whether to offer the Status filter. Off on the public All Reports tab,
+     * which carries no status — see isStatusFilterAvailable.
+     */
+    showStatusFilter: boolean;
 }
 
 /**
@@ -37,7 +42,13 @@ interface ReportFilterSheetProps {
  * applied and nothing chosen here touches the list until Apply — closing with
  * the X or the backdrop throws the draft away.
  */
-export function ReportFilterSheet({ filters, routeOptions, onApply, onClose }: ReportFilterSheetProps) {
+export function ReportFilterSheet({
+    filters,
+    routeOptions,
+    onApply,
+    onClose,
+    showStatusFilter,
+}: ReportFilterSheetProps) {
     const insets = useSafeAreaInsets();
     const [draft, setDraft] = useState<ReportListFilters>(filters);
     const [openPicker, setOpenPicker] = useState<OpenPicker>(null);
@@ -112,13 +123,18 @@ export function ReportFilterSheet({ filters, routeOptions, onApply, onClose }: R
                             onPress={() => setOpenPicker('route')}
                         />
 
-                        <SectionLabel text="Status" />
-                        <Segmented
-                            options={REPORT_STATUS_FILTERS}
-                            value={draft.status}
-                            onChange={(status) => setDraft({ ...draft, status })}
-                            groupLabel="Status"
-                        />
+                        {/* My Reports only — see isStatusFilterAvailable. */}
+                        {showStatusFilter && (
+                            <>
+                                <SectionLabel text="Status" />
+                                <Segmented
+                                    options={REPORT_STATUS_FILTERS}
+                                    value={draft.status}
+                                    onChange={(status) => setDraft({ ...draft, status })}
+                                    groupLabel="Status"
+                                />
+                            </>
+                        )}
 
                         <SectionLabel text="Sort By" />
                         <Dropdown

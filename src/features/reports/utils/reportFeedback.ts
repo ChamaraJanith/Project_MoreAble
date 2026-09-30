@@ -16,9 +16,44 @@
 
 import {
     MAX_REPORT_COMMENT_LENGTH,
+    ReportCommentRecord,
+    ReportType,
     ReportVoteChoice,
 } from '../../../entities/report/model/types';
 import { formatReportDateTime } from './reportFormat';
+
+// ------------------------------------------------------------------
+// Section wording
+// ------------------------------------------------------------------
+
+/** What the Community Feedback section says above and below the vote pills. */
+export interface CommunityFeedbackCopy {
+    intro: string;
+    note: string;
+}
+
+/**
+ * The section's wording, by the kind of report it sits under (MOV-305).
+ *
+ * An issue is an account the community can back up or question. Positive
+ * feedback is accepted as filed with no review, so its wording must never
+ * suggest that votes or comments help verify anything — they are simply other
+ * passengers sharing whether they had the same good experience.
+ */
+const COMMUNITY_FEEDBACK_COPY: Record<ReportType, CommunityFeedbackCopy> = {
+    ISSUE: {
+        intro: 'Have you experienced this issue too? Let others know by agreeing, disagreeing or commenting.',
+        note: 'Your feedback helps the community understand this accessibility issue.',
+    },
+    POSITIVE: {
+        intro: 'Had a similar experience? Agree, disagree or leave a comment to share yours.',
+        note: 'Your feedback helps recognise accessibility that works well.',
+    },
+};
+
+export function communityFeedbackCopy(reportType: ReportType): CommunityFeedbackCopy {
+    return COMMUNITY_FEEDBACK_COPY[reportType];
+}
 
 /**
  * Which way a passenger voted. `null` means they have not voted.
@@ -96,6 +131,26 @@ export function isSubmittableComment(draft: string): boolean {
 // posted now, and what goes on the list is the record POST
 // /api/reports/:reportId/comments returns — see mergeSubmittedComment in
 // reportFeedbackState.
+
+/** The chip drawn beside the author's name on the viewer's own comments. */
+export const OWN_COMMENT_LABEL = 'You';
+
+/**
+ * Whether this comment was written by the signed-in passenger.
+ *
+ * Read off the `passengerId` the server stored with the comment — taken from
+ * the author's verified token, never from the request body — against this
+ * session's own. A missing id on either side is not a match: a session with no
+ * passenger owns nothing, and a comment with no author is nobody's.
+ */
+export function isOwnComment(
+    comment: Pick<ReportCommentRecord, 'passengerId'> | null | undefined,
+    viewerPassengerId: string | null | undefined
+): boolean {
+    if (!comment?.passengerId || !viewerPassengerId) return false;
+
+    return comment.passengerId === viewerPassengerId;
+}
 
 /** The letter shown in a comment's avatar circle. */
 export function commentInitial(authorName: string): string {

@@ -3,9 +3,9 @@
  *
  * Two reads, and they are not in the same state of readiness:
  *
- *   Verified reports — WORKING TODAY. `GET /api/reports?scope=verified` already
- *     returns every verified report, and each one carries the `busId` it was
- *     filed against. Narrowing that to one bus on the device is the pattern this
+ *   Community reports — WORKING TODAY. `GET /api/reports?scope=all` already
+ *     returns the public community feed (verified issues and positive
+ *     feedback), and each report carries the `busId` it was filed against. Narrowing that to one bus on the device is the pattern this
  *     feature already uses for its own list screen (see reportSearch.ts): the
  *     endpoint answers a whole slice in one request, and the screen filters what
  *     arrived. No new route, no second listing path.
@@ -27,7 +27,7 @@
 import { BusRatingSummary } from '../../../entities/rating/model/types';
 import { AccessibilityReport } from '../../../entities/report/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
-import { RECENT_FEEDBACK_LIMIT, selectVerifiedBusReports } from '../utils/busCommunityFeedback';
+import { RECENT_FEEDBACK_LIMIT, selectBusCommunityReports } from '../utils/busCommunityFeedback';
 
 /**
  * The contract MOV-116 is expected to serve.
@@ -39,8 +39,12 @@ import { RECENT_FEEDBACK_LIMIT, selectVerifiedBusReports } from '../utils/busCom
 export const BUS_RATING_SUMMARY_PATH = (busId: string) =>
     `/api/buses/${encodeURIComponent(busId)}/ratings`;
 
-/** The existing verified-reports slice, unchanged. */
-export const VERIFIED_REPORTS_PATH = '/api/reports?scope=verified';
+/**
+ * The existing public feed — the same slice All Reports reads. The server
+ * already narrows it to `isPubliclyVisibleReport`, so no pending or rejected
+ * issue arrives here.
+ */
+export const PUBLIC_REPORTS_PATH = '/api/reports?scope=all';
 
 /**
  * What a read came back with.
@@ -146,13 +150,13 @@ export async function getBusRatingSummary(
 }
 
 /**
- * The verified community reports about one bus, newest first.
+ * The public community reports about one bus, newest first.
  *
- * Reads the existing verified slice and narrows it here. The narrowing rule
- * lives in `selectVerifiedBusReports` so that what reaches the screen is
- * verified-and-this-bus by the same rule wherever it is asked for.
+ * Reads the existing public feed and narrows it here. The narrowing rule
+ * lives in `selectBusCommunityReports` so that what reaches the screen is
+ * public-and-this-bus by the same rule wherever it is asked for.
  */
-export async function getVerifiedBusReports(
+export async function getBusCommunityReports(
     token: string,
     busId: string,
     limit: number = RECENT_FEEDBACK_LIMIT
@@ -161,7 +165,7 @@ export async function getVerifiedBusReports(
         return { ok: true, value: [] };
     }
 
-    const result = await authorizedJson(token, VERIFIED_REPORTS_PATH);
+    const result = await authorizedJson(token, PUBLIC_REPORTS_PATH);
 
     if (!result.ok) {
         return { ok: false, reason: 'ERROR', message: result.message };
@@ -169,5 +173,5 @@ export async function getVerifiedBusReports(
 
     const reports = Array.isArray(result.data?.reports) ? result.data.reports : [];
 
-    return { ok: true, value: selectVerifiedBusReports(reports, busId.trim(), limit) };
+    return { ok: true, value: selectBusCommunityReports(reports, busId.trim(), limit) };
 }

@@ -185,6 +185,35 @@ export const POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE =
 /** The short form of that message, under a queue card's badge. */
 export const POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE = 'Automatically accepted · no review required';
 
+/** The Admin Review card on an issue nobody has decided yet. */
+export const NO_ADMIN_REVIEW_YET_MESSAGE = 'No administrator has reviewed this report yet.';
+
+/**
+ * What the detail page's Admin Review card says in place of a recorded
+ * decision, or null when a decision should be drawn instead (MOV-305).
+ *
+ * Positive feedback always says it was accepted automatically — never that a
+ * review is still to come, and never a "Decision" row, because nobody decides
+ * it (an admin remark on it is still shown beneath). An issue says nothing is
+ * decided yet only while there is no review recorded.
+ */
+export function adminReviewStatusNote(
+    report: { type?: unknown; status?: unknown } | null | undefined,
+    review: AdminReportReview | null | undefined
+): string | null {
+    if (!requiresAdminReview(report)) return POSITIVE_FEEDBACK_AUTO_ACCEPTED_NOTE;
+
+    return review ? null : NO_ADMIN_REVIEW_YET_MESSAGE;
+}
+
+/**
+ * Under the admin remark box. A remark is part of the report, so it is shown
+ * to whoever can open the report — its author, and every passenger once the
+ * report is public — not to the author alone.
+ */
+export const ADMIN_REMARK_HELPER =
+    "Visible to anyone who can view this report. Saving a remark does not change the report's status.";
+
 /**
  * Whether an admin has already decided this report.
  *

@@ -8,6 +8,8 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { ReportType } from '../../../entities/report/model/types';
+import { useAuthStore } from '../../../shared/store/authStore';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import {
     fetchReportComments,
@@ -17,6 +19,7 @@ import {
 } from '../api/reportFeedbackApi';
 import {
     FeedbackVote,
+    communityFeedbackCopy,
     formatCommentCount,
     voteAccessibilityLabel,
 } from '../utils/reportFeedback';
@@ -34,6 +37,11 @@ import { FeedbackComments } from './FeedbackComments';
 interface CommunityFeedbackProps {
     /** The report being voted and commented on. */
     reportId: string;
+    /**
+     * ISSUE or POSITIVE — decides the section's wording, so positive feedback
+     * is never described as something the community helps verify.
+     */
+    reportType: ReportType;
     /** The session token. Every feedback route refuses an anonymous request. */
     token: string | null;
 }
@@ -55,9 +63,15 @@ interface CommunityFeedbackProps {
  * cannot be reached costs the passenger this card, not the report they came to
  * read.
  */
-export function CommunityFeedback({ reportId, token }: CommunityFeedbackProps) {
+export function CommunityFeedback({ reportId, reportType, token }: CommunityFeedbackProps) {
     const [state, dispatch] = useReducer(reportFeedbackReducer, initialFeedbackState);
     const [draft, setDraft] = useState('');
+
+    // Only to mark the viewer's own comments "You". Who is commenting is still
+    // taken from the token by the API, never sent from here.
+    const viewerPassengerId = useAuthStore((store) => store.user?.passengerId ?? null);
+
+    const copy = communityFeedbackCopy(reportType);
 
     // --------------------------------
     // Load
@@ -153,9 +167,7 @@ export function CommunityFeedback({ reportId, token }: CommunityFeedbackProps) {
                 Community Feedback
             </Text>
 
-            <Text style={styles.sectionIntro}>
-                Share your experience to help verify accessibility issues.
-            </Text>
+            <Text style={styles.sectionIntro}>{copy.intro}</Text>
 
             {/* ---------------- Votes ---------------- */}
             <View style={styles.card}>
@@ -190,10 +202,7 @@ export function CommunityFeedback({ reportId, token }: CommunityFeedbackProps) {
                         {votesError ? (
                             <FeedbackError message={votesError} />
                         ) : (
-                            <Text style={styles.note}>
-                                Your feedback helps the community identify accessibility
-                                issues.
-                            </Text>
+                            <Text style={styles.note}>{copy.note}</Text>
                         )}
 
                         {state.submitError && <FeedbackError message={state.submitError} />}
@@ -224,6 +233,7 @@ export function CommunityFeedback({ reportId, token }: CommunityFeedbackProps) {
                     draft={draft}
                     onChangeDraft={setDraft}
                     onSubmit={handleSubmitComment}
+                    viewerPassengerId={viewerPassengerId}
                 />
             </View>
         </>

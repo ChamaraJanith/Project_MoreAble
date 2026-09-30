@@ -382,7 +382,11 @@ export const ReportDetailsScreen = () => {
                     not come back costs this card and not the report above it.
                     Who is voting comes off the token inside those calls — the
                     report id is all this screen has to hand over. */}
-                <CommunityFeedback reportId={report.reportId} token={token} />
+                <CommunityFeedback
+                    reportId={report.reportId}
+                    reportType={summary.reportType}
+                    token={token}
+                />
 
                 {/* ---------------- Owner actions ----------------
                     Pending: Edit and Delete. Verified or rejected: a note that

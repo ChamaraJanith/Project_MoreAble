@@ -11,10 +11,12 @@ import {
     JOURNEY_ROUTE_DETAILS_PATH,
 } from '../../journey/utils/journeyNavigation';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
-import { getBusRatingSummary, getVerifiedBusReports } from '../api/busCommunityApi';
+import { getBusCommunityReports, getBusRatingSummary } from '../api/busCommunityApi';
 import {
-    NO_VERIFIED_FEEDBACK_DESCRIPTION,
-    NO_VERIFIED_FEEDBACK_TITLE,
+    COMMUNITY_FEEDBACK_CAPTION,
+    COMMUNITY_FEEDBACK_TITLE,
+    NO_COMMUNITY_FEEDBACK_DESCRIPTION,
+    NO_COMMUNITY_FEEDBACK_TITLE,
     RECENT_FEEDBACK_LIMIT,
 } from '../utils/busCommunityFeedback';
 import { reportCardSummary } from '../utils/reportSummary';
@@ -28,12 +30,12 @@ type LoadState = 'LOADING' | 'READY' | 'ERROR';
  * Community Feedback for one bus (MOV-80).
  *
  * What other passengers have said about the vehicle a passenger is about to
- * board: the average rating they gave it, and the reports about it an
- * administrator has verified, newest first.
+ * board: the average rating they gave it, and the public community reports
+ * about it — verified issues and positive feedback — newest first.
  *
- * Passenger-facing only. Every report here has already been through review, and
- * nothing that belongs to the review itself is shown — no reviewer, no admin
- * remark, no pending or rejected account. A rejected report is one an admin
+ * Passenger-facing only. Every report here is part of the public feed, and
+ * nothing that belongs to the review itself is shown — no status badge, no
+ * reviewer, no admin remark, no pending or rejected account. A rejected report is one an admin
  * found did not hold, and repeating it to a passenger choosing a bus would
  * publish a finding nobody stands behind.
  *
@@ -42,7 +44,7 @@ type LoadState = 'LOADING' | 'READY' | 'ERROR';
  *
  * The two halves load independently and fail independently: the ratings are not
  * being served yet (MOV-116), and a screen that showed nothing until they were
- * would withhold the verified reports, which work today.
+ * would withhold the community reports, which work today.
  */
 export function BusCommunityFeedbackScreen() {
     const { busId, numberPlate, busModel } = useLocalSearchParams<{
@@ -73,7 +75,7 @@ export function BusCommunityFeedbackScreen() {
             // being unavailable must not hide the reports.
             const [ratingResult, reportResult] = await Promise.all([
                 getBusRatingSummary(token, busId),
-                getVerifiedBusReports(token, busId, RECENT_FEEDBACK_LIMIT),
+                getBusCommunityReports(token, busId, RECENT_FEEDBACK_LIMIT),
             ]);
 
             if (!isCurrent()) return;
@@ -164,16 +166,14 @@ export function BusCommunityFeedbackScreen() {
                     unavailable={ratingsUnavailable}
                 />
 
-                {/* ---------------- Verified feedback ---------------- */}
+                {/* ---------------- Community feedback ---------------- */}
                 <View style={styles.sectionHeadingRow}>
-                    <Ionicons name="shield-checkmark-outline" size={16} color="#0F172A" />
+                    <Ionicons name="people-outline" size={16} color="#0F172A" />
                     <Text style={styles.sectionHeadingText} accessibilityRole="header">
-                        Recent verified feedback
+                        {COMMUNITY_FEEDBACK_TITLE}
                     </Text>
                 </View>
-                <Text style={styles.sectionCaption}>
-                    Reports about this bus that an administrator has verified, newest first.
-                </Text>
+                <Text style={styles.sectionCaption}>{COMMUNITY_FEEDBACK_CAPTION}</Text>
 
                 {state === 'LOADING' ? (
                     <AdminListSkeleton count={2} />
@@ -185,9 +185,9 @@ export function BusCommunityFeedbackScreen() {
                     />
                 ) : reports.length === 0 ? (
                     <AdminEmptyState
-                        icon="shield-checkmark-outline"
-                        title={NO_VERIFIED_FEEDBACK_TITLE}
-                        description={NO_VERIFIED_FEEDBACK_DESCRIPTION}
+                        icon="chatbubbles-outline"
+                        title={NO_COMMUNITY_FEEDBACK_TITLE}
+                        description={NO_COMMUNITY_FEEDBACK_DESCRIPTION}
                     />
                 ) : (
                     reports.map((report) => (
