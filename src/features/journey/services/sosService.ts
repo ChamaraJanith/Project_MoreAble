@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import { useJourneyStore } from '../../../shared/store/journeyStore';
+import { useAuthStore } from '../../../shared/store/authStore';
 // import { firestore } from '@/api/firebase';
 
 export const triggerSOSAlert = async () => {
@@ -33,7 +34,8 @@ export const triggerSOSAlert = async () => {
     console.log("SOS Alert Triggered!", sosData);
     
     // Trigger local state update for driver/vehicle dashboard
-    useJourneyStore.getState().triggerLocalSOS();
+    const passengerName = useAuthStore.getState().user?.userName;
+    useJourneyStore.getState().triggerLocalSOS(passengerName);
 
     // TODO: Save to Firebase or your backend API here
     // await firestore().collection('emergencies').add(sosData);

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { getBusSession } from '../../../shared/utils/busSession';
 import { fetchAssignedTrips } from '../api/assignedTripsApi';
 import { TripJourneyAction, TripJourneyError, TripJourneyResult, updateTripJourney } from '../api/tripJourneyApi';
+import { useJourneyStore } from '../../../shared/store/journeyStore';
 import { JourneySharingSnapshot, journeySharing } from '../services/journeySharing';
 import { AssignedTrip } from '../utils/assignedTrips';
 import {
@@ -203,7 +204,11 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
         async (trip: AssignedTrip) => {
             setBusy(true);
             try {
-                return await controller.startJourney(trip);
+                const result = await controller.startJourney(trip);
+                if (result.ok) {
+                    useJourneyStore.getState().setJourneyStarted(true);
+                }
+                return result;
             } finally {
                 setBusy(false);
             }
@@ -214,7 +219,11 @@ export function useTripJourney(busId: string | null | undefined): TripJourney {
     const endJourney = useCallback(async () => {
         setBusy(true);
         try {
-            return await controller.endJourney();
+            const result = await controller.endJourney();
+            if (result.ok) {
+                useJourneyStore.getState().setJourneyStarted(false);
+            }
+            return result;
         } finally {
             setBusy(false);
         }
