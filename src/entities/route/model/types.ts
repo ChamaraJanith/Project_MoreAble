@@ -215,6 +215,26 @@ export interface JourneyGeoInformation {
     message?: string;
 }
 
+/**
+ * What the journey search's ±60-minute window found BEFORE accessibility
+ * requirements were applied (MOV-308 AC6).
+ *
+ * Needed because the filtered response alone cannot say why it is empty: a
+ * requirement drops every route left with no suitable departure, so "no route
+ * serves this journey", "the route runs but nothing leaves within an hour" and
+ * "departures leave within the hour but none meets the requirements" all reach
+ * the screen as the same empty list. These two counts are what tells them apart.
+ *
+ * Derived per request from records already read. Never stored, and it carries
+ * no trip, vehicle or accessibility detail — only how many.
+ */
+export interface JourneySearchWindowSummary {
+    /** Routes serving origin -> destination, whatever their timetable. */
+    matchedRouteCount: number;
+    /** Catchable departures within ±60 minutes, before accessibility requirements. */
+    departureCount: number;
+}
+
 export interface JourneySearchMatch {
     routeId: string;
     routeNumber: string;

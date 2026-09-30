@@ -1,4 +1,8 @@
-import { JourneyGeoInformation, JourneySearchMatch } from '../../../entities/route/model/types';
+import {
+    JourneyGeoInformation,
+    JourneySearchMatch,
+    JourneySearchWindowSummary,
+} from '../../../entities/route/model/types';
 import { API_BASE_URL } from '../../../shared/api/config';
 import { AccessibilityRequirementKey } from '../../../shared/utils/accessibility';
 
@@ -31,6 +35,12 @@ export interface JourneySearchResponse {
      * the mapping services cannot resolve the locations.
      */
     geo?: JourneyGeoInformation;
+    /**
+     * What the time window found before accessibility requirements (MOV-308
+     * AC6), so an empty result can be explained correctly. Optional: a response
+     * from an older server has none, and the screen then keeps its old rule.
+     */
+    searchWindow?: JourneySearchWindowSummary;
 }
 
 export async function searchJourneys(criteria: JourneySearchCriteria): Promise<JourneySearchResponse> {
