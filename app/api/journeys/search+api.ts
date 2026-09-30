@@ -24,6 +24,7 @@ import {
   AccessibilityRequirementKey,
   AccessibilityScoreEvidence,
   computeAccessibilityScore,
+  computeAccessibilityScoreBreakdown,
   meetsAccessibilityRequirements,
   parseAccessibilityRequirements,
 } from '../../../src/shared/utils/accessibility';
@@ -708,6 +709,14 @@ async function attachUpcomingTrips(
               // with a different vehicle. The same function the booking flow
               // uses — one definition of how accessible a bus is (MOV-79).
               accessibilityScore: computeAccessibilityScore(bus.accessibilityFacilities, evidence),
+              // The three factors that score was made of, from the same
+              // facilities and the same evidence, so a passenger can see how
+              // the figure above was reached. The shared breakdown the admin
+              // Analytics page reads; no second formula, no extra read.
+              accessibilityScoreBreakdown: computeAccessibilityScoreBreakdown(
+                bus.accessibilityFacilities,
+                evidence
+              ),
               // How passengers rated this bus (MOV-80), from the very evidence
               // the score above was built from — already read, already cached
               // per request, so the figure costs no extra query and cannot

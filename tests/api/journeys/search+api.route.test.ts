@@ -2,7 +2,10 @@ import { Bus } from '../../../src/entities/bus/model/types';
 import { Route } from '../../../src/entities/route/model/types';
 import { Trip } from '../../../src/entities/trip/model/types';
 import { POST } from '../../../app/api/journeys/search+api';
-import { computeAccessibilityScore } from '../../../src/shared/utils/accessibility';
+import {
+    computeAccessibilityScore,
+    computeAccessibilityScoreBreakdown,
+} from '../../../src/shared/utils/accessibility';
 import { createFakeFirestore } from '../../testUtils/fakeFirestore';
 import { geocodeLocation } from '../../../src/shared/api/locationService';
 import {
@@ -526,6 +529,9 @@ describe('POST /api/journeys/search', () => {
                 // Read from the shared function rather than written down, so
                 // this stays a check of the contract, not of the arithmetic.
                 accessibilityScore: computeAccessibilityScore(bus1.accessibilityFacilities),
+                // The three factors that score was made of, from the same
+                // facilities and (here, no) evidence, by the shared helper.
+                accessibilityScoreBreakdown: computeAccessibilityScoreBreakdown(bus1.accessibilityFacilities),
                 // How passengers rated it (MOV-80). A separate figure from the
                 // score above, carried on the same response so a result card
                 // needs no lookup of its own. Nobody has rated this bus, which
@@ -958,6 +964,10 @@ describe('POST /api/journeys/search - malformed records', () => {
 
         expect(response.status).toBe(200);
         expect(json.routes[0].trips[0].bus).toBeNull();
+        // No bus, so no score and no breakdown anywhere on the departure —
+        // never a neutral or perfect one standing in for the unknown.
+        expect(json.routes[0].trips[0]).not.toHaveProperty('accessibilityScore');
+        expect(json.routes[0].trips[0]).not.toHaveProperty('accessibilityScoreBreakdown');
     });
 
     it('still returns a matched route whose document has no route id', async () => {

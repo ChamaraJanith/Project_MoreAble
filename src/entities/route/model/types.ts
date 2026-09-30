@@ -1,6 +1,7 @@
 import { BusAccessibilityFacilities, VehicleLocation } from '../../bus/model/types';
 import { BusRatingSummary } from '../../rating/model/types';
 import { Stop } from '../../stop/model/types';
+import type { AccessibilityFactorBreakdown } from '../../../shared/utils/accessibility';
 
 export type RouteStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -81,6 +82,17 @@ export interface JourneySearchBus {
      * rather than a bad one.
      */
     accessibilityScore: number;
+
+    /**
+     * The three weighted factors `accessibilityScore` was made of — facilities,
+     * community, passenger ratings — from the same facilities and evidence, by
+     * the shared `computeAccessibilityScoreBreakdown`.
+     *
+     * Optional because a journey saved before the search carried it, or a
+     * response from an older server, has none. Absent means "not known": a
+     * screen shows no breakdown rather than building one of its own.
+     */
+    accessibilityScoreBreakdown?: AccessibilityFactorBreakdown[] | null;
 
     /**
      * How passengers rated this bus (MOV-80): the plain average and the number

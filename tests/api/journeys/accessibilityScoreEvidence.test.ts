@@ -24,6 +24,7 @@ import { busRatingDocumentId } from '../../../src/shared/server/busRating';
 import { loadAccessibilityScoreEvidence } from '../../../src/shared/server/accessibilityScoreEvidence';
 import {
     computeAccessibilityScore,
+    computeAccessibilityScoreBreakdown,
     computeCommunityScore,
     computeRatingScore,
 } from '../../../src/shared/utils/accessibility';
@@ -195,8 +196,10 @@ async function search(db: ReturnType<typeof createFakeFirestore>) {
     return response.json();
 }
 
-const searchScoreOf = (json: any, tripId: string) =>
-    json.routes[0].trips.find((option: any) => option.trip.tripId === tripId).bus.accessibilityScore;
+const searchBusOf = (json: any, tripId: string) =>
+    json.routes[0].trips.find((option: any) => option.trip.tripId === tripId).bus;
+
+const searchScoreOf = (json: any, tripId: string) => searchBusOf(json, tripId).accessibilityScore;
 
 beforeEach(() => {
     jest.clearAllMocks();
@@ -242,6 +245,41 @@ describe('journey search', () => {
 
         expect(searchScoreOf(json, 'TRIP-RATED-AM')).toBe(73);
         expect(searchScoreOf(json, 'TRIP-RATED-AM')).toBe(computeAccessibilityScore(SIX_OF_EIGHT, RATED_EVIDENCE));
+    });
+
+    it('explains that score with the factors it was made of, from the same evidence', async () => {
+        const bus = searchBusOf(await search(seed()), 'TRIP-RATED-AM');
+
+        // Only the counted evidence: the pending, rejected and other-bus
+        // reports and ratings in the seed are no more in the breakdown than
+        // they are in the score.
+        expect(bus.accessibilityScoreBreakdown).toEqual(
+            computeAccessibilityScoreBreakdown(SIX_OF_EIGHT, RATED_EVIDENCE)
+        );
+        expect(bus.accessibilityScoreBreakdown.map((factor: any) => factor.key)).toEqual([
+            'FACILITIES',
+            'COMMUNITY',
+            'RATINGS',
+        ]);
+
+        // And it adds up to the very figure shown beside it, which is unchanged.
+        const total = bus.accessibilityScoreBreakdown.reduce(
+            (sum: number, factor: any) => sum + factor.contribution,
+            0
+        );
+        expect(Math.round(total)).toBe(bus.accessibilityScore);
+        expect(bus.accessibilityScore).toBe(73);
+    });
+
+    it('explains a bus with no evidence with the neutral factors, not a perfect or empty one', async () => {
+        const bus = searchBusOf(await search(seed()), 'TRIP-PLAIN');
+
+        expect(bus.accessibilityScoreBreakdown).toEqual(computeAccessibilityScoreBreakdown(SIX_OF_EIGHT));
+        expect(bus.accessibilityScoreBreakdown.map((factor: any) => factor.score)).toEqual([
+            75,
+            computeCommunityScore(),
+            computeRatingScore(),
+        ]);
     });
 
     it('scores a bus with no evidence from its facilities and the neutral baseline', async () => {
