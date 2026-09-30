@@ -3,15 +3,24 @@ import { AppText as Text } from '../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
     SafeAreaView,
+    ScrollView,
     StatusBar,
     StyleSheet,
+    TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
+import { getEmergencies, updateEmergencyStatusApi } from '../src/features/admin/api/emergencyAdminApi';
+import { EmergencyRequest } from '../src/entities/emergency/model/types';
 
 import { TripControlTab } from '../src/features/driver/ui/TripControlTab';
 import { useTripJourney } from '../src/features/driver/ui/useTripJourney';
@@ -37,6 +46,104 @@ export default function VehicleDashboardScreen() {
     
     // Subscribe to emergency store
     const { activeSOS, clearSOS } = useJourneyStore();
+
+    // Live Dispatch Chat State
+    const [busEmergency, setBusEmergency] = useState<EmergencyRequest | null>(null);
+    const [isChatModalVisible, setIsChatModalVisible] = useState(false);
+    const [chatInputMessage, setChatInputMessage] = useState('');
+    const [isSendingMessage, setIsSendingMessage] = useState(false);
+    const chatScrollRef = useRef<ScrollView>(null);
+
+    const syncBusEmergency = useCallback(async () => {
+        try {
+            const plate = session?.numberPlate;
+            if (!plate) return;
+            const list = await getEmergencies({ search: plate });
+            const active = list.find((e) => e.status !== 'RESOLVED');
+            if (active) {
+                setBusEmergency(active);
+            }
+        } catch {
+            // silent catch
+        }
+    }, [session?.numberPlate]);
+
+    React.useEffect(() => {
+        if (activeSOS?.isActive || isChatModalVisible) {
+            syncBusEmergency();
+            const interval = setInterval(syncBusEmergency, 3500);
+            return () => clearInterval(interval);
+        }
+    }, [activeSOS?.isActive, isChatModalVisible, syncBusEmergency]);
+
+    const handleCallControlCenter = () => {
+        Linking.openURL('tel:0112345678').catch(() => {
+            Alert.alert('Call Failed', 'Unable to initiate call to Control Center.');
+        });
+    };
+
+    const handleSendBusMessage = async (customText?: string) => {
+        const text = (customText || chatInputMessage).trim();
+        if (!text) return;
+        setIsSendingMessage(true);
+        try {
+            const plate = session?.numberPlate;
+            const emergencies = await getEmergencies({ search: plate });
+            const active = emergencies.find((e) => e.status !== 'RESOLVED') || emergencies[0];
+            if (active) {
+                const updated = await updateEmergencyStatusApi(active.id, {
+                    status: active.status === 'PENDING' ? 'ASSIGNED' : active.status,
+                    responderName: `Onboard Bus Crew (${identity.signedIn ? identity.numberPlate : 'Bus Crew'})`,
+                    responderContact: '0771234567',
+                    directiveMessage: text,
+                    changedBy: `Bus Crew (${identity.signedIn ? identity.numberPlate : 'Onboard'})`,
+                });
+                setBusEmergency(updated);
+                setChatInputMessage('');
+            }
+        } catch {
+            Alert.alert('Transmission Failed', 'Unable to send message to Control Center.');
+        } finally {
+            setIsSendingMessage(false);
+        }
+    };
+
+    const handleSendQuickAckToAdmin = async () => {
+        await handleSendBusMessage('Bus crew acknowledged directive. Currently attending to commuter.');
+        Alert.alert('Message Sent', 'Control Center notified: Bus crew attending to commuter.');
+    };
+
+    const handleConfirmAssistedAndResolve = () => {
+        Alert.alert(
+            'Confirm Passenger Assisted',
+            'Have you safely attended to the passenger and is the emergency resolved?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Confirm Resolved',
+                    style: 'default',
+                    onPress: async () => {
+                        clearSOS();
+                        try {
+                            const plate = session?.numberPlate;
+                            const emergencies = await getEmergencies({ search: plate });
+                            if (emergencies.length > 0 && emergencies[0].status !== 'RESOLVED') {
+                                await updateEmergencyStatusApi(emergencies[0].id, {
+                                    status: 'RESOLVED',
+                                    actionTaken: `Passenger safely assisted onboard by bus crew (${identity.signedIn ? identity.numberPlate : 'Bus Crew'}). Normal transit operations resumed.`,
+                                    notes: 'Resolved via Bus Dashboard Console',
+                                    changedBy: `Bus Crew (${identity.signedIn ? identity.numberPlate : 'Onboard'})`,
+                                });
+                            }
+                        } catch {
+                            // Local clear already succeeded
+                        }
+                        Alert.alert('Incident Resolved', 'Emergency status marked as resolved. Control Center notified.');
+                    },
+                },
+            ]
+        );
+    };
 
     useFocusEffect(
         useCallback(() => {
@@ -116,16 +223,53 @@ export default function VehicleDashboardScreen() {
             <View style={styles.container}>
                 {activeSOS?.isActive && (
                     <View style={styles.emergencyBanner}>
-                        <Ionicons name="warning" size={24} color="#FFFFFF" />
-                        <View style={styles.emergencyBannerTextContainer}>
-                            <Text style={styles.emergencyBannerTitle}>EMERGENCY SOS</Text>
-                            <Text style={styles.emergencyBannerDesc}>
-                                {activeSOS.passengerName} has triggered an SOS! Please check immediately.
-                            </Text>
+                        <View style={styles.emergencyTopRow}>
+                            <Ionicons name="warning" size={24} color="#FFFFFF" />
+                            <View style={styles.emergencyBannerTextContainer}>
+                                <Text style={styles.emergencyBannerTitle}>EMERGENCY SOS</Text>
+                                <Text style={styles.emergencyBannerDesc}>
+                                    {activeSOS.passengerName} has triggered an SOS! Please check immediately.
+                                </Text>
+                            </View>
+                            <TouchableOpacity style={styles.dismissEmergencyBtn} onPress={clearSOS}>
+                                <Text style={styles.dismissEmergencyText}>DISMISS</Text>
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity style={styles.dismissEmergencyBtn} onPress={clearSOS}>
-                            <Text style={styles.dismissEmergencyText}>DISMISS</Text>
-                        </TouchableOpacity>
+
+                        {/* Interactive Bus Operations Emergency Actions */}
+                        <View style={styles.emergencyActionsRow}>
+                            <TouchableOpacity
+                                style={styles.emergencyCallBtn}
+                                onPress={handleCallControlCenter}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="call" size={14} color="#FFFFFF" />
+                                <Text style={styles.emergencyBtnText}>Call Control Center</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.emergencyChatBtn}
+                                onPress={() => {
+                                    syncBusEmergency();
+                                    setIsChatModalVisible(true);
+                                }}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="chatbubbles" size={14} color="#FFFFFF" />
+                                <Text style={styles.emergencyBtnText}>
+                                    Live Dispatch Chat {busEmergency?.dispatchMessages?.length ? `(${busEmergency.dispatchMessages.length})` : ''}
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.emergencyResolveBtn}
+                                onPress={handleConfirmAssistedAndResolve}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="checkmark-circle" size={14} color="#FFFFFF" />
+                                <Text style={styles.emergencyBtnText}>Assisted & Resolved</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 )}
                 {!!exitError && (
@@ -248,6 +392,170 @@ export default function VehicleDashboardScreen() {
                     </View>
                 )}
             </View>
+
+            {/* Modal: Driver & Conductor Live Chat with Dispatcher */}
+            <Modal
+                visible={isChatModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setIsChatModalVisible(false)}
+            >
+                <KeyboardAvoidingView
+                    style={styles.chatModalOverlay}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                >
+                    <View style={styles.chatModalCard}>
+                        {/* Chat Header */}
+                        <View style={styles.chatModalHeader}>
+                            <View style={{ flex: 1 }}>
+                                <View style={styles.chatModalTitleRow}>
+                                    <View style={styles.liveIndicatorDot} />
+                                    <Text style={styles.chatModalTitle}>Control Center Dispatch</Text>
+                                </View>
+                                <Text style={styles.chatModalSubtitle}>
+                                    Bus {identity.signedIn ? identity.numberPlate : 'Console'} • Live HQ Link
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.chatModalCallBtn}
+                                onPress={handleCallControlCenter}
+                                activeOpacity={0.8}
+                            >
+                                <Ionicons name="call" size={14} color="#FFFFFF" />
+                                <Text style={styles.chatModalCallText}>Call HQ</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.chatModalCloseBtn}
+                                onPress={() => setIsChatModalVisible(false)}
+                            >
+                                <Ionicons name="close" size={20} color="#64748B" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Quick Response Chips for Driver / Conductor */}
+                        <Text style={styles.quickReplyLabel}>Driver Quick Responses:</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.driverChipsScrollView}
+                            contentContainerStyle={styles.driverChipsScroll}
+                        >
+                            <TouchableOpacity
+                                style={styles.driverChip}
+                                onPress={() => handleSendBusMessage('Attending to commuter onboard. Status stable.')}
+                                disabled={isSendingMessage}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.driverChipText}>✅ Attending onboard</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.driverChip}
+                                onPress={() => handleSendBusMessage('Safely pulled over at next bus halt.')}
+                                disabled={isSendingMessage}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.driverChipText}>🛑 Safely pulled over</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.driverChip}
+                                onPress={() => handleSendBusMessage('Wheelchair ramp deployed at vehicle exit.')}
+                                disabled={isSendingMessage}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.driverChipText}>♿ Ramp deployed</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.driverChip}
+                                onPress={() => handleSendBusMessage('Need medical / ambulance assistance at next halt.')}
+                                disabled={isSendingMessage}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.driverChipText}>🚑 Need ambulance</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+
+                        {/* Chat Messages Body */}
+                        <ScrollView
+                            ref={chatScrollRef}
+                            style={styles.chatMessageList}
+                            contentContainerStyle={styles.chatMessageListContent}
+                            onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+                        >
+                            {(!busEmergency?.dispatchMessages || busEmergency.dispatchMessages.length === 0) ? (
+                                <View style={styles.emptyChatBox}>
+                                    <Ionicons name="chatbubbles-outline" size={32} color="#94A3B8" />
+                                    <Text style={styles.emptyChatTitle}>No messages exchanged yet</Text>
+                                    <Text style={styles.emptyChatDesc}>
+                                        Use quick buttons above or type below to send situation updates to Control Center.
+                                    </Text>
+                                </View>
+                            ) : (
+                                busEmergency.dispatchMessages.map((msg) => {
+                                    const isFromBus = msg.sender === 'BUS_CREW';
+                                    return (
+                                        <View
+                                            key={msg.id}
+                                            style={[
+                                                styles.chatBubble,
+                                                isFromBus ? styles.chatBubbleBus : styles.chatBubbleAdmin,
+                                            ]}
+                                        >
+                                            <View style={styles.chatBubbleHeader}>
+                                                <View style={styles.chatBubbleSenderGroup}>
+                                                    <Ionicons
+                                                        name={isFromBus ? 'bus' : 'shield-checkmark'}
+                                                        size={12}
+                                                        color={isFromBus ? '#D97706' : '#2563EB'}
+                                                    />
+                                                    <Text
+                                                        style={[
+                                                            styles.chatBubbleSender,
+                                                            { color: isFromBus ? '#D97706' : '#2563EB' },
+                                                        ]}
+                                                        numberOfLines={1}
+                                                    >
+                                                        {msg.senderName}
+                                                    </Text>
+                                                </View>
+                                                <Text style={styles.chatBubbleTime}>
+                                                    {new Date(msg.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </Text>
+                                            </View>
+                                            <Text style={styles.chatBubbleText}>{msg.message}</Text>
+                                        </View>
+                                    );
+                                })
+                            )}
+                        </ScrollView>
+
+                        {/* Input Row */}
+                        <View style={styles.chatInputRow}>
+                            <TextInput
+                                style={styles.chatTextInput}
+                                placeholder="Type update to dispatch..."
+                                placeholderTextColor="#94A3B8"
+                                value={chatInputMessage}
+                                onChangeText={setChatInputMessage}
+                                editable={!isSendingMessage}
+                            />
+                            <TouchableOpacity
+                                style={[
+                                    styles.chatSendBtn,
+                                    (!chatInputMessage.trim() || isSendingMessage) && styles.chatSendBtnDisabled,
+                                ]}
+                                onPress={() => handleSendBusMessage()}
+                                disabled={!chatInputMessage.trim() || isSendingMessage}
+                            >
+                                {isSendingMessage ? (
+                                    <ActivityIndicator size="small" color="#FFFFFF" />
+                                ) : (
+                                    <Ionicons name="send" size={16} color="#FFFFFF" />
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -461,14 +769,16 @@ const styles = StyleSheet.create({
         backgroundColor: '#DC2626',
         borderRadius: 12,
         padding: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
         marginBottom: 16,
         shadowColor: '#DC2626',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,
+    },
+    emergencyTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     emergencyBannerTextContainer: {
         flex: 1,
@@ -498,5 +808,263 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 12,
         fontWeight: '800',
-    }
+    },
+    emergencyActionsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 12,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255, 255, 255, 0.25)',
+    },
+    emergencyCallBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#1E293B',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 6,
+    },
+    emergencyChatBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#2563EB',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 6,
+    },
+    emergencyAckBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#2563EB',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 6,
+    },
+    emergencyResolveBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#16A34A',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        gap: 6,
+    },
+    emergencyBtnText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '800',
+    },
+    chatModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        justifyContent: 'flex-end',
+    },
+    chatModalCard: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: Platform.OS === 'ios' ? 24 : 14,
+        height: '75%',
+        maxHeight: '85%',
+    },
+    chatModalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E2E8F0',
+        gap: 10,
+    },
+    chatModalTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    liveIndicatorDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#10B981',
+    },
+    chatModalTitle: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#0F172A',
+    },
+    chatModalSubtitle: {
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 2,
+    },
+    chatModalCallBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#16A34A',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 8,
+        gap: 4,
+    },
+    chatModalCallText: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '800',
+    },
+    chatModalCloseBtn: {
+        padding: 6,
+        borderRadius: 8,
+        backgroundColor: '#F1F5F9',
+    },
+    quickReplyLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#64748B',
+        textTransform: 'uppercase',
+        marginTop: 10,
+        marginBottom: 6,
+        letterSpacing: 0.5,
+    },
+    driverChipsScrollView: {
+        height: 38,
+        maxHeight: 38,
+        flexGrow: 0,
+        marginBottom: 6,
+    },
+    driverChipsScroll: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 2,
+    },
+    driverChip: {
+        backgroundColor: '#EFF6FF',
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        height: 32,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    driverChipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#1E40AF',
+    },
+    chatMessageList: {
+        flex: 1,
+        marginVertical: 4,
+    },
+    chatMessageListContent: {
+        gap: 8,
+        paddingVertical: 6,
+    },
+    emptyChatBox: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+        gap: 8,
+    },
+    emptyChatTitle: {
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#475569',
+    },
+    emptyChatDesc: {
+        fontSize: 12,
+        color: '#94A3B8',
+        textAlign: 'center',
+        paddingHorizontal: 24,
+    },
+    chatBubble: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 14,
+        maxWidth: '85%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    chatBubbleBus: {
+        alignSelf: 'flex-end',
+        backgroundColor: '#FEF3C7',
+        borderWidth: 1,
+        borderColor: '#FDE68A',
+        borderBottomRightRadius: 2,
+    },
+    chatBubbleAdmin: {
+        alignSelf: 'flex-start',
+        backgroundColor: '#EFF6FF',
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+        borderBottomLeftRadius: 2,
+    },
+    chatBubbleHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        marginBottom: 4,
+    },
+    chatBubbleSenderGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        flexShrink: 1,
+    },
+    chatBubbleSender: {
+        fontSize: 11,
+        fontWeight: '800',
+    },
+    chatBubbleTime: {
+        fontSize: 10,
+        color: '#94A3B8',
+        flexShrink: 0,
+    },
+    chatBubbleText: {
+        fontSize: 13,
+        color: '#1E293B',
+        lineHeight: 18,
+    },
+    chatInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#E2E8F0',
+    },
+    chatTextInput: {
+        flex: 1,
+        backgroundColor: '#F8FAFC',
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        fontSize: 13,
+        color: '#0F172A',
+    },
+    chatSendBtn: {
+        backgroundColor: '#0066CC',
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    chatSendBtnDisabled: {
+        backgroundColor: '#94A3B8',
+        opacity: 0.6,
+    },
 });

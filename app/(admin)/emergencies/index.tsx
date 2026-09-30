@@ -17,7 +17,8 @@ import {
     EmergencyRequest,
     EmergencyStatus,
 } from '../../../src/entities/emergency/model/types';
-import { getEmergencies } from '../../../src/features/admin/api/emergencyAdminApi';
+import { getEmergencies, deleteEmergencyApi } from '../../../src/features/admin/api/emergencyAdminApi';
+
 
 export default function EmergencyDashboardScreen() {
     const [emergencies, setEmergencies] = useState<EmergencyRequest[]>([]);
@@ -98,7 +99,30 @@ export default function EmergencyDashboardScreen() {
         });
     };
 
+    const handleDeleteEmergency = (id: string) => {
+        Alert.alert(
+            'Dismiss Incident',
+            `Are you sure you want to dismiss and clear emergency record ${id}?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Dismiss',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deleteEmergencyApi(id);
+                            setEmergencies((prev) => prev.filter((e) => e.id !== id));
+                        } catch (err: any) {
+                            Alert.alert('Error', err?.message || 'Failed to dismiss emergency.');
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
     const formatElapsedTime = (isoString?: string) => {
+
         if (!isoString) return 'Just now';
         const diffMs = Date.now() - new Date(isoString).getTime();
         const diffMins = Math.floor(diffMs / 60000);
@@ -298,11 +322,22 @@ export default function EmergencyDashboardScreen() {
                                             <Text style={statusConfig.text}>{statusConfig.label}</Text>
                                         </View>
                                     </View>
-                                    <View style={styles.elapsedBadge}>
-                                        <Ionicons name="time-outline" size={13} color="#64748B" />
-                                        <Text style={styles.elapsedText}>{formatElapsedTime(item.createdAt)}</Text>
+                                    <View style={styles.cardHeaderActions}>
+                                        <View style={styles.elapsedBadge}>
+                                            <Ionicons name="time-outline" size={13} color="#64748B" />
+                                            <Text style={styles.elapsedText}>{formatElapsedTime(item.createdAt)}</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.dismissButton}
+                                            onPress={() => handleDeleteEmergency(item.id)}
+                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            accessibilityLabel={`Dismiss emergency ${item.id}`}
+                                        >
+                                            <Ionicons name="trash-outline" size={14} color="#94A3B8" />
+                                        </TouchableOpacity>
                                     </View>
                                 </View>
+
 
                                 {/* Passenger Details */}
                                 <View style={styles.sectionRow}>
@@ -685,10 +720,22 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
     },
+    cardHeaderActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
     elapsedBadge: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
+    },
+    dismissButton: {
+        padding: 5,
+        borderRadius: 6,
+        backgroundColor: '#F1F5F9',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     elapsedText: {
         fontSize: 12,

@@ -237,18 +237,18 @@ export async function updateEmergencyStatus(
     }
 
     const current: EmergencyRequest = doc.data();
-    const targetStatus = normalizeEmergencyStatus(input.status);
+    const targetStatus = input.status ? normalizeEmergencyStatus(input.status) : current.status;
 
     if (!targetStatus) {
         throw new EmergencyConflictError(`Invalid target status: '${input.status}'. Allowed: PENDING, ASSIGNED, RESOLVED.`, 400);
     }
 
     // Validate workflow transition
-    if (current.status === targetStatus && targetStatus !== 'ASSIGNED') {
+    if (input.status && current.status === targetStatus && targetStatus !== 'ASSIGNED' && !input.directiveMessage) {
         throw new EmergencyConflictError(`Emergency is already in status '${targetStatus}'.`, 400);
     }
 
-    if (!isValidEmergencyTransition(current.status, targetStatus)) {
+    if (input.status && current.status !== targetStatus && !isValidEmergencyTransition(current.status, targetStatus)) {
         throw new EmergencyConflictError(
             `Invalid status transition: Cannot transition from '${current.status}' to '${targetStatus}'. The emergency workflow is: Pending -> Assigned -> Resolved.`,
             400
@@ -267,13 +267,36 @@ export async function updateEmergencyStatus(
         actionTaken: input.actionTaken?.trim() || undefined,
     };
 
-    const updatedHistory = [...(current.statusHistory || []), historyEntry];
+    const isStateModified =
+        targetStatus !== current.status ||
+        !!input.notes ||
+        !!input.responderName ||
+        !!input.actionTaken;
+
+    const updatedHistory = isStateModified
+        ? [...(current.statusHistory || []), historyEntry]
+        : current.statusHistory || [];
 
     const updates: Partial<EmergencyRequest> = {
         status: targetStatus,
         statusHistory: updatedHistory,
         updatedAt: timestamp,
     };
+
+    if (input.directiveMessage?.trim()) {
+        const isBusCrew =
+            actorId.toLowerCase().includes('bus') ||
+            actorId.toLowerCase().includes('driver') ||
+            actorId.toLowerCase().includes('conductor');
+        const newMsg = {
+            id: `MSG-${Date.now()}`,
+            sender: isBusCrew ? ('BUS_CREW' as const) : ('ADMIN' as const),
+            senderName: actorId,
+            message: input.directiveMessage.trim(),
+            sentAt: timestamp,
+        };
+        updates.dispatchMessages = [...(current.dispatchMessages || []), newMsg];
+    }
 
     if (targetStatus === 'ASSIGNED') {
         if (!input.responderName || !input.responderContact) {
@@ -312,3 +335,20 @@ export async function updateEmergencyStatus(
         ...updates,
     };
 }
+
+/**
+ * Deletes an emergency request record.
+ * Used for dismissing or cleaning records.
+ */
+export async function deleteEmergency(db: any, emergencyId: string): Promise<boolean> {
+    if (!emergencyId) return false;
+    const trimmedId = emergencyId.trim();
+    const docRef = db.collection(EMERGENCIES_COLLECTION).doc(trimmedId);
+    const snap = await docRef.get();
+    if (!snap.exists) return false;
+    if (typeof docRef.delete === 'function') {
+        await docRef.delete();
+    }
+    return true;
+}
+

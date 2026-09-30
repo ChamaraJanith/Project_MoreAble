@@ -1,5 +1,11 @@
 import { API_BASE_URL } from '../../../shared/api/config';
 
+let tokenProvider: (() => string | null) | null = null;
+
+export function setAdminTokenProvider(provider: () => string | null) {
+    tokenProvider = provider;
+}
+
 /**
  * Shared request helper for the admin API clients.
  *
@@ -13,6 +19,27 @@ export async function adminFetch(path: string, init?: RequestInit): Promise<any>
     if (init?.body && !headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
     }
+
+    if (!headers['Authorization']) {
+        let token: string | null = null;
+        if (tokenProvider) {
+            try {
+                token = tokenProvider();
+            } catch {}
+        } else {
+            try {
+                const { useAuthStore } = require('../../../shared/store/authStore');
+                token = useAuthStore?.getState?.()?.token || null;
+            } catch {
+                // In non-RN test runners without expo-secure-store transform
+            }
+        }
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+    }
+
+
 
     let response: Response;
 
