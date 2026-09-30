@@ -71,7 +71,8 @@ import {
     reportGalleryPhotos,
     reportJourneyEntries,
 } from '../utils/reportSummary';
-import { CommentRow } from './FeedbackComments';
+import { CommentRow, CommentThreadLayout } from './FeedbackComments';
+import { groupCommentThreads } from '../utils/reportFeedback';
 import {
     ReportEmptySection,
     ReportHero,
@@ -433,6 +434,22 @@ export const AdminReportReviewScreen = () => {
         const isPositive = !requiresAdminReview(report);
         const reviewNote = adminReviewStatusNote(report, report.review);
 
+        const commentThreads = groupCommentThreads(state.comments);
+
+        // Remove only: an admin moderates the thread, but never rewords what a
+        // passenger said.
+        const renderAdminComment = (comment: ReportCommentRecord, isReply = false) => (
+            <CommentRow
+                comment={comment}
+                isFirst
+                isReply={isReply}
+                onDelete={() => setCommentToRemove(comment)}
+                deleteLabel="Remove"
+                isDeleting={state.removingCommentId === comment.commentId}
+                actionsDisabled={state.removingCommentId !== null}
+            />
+        );
+
         return (
             <>
                 {/* ---------------- 1. Status and review flag ---------------- */}
@@ -533,18 +550,18 @@ export const AdminReportReviewScreen = () => {
                 <ReportSectionTitle>Community Comments</ReportSectionTitle>
 
                 <View style={reportDetailStyles.card}>
-                    {state.comments.length > 0 ? (
-                        state.comments.map((comment, index) => (
-                            // Remove only: an admin moderates the thread, but
-                            // never rewords what a passenger said.
-                            <CommentRow
-                                key={comment.commentId}
-                                comment={comment}
+                    {commentThreads.length > 0 ? (
+                        // The same threads, drawn the same way, as passengers see.
+                        commentThreads.map((thread, index) => (
+                            <CommentThreadLayout
+                                key={thread.comment.commentId}
                                 isFirst={index === 0}
-                                onDelete={() => setCommentToRemove(comment)}
-                                deleteLabel="Remove"
-                                isDeleting={state.removingCommentId === comment.commentId}
-                                actionsDisabled={state.removingCommentId !== null}
+                                comment={renderAdminComment(thread.comment)}
+                                replies={thread.replies.map((reply) => (
+                                    <React.Fragment key={reply.commentId}>
+                                        {renderAdminComment(reply, true)}
+                                    </React.Fragment>
+                                ))}
                             />
                         ))
                     ) : (

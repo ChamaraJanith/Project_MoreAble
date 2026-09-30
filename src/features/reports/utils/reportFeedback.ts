@@ -15,8 +15,10 @@
  */
 
 import {
+    MAX_COMMENT_IMAGE_BYTES,
     MAX_REPORT_COMMENT_LENGTH,
     ReportCommentRecord,
+    ReportPhotoDraft,
     ReportType,
     ReportVoteChoice,
 } from '../../../entities/report/model/types';
@@ -194,4 +196,127 @@ export function isSubmittableCommentEdit(draft: string, original: string): boole
     if (!isSubmittableComment(draft)) return false;
 
     return draft.trim() !== original.trim();
+}
+
+// ------------------------------------------------------------------
+// Replies and photos
+// ------------------------------------------------------------------
+
+/** Drawn in place of a comment deleted while replies still hung off it. */
+export const DELETED_COMMENT_LABEL = 'This comment was deleted.';
+
+/** "Replying to Kasun" — above the reply composer. */
+export function replyingToLabel(authorName: string): string {
+    return `Replying to ${authorName.trim() || 'Passenger'}`;
+}
+
+/**
+ * Whether a composer holds something worth sending: text, a photo, or both.
+ *
+ * A photo counts only once it is uploaded — the comment is never sent while
+ * its photo is still on its way, or after the upload failed, because what the
+ * API stores is the uploaded URL and there is none yet. Text that is present
+ * is still held to the length cap even when a photo is attached.
+ */
+export function canSubmitCommentDraft(draft: string, image: ReportPhotoDraft | null): boolean {
+    if (image && image.status !== 'uploaded') return false;
+
+    const trimmed = draft.trim();
+
+    if (trimmed.length > MAX_FEEDBACK_COMMENT_LENGTH) return false;
+
+    return trimmed.length > 0 || !!image?.url;
+}
+
+/** What the picker says about an image, as far as a comment photo cares. */
+export interface CommentImageCandidate {
+    mimeType?: string | null;
+    fileSize?: number | null;
+    base64?: string | null;
+}
+
+/** Bytes behind a base64 payload, for pickers that report no file size. */
+function base64Bytes(base64: string): number {
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+
+    return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+/**
+ * Why a picked file cannot be a comment photo, or null when it can.
+ *
+ * Checked before anything is uploaded: a video or a document is refused by
+ * type, and anything over MAX_COMMENT_IMAGE_BYTES by size.
+ */
+export function commentImageProblem(candidate: CommentImageCandidate): string | null {
+    const mimeType = candidate.mimeType?.trim().toLowerCase();
+
+    if (mimeType && !mimeType.startsWith('image/')) {
+        return 'Only image files can be attached to a comment.';
+    }
+
+    const size =
+        typeof candidate.fileSize === 'number' && candidate.fileSize > 0
+            ? candidate.fileSize
+            : candidate.base64
+              ? base64Bytes(candidate.base64)
+              : 0;
+
+    if (size > MAX_COMMENT_IMAGE_BYTES) {
+        return `This photo is larger than ${MAX_COMMENT_IMAGE_BYTES / (1024 * 1024)}MB. Please choose a smaller one.`;
+    }
+
+    return null;
+}
+
+/** One top-level comment and the replies under it. */
+export interface CommentThread {
+    comment: ReportCommentRecord;
+    /** Oldest first, so a conversation reads top to bottom. */
+    replies: ReportCommentRecord[];
+}
+
+function createdTime(comment: ReportCommentRecord): number {
+    const time = new Date(comment.createdAt).getTime();
+
+    return Number.isNaN(time) ? 0 : time;
+}
+
+/**
+ * The flat list the API returns, as threads.
+ *
+ * Top-level comments keep the order they arrived in (newest first, as the API
+ * sends them). Replies sit under their parent, oldest first. A reply whose
+ * parent is not on the list — which only an older, hand-deleted record could
+ * produce — is shown as a top-level comment rather than lost. A deleted
+ * placeholder with no replies left is not drawn at all.
+ */
+export function groupCommentThreads(items: ReportCommentRecord[]): CommentThread[] {
+    const topLevelIds = new Set(
+        items.filter((entry) => !entry.parentCommentId).map((entry) => entry.commentId)
+    );
+    const repliesByParent = new Map<string, ReportCommentRecord[]>();
+
+    items.forEach((entry) => {
+        if (!entry.parentCommentId || !topLevelIds.has(entry.parentCommentId)) return;
+
+        const replies = repliesByParent.get(entry.parentCommentId) ?? [];
+        replies.push(entry);
+        repliesByParent.set(entry.parentCommentId, replies);
+    });
+
+    return items
+        .filter((entry) => !entry.parentCommentId || !topLevelIds.has(entry.parentCommentId))
+        .map((comment) => ({
+            comment,
+            replies: [...(repliesByParent.get(comment.commentId) ?? [])].sort(
+                (first, second) => createdTime(first) - createdTime(second)
+            ),
+        }))
+        .filter((thread) => !thread.comment.deleted || thread.replies.length > 0);
+}
+
+/** How many comments and replies are actually saying something. */
+export function countVisibleComments(items: ReportCommentRecord[]): number {
+    return items.filter((entry) => !entry.deleted).length;
 }

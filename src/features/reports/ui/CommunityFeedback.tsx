@@ -2,6 +2,7 @@ import { AppText as Text } from '../../../shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
+    AccessibilityInfo,
     ActivityIndicator,
     StyleSheet,
     
@@ -34,10 +35,12 @@ import {
     shouldSendComment,
     shouldSendCommentDelete,
     shouldSendCommentEdit,
+    shouldSendReply,
     shouldSendVote,
     votesLoadErrorMessage,
 } from '../utils/reportFeedbackState';
-import { FeedbackComments } from './FeedbackComments';
+import { CommentReplyTarget, FeedbackComments } from './FeedbackComments';
+import { useCommentImageAttachment } from './useCommentImageAttachment';
 
 interface CommunityFeedbackProps {
     /** The report being voted and commented on. */
@@ -78,6 +81,15 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
 
     /** The comment awaiting delete confirmation, or null when no dialog is open. */
     const [commentToDelete, setCommentToDelete] = useState<ReportCommentRecord | null>(null);
+
+    // The optional photo on each composer: the main box and the reply box.
+    const commentImage = useCommentImageAttachment();
+    const replyImage = useCommentImageAttachment();
+
+    // The one open reply box — which thread it sits in, and whom it answers —
+    // and what is typed in it.
+    const [replyTarget, setReplyTarget] = useState<CommentReplyTarget | null>(null);
+    const [replyDraft, setReplyDraft] = useState('');
 
     /** The report currently on screen, so a late reload cannot land on another. */
     const currentReportId = useRef(reportId);
@@ -158,11 +170,15 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
     // again.
     // --------------------------------
     const handleSubmitComment = useCallback(async () => {
-        if (!token || !shouldSendComment(state, draft)) return;
+        const image = commentImage.image;
+
+        if (!token || !shouldSendComment(state, draft, image)) return;
 
         dispatch({ type: 'commentStarted' });
 
-        const result = await submitReportComment(reportId, draft.trim(), token);
+        const result = await submitReportComment(reportId, draft.trim(), token, {
+            imageUrl: image?.url ?? null,
+        });
 
         if (!result.ok) {
             dispatch({ type: 'commentFailed' });
@@ -171,7 +187,69 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
 
         dispatch({ type: 'commentSucceeded', comment: result.value });
         setDraft('');
-    }, [reportId, token, state, draft]);
+        commentImage.reset();
+        AccessibilityInfo.announceForAccessibility('Comment posted');
+    }, [reportId, token, state, draft, commentImage]);
+
+    // --------------------------------
+    // Reply
+    //
+    // One reply box at a time, always under a top-level comment: Reply on a
+    // reply opens the box for the thread it is in, "Replying to" its author.
+    // Like the main box, it clears only once the reply is stored.
+    // --------------------------------
+    const handleStartReply = useCallback(
+        (comment: ReportCommentRecord) => {
+            const parentCommentId = comment.parentCommentId || comment.commentId;
+
+            // Moving the box to another thread starts it empty; pressing Reply
+            // again in the same thread keeps what was typed.
+            if (replyTarget?.parentCommentId !== parentCommentId) {
+                setReplyDraft('');
+                replyImage.reset();
+                dispatch({ type: 'replyDismissed' });
+            }
+
+            setReplyTarget({ parentCommentId, authorName: comment.authorName });
+        },
+        [replyTarget, replyImage]
+    );
+
+    const handleCancelReply = useCallback(() => {
+        if (state.isPostingReply) return;
+
+        setReplyTarget(null);
+        setReplyDraft('');
+        replyImage.reset();
+        dispatch({ type: 'replyDismissed' });
+    }, [state.isPostingReply, replyImage]);
+
+    const handleSubmitReply = useCallback(async () => {
+        const target = replyTarget;
+        const image = replyImage.image;
+
+        if (!token || !target || !shouldSendReply(state, target.parentCommentId, replyDraft, image)) {
+            return;
+        }
+
+        dispatch({ type: 'replyStarted' });
+
+        const result = await submitReportComment(reportId, replyDraft.trim(), token, {
+            imageUrl: image?.url ?? null,
+            parentCommentId: target.parentCommentId,
+        });
+
+        if (!result.ok) {
+            dispatch({ type: 'replyFailed', message: result.message });
+            return;
+        }
+
+        dispatch({ type: 'replySucceeded', comment: result.value });
+        setReplyTarget(null);
+        setReplyDraft('');
+        replyImage.reset();
+        AccessibilityInfo.announceForAccessibility('Reply posted');
+    }, [reportId, token, state, replyTarget, replyDraft, replyImage]);
 
     // --------------------------------
     // The passenger's own comments (MOV-306)
@@ -252,13 +330,18 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
 
         if (result.ok) {
             dispatch({ type: 'commentDeleteSucceeded', commentId: target.commentId });
+
+            // A reply box open in a thread that has just gone closes with it.
+            if (replyTarget?.parentCommentId === target.commentId) handleCancelReply();
+
+            AccessibilityInfo.announceForAccessibility('Comment deleted');
             return;
         }
 
         dispatch({ type: 'commentDeleteFailed' });
 
         if (result.status === 404) reloadComments();
-    }, [reportId, token, state, commentToDelete, reloadComments]);
+    }, [reportId, token, state, commentToDelete, reloadComments, replyTarget, handleCancelReply]);
 
     const votesError = votesLoadErrorMessage(state);
     const commentsError = commentsLoadErrorMessage(state);
@@ -339,6 +422,7 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
                     draft={draft}
                     onChangeDraft={setDraft}
                     onSubmit={handleSubmitComment}
+                    attachment={commentImage}
                     viewerPassengerId={viewerPassengerId}
                     editingCommentId={state.editingCommentId}
                     editDraft={editDraft}
@@ -349,6 +433,15 @@ export function CommunityFeedback({ reportId, reportType, token }: CommunityFeed
                     onRequestDelete={handleRequestDelete}
                     pendingCommentAction={state.pendingCommentAction}
                     commentActionError={state.commentActionError}
+                    replyTarget={replyTarget}
+                    replyDraft={replyDraft}
+                    onChangeReplyDraft={setReplyDraft}
+                    onStartReply={handleStartReply}
+                    onCancelReply={handleCancelReply}
+                    onSubmitReply={handleSubmitReply}
+                    replyAttachment={replyImage}
+                    isPostingReply={state.isPostingReply}
+                    replyError={state.replyError}
                 />
             </View>
 

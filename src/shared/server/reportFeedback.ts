@@ -30,6 +30,7 @@ import {
 import { authenticateRequest, unauthorizedResponse } from '../api/authMiddleware';
 import { getAdminDb } from '../config/firebaseAdmin';
 import { JwtPayload } from '../config/jwt';
+import { normalizeCommentImageUrl } from './reportPhotos';
 
 // Re-exported so a route takes the cap and the threshold from the module that
 // enforces them rather than restating either number.
@@ -324,6 +325,184 @@ export function normalizeReportComment(input: unknown): FeedbackValidation<strin
     return { ok: true, value: trimmed };
 }
 
+/** What a new comment or reply says: its text, its photo, or both. */
+export interface ReportCommentContent {
+    /** Trimmed. Empty only when a photo carries the comment on its own. */
+    text: string;
+    imageUrl: string | null;
+}
+
+/**
+ * The text and photo in a request body, or why they cannot be stored.
+ *
+ * A comment has to say something, but a photo is a way of saying it: text or a
+ * photo is required, and either on its own is enough. Text that is present is
+ * held to exactly the rules `normalizeReportComment` applies, so a comment with
+ * a photo cannot be used to slip past the length cap.
+ */
+export function normalizeReportCommentContent(
+    body: Record<string, any>
+): FeedbackValidation<ReportCommentContent> {
+    const image = normalizeCommentImageUrl(body.imageUrl);
+
+    if (!image.ok) return image;
+
+    const rawText = body.comment;
+    const hasText = typeof rawText === 'string' && rawText.trim().length > 0;
+
+    if (!hasText) {
+        if (rawText !== undefined && rawText !== null && typeof rawText !== 'string') {
+            return { ok: false, message: 'Comment cannot be empty.' };
+        }
+
+        return image.value
+            ? { ok: true, value: { text: '', imageUrl: image.value } }
+            : { ok: false, message: 'Add a comment or attach a photo.' };
+    }
+
+    const text = normalizeReportComment(rawText);
+
+    if (!text.ok) return text;
+
+    return { ok: true, value: { text: text.value, imageUrl: image.value } };
+}
+
+/**
+ * The comment a reply is being attached to, or why it cannot be.
+ *
+ * Absent means a top-level comment. Present, it must name a comment that
+ * exists, sits under the same report as the reply, is itself top-level (one
+ * level of replies, never a reply to a reply) and has not been deleted. A
+ * parent under another report is answered exactly as one that does not exist,
+ * so a reply cannot be used to probe which comments other reports carry.
+ */
+export async function resolveReplyParent(
+    adminDb: any,
+    reportId: string,
+    input: unknown
+): Promise<{ ok: true; value: string | null } | { ok: false; status: number; message: string }> {
+    if (input === undefined || input === null || input === '') return { ok: true, value: null };
+
+    if (typeof input !== 'string' || !input.trim() || input.includes('/')) {
+        return { ok: false, status: 400, message: 'The comment being replied to is not valid.' };
+    }
+
+    const parentCommentId = input.trim();
+    const parentDoc = await adminDb
+        .collection(REPORT_COMMENTS_COLLECTION)
+        .doc(parentCommentId)
+        .get();
+    const parent = parentDoc.exists ? parentDoc.data() ?? null : null;
+
+    if (!parent || parent.reportId !== reportId) {
+        return { ok: false, status: 404, message: 'The comment being replied to was not found.' };
+    }
+
+    if (parent.parentCommentId) {
+        return { ok: false, status: 400, message: 'Replies can only be added to a top-level comment.' };
+    }
+
+    if (parent.deleted) {
+        return { ok: false, status: 400, message: 'That comment has been deleted.' };
+    }
+
+    return { ok: true, value: parentCommentId };
+}
+
+/** The replies stored under one top-level comment. */
+async function readReplyDocs(adminDb: any, parentCommentId: string): Promise<any[]> {
+    // Single equality filter: answered by Firestore's automatic single-field
+    // index, no composite index needed.
+    const snapshot = await adminDb
+        .collection(REPORT_COMMENTS_COLLECTION)
+        .where('parentCommentId', '==', parentCommentId)
+        .get();
+
+    return snapshot.docs;
+}
+
+/** What deleting one comment actually did to the thread. */
+export interface CommentRemovalOutcome {
+    /**
+     * Comments that left the thread besides the requested one: a deleted
+     * placeholder parent whose last reply this was.
+     */
+    alsoRemovedCommentIds: string[];
+    /**
+     * The requested comment, kept as a placeholder because other passengers'
+     * replies still hang off it; null when it was removed outright.
+     */
+    placeholder: ReportCommentRecord | null;
+}
+
+/**
+ * Deletes a comment, keeping the thread's shape honest.
+ *
+ * - A comment with no replies is deleted outright, as it always was.
+ * - A top-level comment with replies is emptied into a `deleted` placeholder
+ *   rather than deleted: the replies were written by other passengers, and
+ *   deleting one's own comment must never delete somebody else's.
+ * - A reply is deleted outright, and if that leaves a placeholder parent with
+ *   no replies at all, the placeholder goes too — it was only kept for them.
+ *
+ * Authorisation is the caller's job; this only applies the thread rules.
+ */
+export async function removeReportComment(
+    adminDb: any,
+    commentRef: any,
+    comment: Record<string, any>,
+    commentId: string
+): Promise<CommentRemovalOutcome> {
+    const parentCommentId =
+        typeof comment.parentCommentId === 'string' && comment.parentCommentId
+            ? comment.parentCommentId
+            : null;
+
+    if (!parentCommentId) {
+        const replies = await readReplyDocs(adminDb, commentId);
+
+        if (replies.length > 0) {
+            const update = {
+                deleted: true,
+                text: '',
+                imageUrl: null,
+                updatedAt: new Date().toISOString(),
+            };
+
+            await commentRef.update(update);
+
+            return {
+                alsoRemovedCommentIds: [],
+                placeholder: serializeReportComment({ ...comment, ...update }, commentId),
+            };
+        }
+
+        await commentRef.delete();
+
+        return { alsoRemovedCommentIds: [], placeholder: null };
+    }
+
+    await commentRef.delete();
+
+    const alsoRemovedCommentIds: string[] = [];
+    const parentRef = adminDb.collection(REPORT_COMMENTS_COLLECTION).doc(parentCommentId);
+    const parentDoc = await parentRef.get();
+    const parent = parentDoc.exists ? parentDoc.data() ?? null : null;
+
+    if (parent?.deleted) {
+        const remaining = (await readReplyDocs(adminDb, parentCommentId)).filter(
+            (doc: any) => doc.id !== commentId
+        );
+
+        if (remaining.length === 0) {
+            await parentRef.delete();
+            alsoRemovedCommentIds.push(parentCommentId);
+        }
+    }
+
+    return { alsoRemovedCommentIds, placeholder: null };
+}
+
 // ------------------------------------------------------------------
 // Tallies and the admin review flag
 // ------------------------------------------------------------------
@@ -362,7 +541,7 @@ export interface ReportVoteCounts {
 export async function countCommentsByReport(adminDb: any): Promise<Map<string, number>> {
     const collection = adminDb.collection(REPORT_COMMENTS_COLLECTION);
 
-    const snapshot = await collection.select('reportId').get();
+    const snapshot = await collection.select('reportId', 'deleted').get();
 
     const counts = new Map<string, number>();
 
@@ -370,6 +549,10 @@ export async function countCommentsByReport(adminDb: any): Promise<Map<string, n
         const reportId = doc.data()?.reportId;
 
         if (typeof reportId !== 'string' || !reportId) return;
+
+        // A deleted comment kept only as a placeholder for its replies is not
+        // a comment anybody is still making.
+        if (doc.data()?.deleted) return;
 
         counts.set(reportId, (counts.get(reportId) ?? 0) + 1);
     });
@@ -472,6 +655,13 @@ export function serializeReportComment(
         // Only on a comment that has actually been edited, so an unedited one
         // reads exactly as it always has.
         ...(data.editedAt ? { editedAt: toIsoString(data.editedAt) } : {}),
+        // The thread additions are likewise only present when they apply, so a
+        // plain top-level comment with no photo reads exactly as before.
+        ...(typeof data.imageUrl === 'string' && data.imageUrl ? { imageUrl: data.imageUrl } : {}),
+        ...(typeof data.parentCommentId === 'string' && data.parentCommentId
+            ? { parentCommentId: data.parentCommentId }
+            : {}),
+        ...(data.deleted ? { deleted: true } : {}),
     };
 }
 

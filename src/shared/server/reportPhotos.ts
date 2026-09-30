@@ -57,26 +57,51 @@ export function normalizeReportPhotoUrls(input: unknown): PhotoValidation<string
             return invalid(`Photo URL ${position} is not a valid URL.`);
         }
 
-        const value = entry.trim();
+        const problem = uploadedPhotoUrlProblem(entry.trim());
 
-        let parsed: URL;
+        if (problem) return invalid(`Photo URL ${position} ${problem}.`);
 
-        try {
-            parsed = new URL(value);
-        } catch {
-            return invalid(`Photo URL ${position} is not a valid URL.`);
-        }
-
-        if (parsed.protocol !== 'https:') {
-            return invalid(`Photo URL ${position} must be an https URL.`);
-        }
-
-        if (!parsed.hostname.endsWith(CLOUDINARY_HOST_SUFFIX)) {
-            return invalid(`Photo URL ${position} is not an uploaded photo URL.`);
-        }
-
-        urls.push(value);
+        urls.push(entry.trim());
     }
 
     return { ok: true, value: urls };
+}
+
+/**
+ * What is wrong with one URL as an uploaded photo, or null when nothing is.
+ *
+ * Shared by report evidence and comment photos, so both hold a photo to the
+ * same rule: https, and on Cloudinary's delivery host.
+ */
+function uploadedPhotoUrlProblem(value: string): string | null {
+    let parsed: URL;
+
+    try {
+        parsed = new URL(value);
+    } catch {
+        return 'is not a valid URL';
+    }
+
+    if (parsed.protocol !== 'https:') return 'must be an https URL';
+
+    if (!parsed.hostname.endsWith(CLOUDINARY_HOST_SUFFIX)) return 'is not an uploaded photo URL';
+
+    return null;
+}
+
+/**
+ * Validates a comment's optional `imageUrl`: one Cloudinary URL the app
+ * uploaded to, or nothing. Absent, null and an empty string are all "no photo".
+ */
+export function normalizeCommentImageUrl(input: unknown): PhotoValidation<string | null> {
+    if (input === undefined || input === null || input === '') return { ok: true, value: null };
+
+    if (typeof input !== 'string' || !input.trim()) {
+        return invalid('The attached photo is not a valid URL.');
+    }
+
+    const value = input.trim();
+    const problem = uploadedPhotoUrlProblem(value);
+
+    return problem ? invalid(`The attached photo ${problem}.`) : { ok: true, value };
 }
