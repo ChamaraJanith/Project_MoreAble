@@ -204,8 +204,12 @@ describe('when nothing is offered', () => {
         expect(results).toMatch(/accessibilityLabel="Clear accessibility requirements"/);
     });
 
-    it('keeps the time-window empty state for an unfiltered search only', () => {
-        expect(results).toMatch(/\{isEmpty && !isFiltering && \(/);
+    it('keeps the time-window empty state whenever the requirements are not the reason (MOV-308 AC6)', () => {
+        // Not "unfiltered only": a filtered search with nothing inside the hour
+        // is a time-window result too. journeyEmptyState.test.ts drives all
+        // three cases through the real search endpoint.
+        expect(results).toMatch(/\{isEmpty && !isFilteredEmpty && \(/);
+        expect(results).toContain("const isFilteredEmpty = emptyReason === 'NO_SUITABLE_JOURNEY';");
     });
 
     it('no longer claims the list is ordered by accessibility alone', () => {

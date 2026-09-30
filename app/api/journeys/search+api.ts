@@ -2,6 +2,7 @@ import { Bus, VehicleLocation } from '../../../src/entities/bus/model/types';
 import {
   JourneySearchMatch,
   JourneySearchOption,
+  JourneySearchWindowSummary,
   JourneyStopPoint,
   Route,
 } from '../../../src/entities/route/model/types';
@@ -970,6 +971,8 @@ export async function POST(request: Request) {
     };
 
     if (matchedRoutes.length === 0) {
+      const searchWindow: JourneySearchWindowSummary = { matchedRouteCount: 0, departureCount: 0 };
+
       return Response.json(
         {
           success: true,
@@ -978,6 +981,7 @@ export async function POST(request: Request) {
           count: 0,
           routes: [],
           geo,
+          searchWindow,
         },
         {
           status: 200,
@@ -1011,6 +1015,16 @@ export async function POST(request: Request) {
       )
     );
 
+    // What the time window found, counted BEFORE the requirements below remove
+    // anything (MOV-308 AC6). The filter drops a route left with no suitable
+    // departure, so without this an empty filtered response could not say
+    // whether the requirements or the requested time left it empty. Counted
+    // from the trips already selected above: no read, and no change to them.
+    const searchWindow: JourneySearchWindowSummary = {
+      matchedRouteCount: matchedRoutes.length,
+      departureCount: routesWithDepartures.reduce((total, match) => total + match.trips.length, 0),
+    };
+
     // MOV-92, applied here and only here: after the vehicles are known, so
     // suitability can be judged, and before the road enrichment below, so a
     // route no passenger can use costs no routing call.
@@ -1031,13 +1045,17 @@ export async function POST(request: Request) {
         message:
           enrichedRoutes.length === 0
             ? // Only reachable once requirements are filtering: routes did match
-              // this journey, so saying none did would be untrue.
-              'No routes match your accessibility requirements.'
+              // this journey, so saying none did would be untrue. Nor is it the
+              // requirements' doing when nothing left within the hour at all.
+              searchWindow.departureCount === 0
+              ? 'No departures within an hour of the requested time.'
+              : 'No routes match your accessibility requirements.'
             : `${enrichedRoutes.length} matching route${enrichedRoutes.length > 1 ? 's' : ''} found.`,
         searchCriteria,
         count: enrichedRoutes.length,
         routes: enrichedRoutes,
         geo,
+        searchWindow,
       },
       {
         status: 200,

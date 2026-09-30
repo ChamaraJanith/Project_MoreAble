@@ -7,6 +7,7 @@ import { ActivityIndicator, ScrollView, StyleSheet,  TouchableOpacity, View } fr
 import {
     JourneyGeoInformation,
     JourneySearchMatch,
+    JourneySearchWindowSummary,
 } from '../../../entities/route/model/types';
 import { useAuthStore } from '../../../shared/store/authStore';
 import {
@@ -35,6 +36,7 @@ import {
     toggleAccessibilityRequirement,
 } from '../utils/accessibilityFilters';
 import { formatFriendlyDate, formatFriendlyTime, parseApiDateString, parseApiTimeString } from '../utils/dateTime';
+import { journeyEmptyReason } from '../utils/journeyEmptyState';
 import { goBackOrTo, JOURNEY_PLANNER_PATH } from '../utils/journeyNavigation';
 import {
     isExactTimeMatch,
@@ -61,6 +63,9 @@ export const JourneySearchResults = () => {
     const [routes, setRoutes] = useState<JourneySearchMatch[]>([]);
     // Kept so "View details" can hand the route map data to the details screen.
     const [geo, setGeo] = useState<JourneyGeoInformation | null>(null);
+    // What the time window found before the requirements were applied (MOV-308
+    // AC6): the only way an empty filtered result can say why it is empty.
+    const [searchWindow, setSearchWindow] = useState<JourneySearchWindowSummary | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
     // The passenger's stated accessibility needs (MOV-91). Held here, alongside
     // the results they narrow, so selecting one filters what is already on
@@ -146,6 +151,7 @@ export const JourneySearchResults = () => {
 
             setRoutes(Array.isArray(response.routes) ? response.routes : []);
             setGeo(response.geo ?? null);
+            setSearchWindow(response.searchWindow ?? null);
             setStatus('loaded');
         } catch (error: any) {
             if (requestId !== latestRequestId.current) return;
@@ -295,15 +301,22 @@ export const JourneySearchResults = () => {
     const friendlyDate = travelDate ? formatFriendlyDate(parseApiDateString(travelDate)) : '';
     const friendlyTime = travelTime ? formatFriendlyTime(parseApiTimeString(travelTime)) : '';
 
-    // A route can match without having any upcoming departure, so the two empty
-    // cases need different explanations.
-    const hasMatchedRoutes = routes.length > 0;
     const isEmpty = status === 'loaded' && visibleJourneys.length === 0;
-    // Nothing to show BECAUSE of the stated needs. A different situation from
-    // having no route or no departure at all: the search itself excluded the
-    // unsuitable departures, so neither of the other two explanations is true,
-    // and this one has its own way out.
-    const isFilteredEmpty = isEmpty && isFiltering;
+    // Why it is empty, from the search's own counts taken before the
+    // requirements were applied (MOV-308 AC6) — never guessed from what
+    // survived the filter. Three different situations, three explanations:
+    //   - no route at all;
+    //   - a route that runs, but nothing within an hour of the requested time,
+    //     requirements or not: removing one would bring nothing back;
+    //   - departures within the hour that the stated needs excluded, which is
+    //     the only case with "remove a requirement" as its way out.
+    const emptyReason = isEmpty
+        ? journeyEmptyReason({ searchWindow, isFiltering, returnedRouteCount: routes.length })
+        : null;
+    // Read only by the time-window / no-route empty state below, where the
+    // reason is one of those two, so it still means exactly "a route matched".
+    const hasMatchedRoutes = emptyReason === 'NO_JOURNEY_IN_WINDOW';
+    const isFilteredEmpty = emptyReason === 'NO_SUITABLE_JOURNEY';
 
     return (
         <View style={styles.container}>
@@ -395,7 +408,7 @@ export const JourneySearchResults = () => {
                 )}
 
                 {/* Empty */}
-                {isEmpty && !isFiltering && (
+                {isEmpty && !isFilteredEmpty && (
                     <View style={styles.stateContainer} accessibilityLiveRegion="polite">
                         <View style={styles.stateIconBadge}>
                             <Ionicons
