@@ -2,8 +2,9 @@
  * The report form's rules, kept apart from the screen that renders them.
  *
  * Extracted rather than inlined so the gating can be tested directly: whether
- * Submit is live, and whether the bus picker may open, are the two things this
- * form has to get right, and both are pure functions of what is selected.
+ * a report may be sent (and what to say under each field when it may not), and
+ * whether the bus picker may open, are the things this form has to get right,
+ * and all are pure functions of what is selected.
  */
 
 import {
@@ -33,19 +34,42 @@ export function isBusSelectionUnlocked(routeId: string | null): boolean {
     return !!routeId;
 }
 
+/** The required fields, each with the message shown beside it when missing. */
+export type ReportFieldErrors = Partial<
+    Record<'issueCategory' | 'description' | 'routeId' | 'busId', string>
+>;
+
 /**
- * Every required field, in the order the form asks for them.
+ * Every required field that is not filled in yet, keyed by field.
+ *
+ * What the form draws under each input once Submit has been tried — the
+ * counterpart of positiveFeedbackFieldErrors. An empty object means the report
+ * is ready to submit. Insertion order is the order the form asks for them, so
+ * firstMissingReportField reads the same rules from here.
+ */
+export function reportFieldErrors(state: ReportFormState): ReportFieldErrors {
+    const errors: ReportFieldErrors = {};
+
+    if (!state.issueCategory) errors.issueCategory = 'Please select an issue category.';
+    if (!state.description.trim()) {
+        errors.description = 'Please provide a description of the issue.';
+    }
+    if (!state.routeId) errors.routeId = 'Please select the route you were travelling on.';
+    if (!state.busId) errors.busId = 'Please select the bus you were travelling on.';
+
+    return errors;
+}
+
+/**
+ * The first missing field's message, in the order the form asks for them.
  *
  * Returns null when the report is ready to submit, so the caller can use it
- * both to gate the button and to explain what is missing.
+ * both to gate the submission and to explain what is missing.
  */
 export function firstMissingReportField(state: ReportFormState): string | null {
-    if (!state.issueCategory) return 'Please select an issue category.';
-    if (!state.description.trim()) return 'Please provide a description of the issue.';
-    if (!state.routeId) return 'Please select the route you were travelling on.';
-    if (!state.busId) return 'Please select the bus you were travelling on.';
+    const errors = reportFieldErrors(state);
 
-    return null;
+    return errors.issueCategory ?? errors.description ?? errors.routeId ?? errors.busId ?? null;
 }
 
 /**

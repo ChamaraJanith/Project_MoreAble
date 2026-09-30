@@ -13,8 +13,10 @@ import { ReportCommentRecord } from '../../../entities/report/model/types';
 import { adminColors } from '../../admin/ui/adminTheme';
 import {
     MAX_FEEDBACK_COMMENT_LENGTH,
+    OWN_COMMENT_LABEL,
     commentInitial,
     formatCommentTimestamp,
+    isOwnComment,
     isSubmittableComment,
 } from '../utils/reportFeedback';
 
@@ -30,6 +32,8 @@ interface FeedbackCommentsProps {
     draft: string;
     onChangeDraft: (text: string) => void;
     onSubmit: () => void;
+    /** The signed-in passenger, whose own comments are marked "You". */
+    viewerPassengerId?: string | null;
 }
 
 /**
@@ -53,6 +57,7 @@ export function FeedbackComments({
     draft,
     onChangeDraft,
     onSubmit,
+    viewerPassengerId = null,
 }: FeedbackCommentsProps) {
     const canSubmit = isSubmittableComment(draft) && !isPosting;
 
@@ -64,7 +69,12 @@ export function FeedbackComments({
                 <CommentsError message={loadError} />
             ) : comments.length > 0 ? (
                 comments.map((comment, index) => (
-                    <CommentRow key={comment.commentId} comment={comment} isFirst={index === 0} />
+                    <CommentRow
+                        key={comment.commentId}
+                        comment={comment}
+                        isFirst={index === 0}
+                        isOwn={isOwnComment(comment, viewerPassengerId)}
+                    />
                 ))
             ) : (
                 <EmptyComments />
@@ -141,7 +151,20 @@ function CommentsError({ message }: { message: string }) {
  * do not join the conversation. Drawing that thread from this row rather than
  * from a second one is what keeps the two readings identical.
  */
-export function CommentRow({ comment, isFirst }: { comment: ReportCommentRecord; isFirst: boolean }) {
+export function CommentRow({
+    comment,
+    isFirst,
+    isOwn = false,
+}: {
+    comment: ReportCommentRecord;
+    isFirst: boolean;
+    /**
+     * Whether the signed-in passenger wrote it — see isOwnComment. Only the
+     * passenger thread passes it; the admin review page does not, so its
+     * thread carries no "You" marker.
+     */
+    isOwn?: boolean;
+}) {
     return (
         <View style={[styles.commentRow, !isFirst && styles.divided]}>
             <View style={styles.avatar}>
@@ -150,9 +173,19 @@ export function CommentRow({ comment, isFirst }: { comment: ReportCommentRecord;
 
             <View style={styles.commentBody}>
                 <View style={styles.commentHeader}>
-                    <Text style={styles.commentAuthor} numberOfLines={1}>
-                        {comment.authorName}
-                    </Text>
+                    <View style={styles.commentAuthorRow}>
+                        <Text style={styles.commentAuthor} numberOfLines={1}>
+                            {comment.authorName}
+                        </Text>
+
+                        {/* Said in a word, not a colour: the chip is what
+                            marks the comment as the viewer's own. */}
+                        {isOwn && (
+                            <View style={styles.ownChip}>
+                                <Text style={styles.ownChipText}>{OWN_COMMENT_LABEL}</Text>
+                            </View>
+                        )}
+                    </View>
                     <Text style={styles.commentDate}>
                         {formatCommentTimestamp(comment.createdAt)}
                     </Text>
@@ -226,12 +259,31 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
-    commentAuthor: {
+    commentAuthorRow: {
         flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 10,
+    },
+    commentAuthor: {
+        flexShrink: 1,
         fontSize: 13,
         fontWeight: '700',
         color: adminColors.textPrimary,
-        marginRight: 10,
+    },
+    ownChip: {
+        marginLeft: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 6,
+        backgroundColor: adminColors.primarySoft,
+    },
+    ownChipText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: adminColors.primary,
+        letterSpacing: 0.4,
     },
     commentDate: {
         fontSize: 11,

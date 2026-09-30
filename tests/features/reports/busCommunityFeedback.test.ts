@@ -1,5 +1,5 @@
 // Viewing a bus's community standing (MOV-80): how the average rating reads,
-// which verified reports belong to one bus, what the two reads ask the API for,
+// which public community reports belong to one bus, what the two reads ask the API for,
 // and where the three pieces of information actually appear on screen.
 //
 // The average itself is not computed here and is not computed in the app — it
@@ -12,20 +12,26 @@ import { BusRatingSummary } from '../../../src/entities/rating/model/types';
 import { AccessibilityReport } from '../../../src/entities/report/model/types';
 import {
     BUS_RATING_SUMMARY_PATH,
-    VERIFIED_REPORTS_PATH,
+    PUBLIC_REPORTS_PATH,
     getBusRatingSummary,
-    getVerifiedBusReports,
+    getBusCommunityReports,
     readBusRatingSummary,
 } from '../../../src/features/reports/api/busCommunityApi';
 import {
+    COMMUNITY_FEEDBACK_TITLE,
+    NO_COMMUNITY_FEEDBACK_TITLE,
     NO_RATINGS_LABEL,
     describeRatingSummary,
     formatAverageRating,
     initialRatingLoadState,
     ratingCardView,
     ratingCountLabel,
-    selectVerifiedBusReports,
+    selectBusCommunityReports,
 } from '../../../src/features/reports/utils/busCommunityFeedback';
+import {
+    reportCardSummary,
+    reportCardVisibleText,
+} from '../../../src/features/reports/utils/reportSummary';
 
 jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: '' }));
 
@@ -114,13 +120,44 @@ describe('which community feedback a passenger is shown', () => {
             ...over,
         }) as AccessibilityReport;
 
-    it('shows verified reports about this bus', () => {
-        const picked = selectVerifiedBusReports([report({ reportId: 'REP-1' })], 'BUS-A');
+    it('shows verified issue reports about this bus', () => {
+        const picked = selectBusCommunityReports([report({ reportId: 'REP-1' })], 'BUS-A');
 
         expect(picked.map((entry) => entry.reportId)).toEqual(['REP-1']);
     });
 
-    it('shows nothing that an administrator has not verified', () => {
+    it('shows PUBLISHED positive feedback about this bus, which needs no review', () => {
+        const positive = report({
+            reportId: 'POSITIVE',
+            type: 'POSITIVE',
+            category: 'HELPFUL_DRIVER',
+            status: 'PUBLISHED',
+        });
+
+        const picked = selectBusCommunityReports([positive], 'BUS-A');
+
+        expect(picked.map((entry) => entry.reportId)).toEqual(['POSITIVE']);
+    });
+
+    it('lists verified issues and positive feedback together, newest first', () => {
+        const reports = [
+            report({ reportId: 'ISSUE', createdAt: '2026-09-01T10:00:00.000Z' }),
+            report({
+                reportId: 'POSITIVE',
+                type: 'POSITIVE',
+                category: 'HELPFUL_DRIVER',
+                status: 'PUBLISHED',
+                createdAt: '2026-09-02T10:00:00.000Z',
+            }),
+        ];
+
+        expect(selectBusCommunityReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
+            'POSITIVE',
+            'ISSUE',
+        ]);
+    });
+
+    it('shows no issue an administrator has not verified', () => {
         const reports = [
             report({ reportId: 'PENDING', status: 'PENDING' }),
             report({ reportId: 'REJECTED', status: 'REJECTED' }),
@@ -129,9 +166,34 @@ describe('which community feedback a passenger is shown', () => {
             report({ reportId: 'VERIFIED' }),
         ];
 
-        expect(selectVerifiedBusReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
+        expect(selectBusCommunityReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
             'VERIFIED',
         ]);
+    });
+
+    it('hides legacy positive feedback an admin rejected, like the public feed does', () => {
+        const rejected = report({
+            reportId: 'REJECTED-POSITIVE',
+            type: 'POSITIVE',
+            category: 'HELPFUL_DRIVER',
+            status: 'REJECTED',
+        });
+
+        expect(selectBusCommunityReports([rejected], 'BUS-A')).toEqual([]);
+    });
+
+    it('badges positive feedback by its type, never with the internal PUBLISHED status', () => {
+        const positive = report({
+            reportId: 'POSITIVE',
+            type: 'POSITIVE',
+            category: 'HELPFUL_DRIVER',
+            status: 'PUBLISHED',
+        });
+        const [picked] = selectBusCommunityReports([positive], 'BUS-A');
+        const summary = reportCardSummary(picked);
+
+        expect(summary.reportType).toBe('POSITIVE');
+        expect(reportCardVisibleText(summary).join(' ')).not.toMatch(/published/i);
     });
 
     it('shows nothing filed against another bus, or against no bus', () => {
@@ -141,7 +203,7 @@ describe('which community feedback a passenger is shown', () => {
             report({ reportId: 'THIS-BUS' }),
         ];
 
-        expect(selectVerifiedBusReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
+        expect(selectBusCommunityReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
             'THIS-BUS',
         ]);
     });
@@ -149,8 +211,8 @@ describe('which community feedback a passenger is shown', () => {
     it('matches nothing at all when no bus is named', () => {
         const reports = [report({ busId: undefined }), report({})];
 
-        expect(selectVerifiedBusReports(reports, '')).toEqual([]);
-        expect(selectVerifiedBusReports(reports, '   ')).toEqual([]);
+        expect(selectBusCommunityReports(reports, '')).toEqual([]);
+        expect(selectBusCommunityReports(reports, '   ')).toEqual([]);
     });
 
     it('puts the most recent feedback first', () => {
@@ -160,7 +222,7 @@ describe('which community feedback a passenger is shown', () => {
             report({ reportId: 'MIDDLE', createdAt: '2026-09-01T10:00:00.000Z' }),
         ];
 
-        expect(selectVerifiedBusReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
+        expect(selectBusCommunityReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
             'NEWEST',
             'MIDDLE',
             'OLD',
@@ -174,7 +236,7 @@ describe('which community feedback a passenger is shown', () => {
             report({ reportId: 'NEW', createdAt: '2026-09-20T10:00:00.000Z' }),
         ];
 
-        expect(selectVerifiedBusReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
+        expect(selectBusCommunityReports(reports, 'BUS-A').map((e) => e.reportId)).toEqual([
             'NEW',
             'OLD',
             'BROKEN',
@@ -188,16 +250,16 @@ describe('which community feedback a passenger is shown', () => {
             report({ reportId: 'C', createdAt: '2026-09-01T10:00:00.000Z' }),
         ];
 
-        expect(selectVerifiedBusReports(reports, 'BUS-A', 2).map((e) => e.reportId)).toEqual([
+        expect(selectBusCommunityReports(reports, 'BUS-A', 2).map((e) => e.reportId)).toEqual([
             'A',
             'B',
         ]);
     });
 
     it('survives an empty, absent or ragged list', () => {
-        expect(selectVerifiedBusReports([], 'BUS-A')).toEqual([]);
-        expect(selectVerifiedBusReports(null, 'BUS-A')).toEqual([]);
-        expect(selectVerifiedBusReports([null, undefined], 'BUS-A')).toEqual([]);
+        expect(selectBusCommunityReports([], 'BUS-A')).toEqual([]);
+        expect(selectBusCommunityReports(null, 'BUS-A')).toEqual([]);
+        expect(selectBusCommunityReports([null, undefined], 'BUS-A')).toEqual([]);
     });
 });
 
@@ -311,24 +373,35 @@ describe('what the app asks the API for', () => {
         });
     });
 
-    it('reads verified reports from the existing slice and narrows them here', async () => {
+    it('reads the public feed and narrows it to this bus here', async () => {
         respond(200, {
             success: true,
             reports: [
                 { reportId: 'MINE', status: 'VERIFIED', busId: 'BUS-A', createdAt: '2026-09-02T00:00:00.000Z' },
                 { reportId: 'PENDING', status: 'PENDING', busId: 'BUS-A', createdAt: '2026-09-03T00:00:00.000Z' },
                 { reportId: 'OTHER', status: 'VERIFIED', busId: 'BUS-B', createdAt: '2026-09-04T00:00:00.000Z' },
+                {
+                    reportId: 'PRAISE',
+                    type: 'POSITIVE',
+                    category: 'HELPFUL_DRIVER',
+                    status: 'PUBLISHED',
+                    busId: 'BUS-A',
+                    createdAt: '2026-09-01T00:00:00.000Z',
+                },
             ],
         });
 
-        const result = await getVerifiedBusReports('tok', 'BUS-A');
+        const result = await getBusCommunityReports('tok', 'BUS-A');
 
-        expect(mockFetch.mock.calls[0][0]).toBe(VERIFIED_REPORTS_PATH);
-        expect(result.ok && result.value.map((entry) => entry.reportId)).toEqual(['MINE']);
+        expect(mockFetch.mock.calls[0][0]).toBe(PUBLIC_REPORTS_PATH);
+        expect(result.ok && result.value.map((entry) => entry.reportId)).toEqual([
+            'MINE',
+            'PRAISE',
+        ]);
     });
 
-    it('does not invent a second listing route for reports', () => {
-        expect(VERIFIED_REPORTS_PATH).toBe('/api/reports?scope=verified');
+    it('reads the existing public feed rather than a second listing route', () => {
+        expect(PUBLIC_REPORTS_PATH).toBe('/api/reports?scope=all');
     });
 });
 
@@ -351,7 +424,7 @@ describe('where the three things actually appear', () => {
 
     it('does not put reports or reviews on the search result card', () => {
         expect(card).not.toContain('ReportListCard');
-        expect(card).not.toContain('selectVerifiedBusReports');
+        expect(card).not.toContain('selectBusCommunityReports');
     });
 
     it('puts a rating summary on Route Details with a way through to the feedback', () => {
@@ -364,11 +437,22 @@ describe('where the three things actually appear', () => {
         expect(details).not.toContain('ReportListCard');
     });
 
-    it('shows the bus, the average and the verified feedback on the feedback screen', () => {
+    it('shows the bus, the average and the community feedback on the feedback screen', () => {
         expect(feedback).toContain('Community Feedback');
         expect(feedback).toContain('BusRatingSummaryCard');
-        expect(feedback).toContain('getVerifiedBusReports');
+        expect(feedback).toContain('getBusCommunityReports');
         expect(feedback).toContain('ReportListCard');
+    });
+
+    it('headlines the list as community feedback, not as verified feedback', () => {
+        expect(COMMUNITY_FEEDBACK_TITLE).toBe('Community feedback');
+        expect(feedback).toContain('{COMMUNITY_FEEDBACK_TITLE}');
+        expect(feedback).not.toContain('Recent verified feedback');
+        expect(NO_COMMUNITY_FEEDBACK_TITLE).toBe('No community feedback yet');
+    });
+
+    it('draws no status badge on any card in the feed', () => {
+        expect(feedback).toContain('status={null}');
     });
 
     it('reuses the existing report card rather than a second one', () => {
@@ -445,7 +529,7 @@ describe('the rating the screens show is the backend’s', () => {
     });
 
     it('the endpoint does not serve reports, which already have one', () => {
-        expect(route).not.toContain('getVerifiedBusReports');
+        expect(route).not.toContain('getBusCommunityReports');
         expect(route).not.toContain("collection('reports')");
     });
 });

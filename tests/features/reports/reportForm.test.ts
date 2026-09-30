@@ -5,6 +5,8 @@
 // Jest setup is node-only with no React renderer, and because the gating is
 // genuinely logic: what Submit does is decided entirely by what is selected.
 
+import * as fs from 'fs';
+import * as path from 'path';
 import {
     REPORT_CATEGORY_OPTIONS,
     reportCategoryIcon,
@@ -15,6 +17,7 @@ import {
     firstMissingReportField,
     isBusSelectionUnlocked,
     photoUploadIssue,
+    reportFieldErrors,
     ReportFormState,
     uploadedPhotoUrls,
 } from '../../../src/features/reports/utils/reportFormValidation';
@@ -153,6 +156,82 @@ describe('report form submission gating', () => {
     it('blocks a second submission while one is in flight', () => {
         // The guard against a double-tap turning one report into two.
         expect(canSubmitReport(completeForm(), true)).toBe(false);
+    });
+});
+
+// ==================================================================
+// Per-field validation messages (MOV-305)
+//
+// Submit stays live on an incomplete form, so pressing it has to say which
+// fields are missing — under each field, as the positive feedback form does.
+// ==================================================================
+describe('report form field errors', () => {
+    it('has no errors on a complete form', () => {
+        expect(reportFieldErrors(completeForm())).toEqual({});
+    });
+
+    it('names every missing required field at once, not just the first', () => {
+        const errors = reportFieldErrors({
+            issueCategory: null,
+            description: '',
+            routeId: null,
+            busId: null,
+        });
+
+        expect(Object.keys(errors)).toEqual(['issueCategory', 'description', 'routeId', 'busId']);
+        expect(errors.issueCategory).toMatch(/issue category/i);
+        expect(errors.description).toMatch(/description/i);
+        expect(errors.routeId).toMatch(/route/i);
+        expect(errors.busId).toMatch(/bus/i);
+    });
+
+    it('flags only the field that is missing', () => {
+        expect(reportFieldErrors(completeForm({ busId: null }))).toEqual({
+            busId: 'Please select the bus you were travelling on.',
+        });
+    });
+
+    it('treats a whitespace-only description as missing', () => {
+        expect(Object.keys(reportFieldErrors(completeForm({ description: '  \n ' })))).toEqual([
+            'description',
+        ]);
+    });
+
+    it('agrees with firstMissingReportField, which reads the same rules', () => {
+        const cases: Partial<ReportFormState>[] = [
+            {},
+            { issueCategory: null },
+            { description: '' },
+            { routeId: null, busId: null },
+            { busId: null },
+        ];
+
+        for (const overrides of cases) {
+            const form = completeForm(overrides);
+            const first = Object.values(reportFieldErrors(form))[0] ?? null;
+
+            expect(firstMissingReportField(form)).toBe(first);
+        }
+    });
+});
+
+describe('the issue form screen', () => {
+    const screen = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/features/reports/ui/ReportFormScreen.tsx'),
+        'utf8'
+    );
+
+    it('keeps Submit disabled only while a submission is in flight', () => {
+        expect(screen).toContain('disabled={isSubmitting}');
+        expect(screen).not.toContain('disabled={!canSubmit}');
+    });
+
+    it('passes a message to each required field once Submit has been tried', () => {
+        expect(screen).toContain('hasAttemptedSubmit ? reportFieldErrors(formState) : {}');
+        expect(screen).toContain('error={fieldErrors.issueCategory}');
+        expect(screen).toContain('error={fieldErrors.description}');
+        expect(screen).toContain('routeFieldError={fieldErrors.routeId}');
+        expect(screen).toContain('busFieldError={fieldErrors.busId}');
     });
 });
 

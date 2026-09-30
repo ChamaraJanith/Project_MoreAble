@@ -38,11 +38,13 @@ import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import { fetchReportForReview, submitReportReview } from '../api/reportReviewApi';
 import {
+    ADMIN_REMARK_HELPER,
     MAX_ADMIN_REMARK_LENGTH,
     NEEDS_REVIEW_LABEL,
     POSITIVE_FEEDBACK_NO_REVIEW_MESSAGE,
     REJECT_ACTION,
     adminReportIdLabel,
+    adminReviewStatusNote,
     REMARK_ACTION,
     VERIFY_ACTION,
     canDecideReport,
@@ -387,6 +389,10 @@ export const AdminReportReviewScreen = () => {
         const isDecidable = canDecideReport(report);
         const busy = isReviewBusy(state);
 
+        // Positive feedback is accepted automatically; see adminReviewStatusNote.
+        const isPositive = !requiresAdminReview(report);
+        const reviewNote = adminReviewStatusNote(report, report.review);
+
         return (
             <>
                 {/* ---------------- 1. Status and review flag ---------------- */}
@@ -509,8 +515,26 @@ export const AdminReportReviewScreen = () => {
                 <View style={reportDetailStyles.card}>
                     {/* The review already recorded, if there is one. Shown
                         above the composer because it is what the report says
-                        now, not what is being written about it. */}
-                    {report.review ? (
+                        now, not what is being written about it. Positive
+                        feedback is never decided, so it says so in place of a
+                        decision — and still shows any remark left on it. */}
+                    {reviewNote ? (
+                        <>
+                            <ReportEmptySection
+                                icon={isPositive ? 'checkmark-circle-outline' : 'clipboard-outline'}
+                                message={reviewNote}
+                            />
+
+                            {!!report.review?.adminRemark && (
+                                <View style={styles.remarkQuote}>
+                                    <Text style={styles.remarkQuoteLabel}>Current remark</Text>
+                                    <Text style={styles.remarkQuoteText}>
+                                        {report.review.adminRemark}
+                                    </Text>
+                                </View>
+                            )}
+                        </>
+                    ) : report.review ? (
                         <View style={styles.existingReview}>
                             <View style={styles.reviewRow}>
                                 <Ionicons
@@ -547,12 +571,7 @@ export const AdminReportReviewScreen = () => {
                                 </View>
                             )}
                         </View>
-                    ) : (
-                        <ReportEmptySection
-                            icon="clipboard-outline"
-                            message="No administrator has reviewed this report yet."
-                        />
-                    )}
+                    ) : null}
 
                     <View style={styles.remarkComposer}>
                         <ReportTextArea
@@ -560,7 +579,7 @@ export const AdminReportReviewScreen = () => {
                             value={remark}
                             onChangeText={setRemark}
                             placeholder="Record what you found when reviewing this report..."
-                            helper="Shown to the passenger who filed this report. Saving a remark does not change the report's status."
+                            helper={ADMIN_REMARK_HELPER}
                             maxLength={MAX_ADMIN_REMARK_LENGTH}
                             editable={!busy}
                         />

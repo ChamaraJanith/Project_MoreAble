@@ -276,6 +276,27 @@ export function reportSubmissionReceipt(report: AccessibilityReport): ReportSubm
     };
 }
 
+/**
+ * The note under the receipt: who can see what was just filed, and what its
+ * author can still do with it (MOV-305).
+ *
+ * Worded from the existing rules rather than restating them differently: an
+ * issue is visible only to its author until an admin verifies it
+ * (`canViewReport`), can be edited only while pending (`canEditReport`), and
+ * can be deleted by its author at any time (`canDeleteReport`). Positive
+ * feedback is public as filed and is never decided, so it stays editable.
+ */
+const RECEIPT_NOTES: Record<ReportType, string> = {
+    ISSUE:
+        'Only you can see this report until an administrator verifies it. You can edit it from My Reports while it is pending, and delete it at any time.',
+    POSITIVE:
+        'Your feedback is shared with the community straight away. You can edit or delete it from My Reports.',
+};
+
+export function receiptNote(reportType: ReportType): string {
+    return RECEIPT_NOTES[reportType];
+}
+
 // ------------------------------------------------------------------
 // Journey details
 // ------------------------------------------------------------------

@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { AccessibilityReport } from '../../../entities/report/model/types';
 import { StatusBadge } from '../../admin/ui/StatusBadge';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
-import { reportSubmissionReceipt } from '../utils/reportSummary';
+import { receiptNote, reportSubmissionReceipt } from '../utils/reportSummary';
 import { ReportTypeBadge } from './ReportTypeBadge';
 
 interface ReportSubmittedViewProps {
@@ -89,9 +89,7 @@ export function ReportSubmittedView({
             <View style={styles.infoNote}>
                 <Ionicons name="information-circle-outline" size={18} color={adminColors.primary} />
                 <Text style={styles.infoNoteText}>
-                    {isPositive
-                        ? 'Your feedback is shared with the community straight away. You can edit or delete it from My Reports.'
-                        : 'You can edit or delete it from My Reports while it is pending review.'}
+                    {receiptNote(receipt.reportType)}
                 </Text>
             </View>
 

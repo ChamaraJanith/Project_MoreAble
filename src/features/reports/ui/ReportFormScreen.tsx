@@ -24,9 +24,9 @@ import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSelectModal, AdminSelectOption } from '../../admin/ui/AdminSelectModal';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
 import {
-    canSubmitReport,
     firstMissingReportField,
     photoUploadIssue,
+    reportFieldErrors,
     uploadedPhotoUrls,
 } from '../utils/reportFormValidation';
 import { existingPhotoDrafts } from '../utils/reportPhotoDrafts';
@@ -96,6 +96,11 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
     const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Field messages stay hidden until the first Submit, so an untouched form
+    // does not open covered in red — and once shown, they clear live as each
+    // field is filled in. The same pattern as the positive feedback form.
+    const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+
     // The report the API stored, once a new one has been filed. While set,
     // the confirmation is shown in place of the form.
     const [submittedReport, setSubmittedReport] = useState<AccessibilityReport | null>(null);
@@ -107,6 +112,7 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
         setSelectedBusId(null);
         setPhotos([]);
         setError(null);
+        setHasAttemptedSubmit(false);
         setSubmittedReport(null);
     };
 
@@ -126,22 +132,19 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
         busId: selectedBusId,
     };
 
-    const canSubmit = canSubmitReport(formState, isSubmitting, photos);
+    const fieldErrors = hasAttemptedSubmit ? reportFieldErrors(formState) : {};
 
     const handleSubmit = async () => {
+        if (isSubmitting) return;
+
         setError(null);
+        setHasAttemptedSubmit(true);
+
+        // Incomplete: the field messages now showing say what is missing.
+        if (firstMissingReportField(formState)) return;
 
         if (!isAuthenticated || !token) {
             setError('Authentication required. Please log in again.');
-            return;
-        }
-
-        // The same rules the Submit button is gated on, so a report can never
-        // be sent by a route the button would have refused.
-        const missingField = firstMissingReportField(formState);
-
-        if (missingField) {
-            setError(missingField);
             return;
         }
 
@@ -304,6 +307,8 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                         value={selectedCategoryOption?.label ?? null}
                         placeholder="Select a category"
                         icon={selectedCategoryOption?.icon ?? 'list-outline'}
+                        disabled={isSubmitting}
+                        error={fieldErrors.issueCategory}
                         onPress={() => setIsCategoryPickerOpen(true)}
                     />
 
@@ -314,6 +319,8 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                         placeholder="Please describe what happened and where the accessibility problem occurred."
                         helper="Include the stop, time and anything that would help us locate the problem."
                         maxLength={DESCRIPTION_MAX_LENGTH}
+                        editable={!isSubmitting}
+                        error={fieldErrors.description}
                     />
                 </View>
 
@@ -324,6 +331,8 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                     <ReportJourneyFields
                         routeId={selectedRouteId}
                         busId={selectedBusId}
+                        routeFieldError={fieldErrors.routeId}
+                        busFieldError={fieldErrors.busId}
                         onChange={({ routeId, busId }) => {
                             setSelectedRouteId(routeId);
                             setSelectedBusId(busId);
@@ -340,14 +349,27 @@ export const ReportFormScreen = ({ mode, report }: ReportFormScreenProps) => {
                     disabled={isSubmitting}
                 />
 
-                {/* ---------------- Submit ---------------- */}
+                {/* ---------------- Submit ----------------
+                    Live whenever nothing is in flight, so pressing it on an
+                    incomplete form explains what is missing rather than doing
+                    nothing. The fields may be scrolled out of view, so it is
+                    also said here, beside the button that was pressed. */}
+                {Object.keys(fieldErrors).length > 0 && (
+                    <View style={styles.errorBanner} accessibilityRole="alert">
+                        <Ionicons name="alert-circle" size={18} color={adminColors.danger} />
+                        <Text style={styles.errorBannerText}>
+                            Please complete the required fields marked above.
+                        </Text>
+                    </View>
+                )}
+
                 <TouchableOpacity
-                    style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]}
+                    style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
                     onPress={handleSubmit}
-                    disabled={!canSubmit}
+                    disabled={isSubmitting}
                     accessibilityRole="button"
                     accessibilityLabel={isEditing ? 'Save Changes' : 'Submit Report'}
-                    accessibilityState={{ disabled: !canSubmit }}
+                    accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
                 >
                     {isSubmitting ? (
                         <View style={styles.submittingRow}>
