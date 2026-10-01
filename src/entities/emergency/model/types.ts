@@ -127,6 +127,9 @@ export interface EmergencyRequest {
 
 export interface CreateEmergencyInput {
     bookingId?: string;
+    /** The running journey's trip and bus, from GET /api/journeys/ongoing; null when nothing is running. */
+    tripId?: string | null;
+    busId?: string | null;
     passenger: {
         id?: string;
         name: string;

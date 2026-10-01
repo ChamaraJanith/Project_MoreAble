@@ -11,24 +11,21 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getOngoingJourneys } from '../src/features/activities/api/ongoingJourneyApi';
 import { SOSButton } from '../src/features/journey/components/SOSButton';
+import { selectActiveJourneyView, syncActiveJourney } from '../src/features/journey/services/activeJourneySync';
 import { useAuthStore } from '../src/shared/store/authStore';
 import { useJourneyStore } from '../src/shared/store/journeyStore';
-import { BusSession, getBusSession } from '../src/shared/utils/busSession';
 
 export default function ActiveJourneyScreen() {
-  const { isJourneyStarted, passengerDetails, vehicleDetails, bookingId, setJourneyStarted } = useJourneyStore();
+  const { isJourneyStarted, passengerDetails, vehicleDetails, bookingId } = useJourneyStore();
   const authUser = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
-  const [session, setSession] = useState<BusSession | null>(null);
-  const [isLoadingOngoing, setIsLoadingOngoing] = useState(false);
+  // The session the last finished sync was for; syncing until it is this one.
+  const [syncedFor, setSyncedFor] = useState<{ token: string | null } | null>(null);
+  const isLoadingOngoing = syncedFor === null || syncedFor.token !== token;
 
   useEffect(() => {
-    // 1. Bus session if running on in-cab device
-    getBusSession().then(setSession).catch(() => { });
-
-    // 2. Hydrate passenger details from authenticated user
+    // 1. Hydrate passenger details from authenticated user
     if (authUser) {
       useJourneyStore.setState({
         passengerDetails: {
@@ -40,28 +37,12 @@ export default function ActiveJourneyScreen() {
       });
     }
 
-    // 3. Hydrate active journey from ongoing journeys API
-    if (token) {
-      setIsLoadingOngoing(true);
-      getOngoingJourneys(token)
-        .then((journeys) => {
-          if (journeys && journeys.length > 0) {
-            const current = journeys[0];
-            useJourneyStore.setState({
-              isJourneyStarted: true,
-              bookingId: current.booking.bookingId,
-              vehicleDetails: {
-                plateNumber: current.booking.vehicle?.numberPlate || current.busId || 'BUS-TRANSIT',
-                model: current.booking.vehicle?.busModel || 'Transit Bus',
-              },
-              driverId: current.busId || current.activeJourney?.tripId || null,
-            });
-          }
-        })
-        .catch(() => { })
-        .finally(() => setIsLoadingOngoing(false));
-    }
+    // 2. Replace the active journey with the server's ongoing journey — or
+    //    clear it when nothing is running, the request fails, or no token.
+    syncActiveJourney(token).finally(() => setSyncedFor({ token }));
   }, [authUser, token]);
+
+  const journeyView = selectActiveJourneyView({ isJourneyStarted, bookingId, vehicleDetails }, isLoadingOngoing);
 
   const activeName = authUser?.userName || passengerDetails?.name || 'Passenger';
   const activePhone = authUser?.phoneNumber || passengerDetails?.phone || '0771234567';
@@ -77,8 +58,7 @@ export default function ActiveJourneyScreen() {
             ? 'Hearing Support'
             : null;
 
-  const vehiclePlate = session?.numberPlate || vehicleDetails?.plateNumber || 'Transit Bus';
-  const vehicleModel = vehicleDetails?.model || 'Transit Bus';
+  const { isLive, vehicleCard } = journeyView;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
@@ -100,10 +80,10 @@ export default function ActiveJourneyScreen() {
           <Text style={styles.headerSubtitle}>Real-time transit & rapid safety dispatch</Text>
         </View>
         <View style={styles.headerRightAction}>
-          <View style={[styles.pulseBadge, isJourneyStarted ? styles.pulseActive : styles.pulseIdle]}>
-            <View style={[styles.pulseDot, isJourneyStarted ? styles.pulseDotActive : styles.pulseDotIdle]} />
-            <Text style={[styles.pulseText, isJourneyStarted ? styles.pulseTextActive : styles.pulseTextIdle]}>
-              {isJourneyStarted ? 'LIVE' : 'IDLE'}
+          <View style={[styles.pulseBadge, isLive ? styles.pulseActive : styles.pulseIdle]}>
+            <View style={[styles.pulseDot, isLive ? styles.pulseDotActive : styles.pulseDotIdle]} />
+            <Text style={[styles.pulseText, isLive ? styles.pulseTextActive : styles.pulseTextIdle]}>
+              {isLive ? 'LIVE' : 'IDLE'}
             </Text>
           </View>
         </View>
@@ -142,21 +122,23 @@ export default function ActiveJourneyScreen() {
           )}
         </View>
 
-        {/* 2. Vehicle & Booking Details Card */}
-        <View style={[styles.card, styles.vehicleCard]}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.vehicleIconCircle}>
-              <Ionicons name="bus" size={20} color="#047857" />
-            </View>
-            <View style={styles.cardHeaderTextCol}>
-              <Text style={styles.vehicleSuperLabel}>ASSIGNED VEHICLE</Text>
-              <Text style={styles.vehiclePlateText}>{vehiclePlate}</Text>
-              <Text style={styles.vehicleModelText}>
-                {vehicleModel} {bookingId ? `• Booking: ${bookingId}` : ''}
-              </Text>
+        {/* 2. Vehicle & Booking Details Card — only for an actual ongoing journey */}
+        {vehicleCard && (
+          <View style={[styles.card, styles.vehicleCard]}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.vehicleIconCircle}>
+                <Ionicons name="bus" size={20} color="#047857" />
+              </View>
+              <View style={styles.cardHeaderTextCol}>
+                <Text style={styles.vehicleSuperLabel}>ASSIGNED VEHICLE</Text>
+                <Text style={styles.vehiclePlateText}>{vehicleCard.plateNumber}</Text>
+                <Text style={styles.vehicleModelText}>
+                  {vehicleCard.model} • Booking: {vehicleCard.bookingId}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* 3. Live Journey State Display */}
         <View style={styles.statusSection}>
@@ -165,7 +147,7 @@ export default function ActiveJourneyScreen() {
               <ActivityIndicator size="small" color="#0066CC" />
               <Text style={styles.statusLoadingText}>Syncing live transit broadcast...</Text>
             </View>
-          ) : isJourneyStarted ? (
+          ) : isLive ? (
             <View style={styles.statusBoxActive}>
               <View style={styles.statusIconCircleActive}>
                 <Ionicons name="navigate-circle" size={26} color="#047857" />

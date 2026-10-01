@@ -1,3 +1,10 @@
+// jest.mock calls are hoisted above every import, so these load against the stubs below.
+import { GET as getOngoing } from '../../../app/api/journeys/ongoing+api';
+import { resetActiveJourneySession } from '../../../src/features/journey/services/activeJourneySync';
+import { useAuthStore } from '../../../src/shared/store/authStore';
+import * as BusSessionModule from '../../../src/shared/utils/busSession';
+import { seedOngoingJourneys, SeedBooking } from '../../testUtils/ongoingJourneySeed';
+
 jest.mock('expo-constants', () => ({ default: {} }));
 jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
 jest.mock('expo-secure-store', () => ({
@@ -20,17 +27,67 @@ jest.mock('../../../src/features/admin/api/emergencyAdminApi', () => ({
     createEmergencyRequestApi: jest.fn(),
 }));
 
+// SOS refreshes the running journey from GET /api/journeys/ongoing. The real
+// route answers from a seeded database; only the Firebase handle and the token
+// check are stubbed, as in the route's own tests.
+const mockGetAdminDb = jest.fn();
+const mockVerifyToken = jest.fn();
+
+jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
+    getAdminDb: () => mockGetAdminDb(),
+}));
+
+jest.mock('../../../src/shared/config/jwt', () => ({
+    JOURNEY_SHARING_SCOPE: 'JOURNEY_LOCATION',
+    verifyToken: (token: string) => mockVerifyToken(token),
+}));
+
+jest.mock('../../../src/shared/api/config', () => ({ API_BASE_URL: 'http://api.test' }));
+
+// The signed-in passenger every test starts with, and their running journey.
+// Sessions are opaque strings mapped to a passenger by the stubbed token check.
+const PASSENGER_NIMAL = 'PAS-2026-00554';
+const SESSION_NIMAL = 'session-nimal';
+const NIMAL_PHONE = '0712345670';
+const NIMAL_GUARDIAN_MOBILE = '0778887766';
+
+const SESSIONS: Record<string, string> = { [SESSION_NIMAL]: PASSENGER_NIMAL };
+
+const NIMAL = {
+    uid: `uid-${PASSENGER_NIMAL}`,
+    passengerId: PASSENGER_NIMAL,
+    userName: 'Nimal Silva',
+    email: 'nimal.silva@moreable.lk',
+    phoneNumber: NIMAL_PHONE,
+    role: 'COMMUTER',
+    guardianDetails: { fullName: 'Kamala Silva', mobileNo: NIMAL_GUARDIAN_MOBILE },
+} as any;
+
+const NIMAL_RUNNING: SeedBooking = {
+    bookingId: 'BK-NIMAL-01',
+    userId: PASSENGER_NIMAL,
+    tripId: 'TRIP-00004',
+    busId: 'BUS-8899',
+    trip: 'running',
+};
+
 describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Dispatch', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         useJourneyStore.getState().clearSOS();
-        useJourneyStore.setState({
-            bookingId: 'BKG-998877',
-            vehicleDetails: { plateNumber: 'WP-CBA-1234', model: 'Toyota Prius' },
-            driverId: 'DRV-112',
-            passengerDetails: { id: 'PAS-554', name: 'Nimal Silva', phone: '0771234567' },
-            caregiverId: 'CG-887',
+
+        mockVerifyToken.mockImplementation(async (token: string) => {
+            const passengerId = SESSIONS[token];
+            return passengerId
+                ? { uid: `uid-${passengerId}`, passengerId, role: 'PASSENGER', email: `${passengerId}@moreable.lk` }
+                : null;
         });
+        mockGetAdminDb.mockReturnValue(seedOngoingJourneys([NIMAL_RUNNING]));
+        (global as any).fetch = jest.fn((url: string, init?: RequestInit) => getOngoing(new Request(url, init)));
+
+        useAuthStore.setState({ user: NIMAL, token: SESSION_NIMAL, isAuthenticated: true });
+        resetActiveJourneySession();
+
         jest.spyOn(console, 'log').mockImplementation(() => {});
         jest.spyOn(console, 'warn').mockImplementation(() => {});
         jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -68,22 +125,23 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledTimes(1);
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    bookingId: 'BKG-998877',
+                    bookingId: 'BK-NIMAL-01',
+                    tripId: 'TRIP-00004',
+                    busId: 'BUS-8899',
                     status: 'ACTIVE',
                     passenger: expect.objectContaining({
+                        id: PASSENGER_NIMAL,
                         name: 'Nimal Silva',
-                        phone: '0771234567',
+                        phone: NIMAL_PHONE,
                     }),
-                    vehicle: expect.objectContaining({
-                        plateNumber: 'WP-CBA-1234',
-                    }),
+                    vehicle: { plateNumber: 'NB-8899', model: 'Viking' },
                     location: expect.objectContaining({
                         latitude: 6.9319,
                         longitude: 79.8478,
                     }),
                     alertRecipients: expect.objectContaining({
-                        caregiver: 'CG-887',
-                        driver: 'DRV-112',
+                        caregiver: NIMAL_GUARDIAN_MOBILE,
+                        driver: 'BUS-8899',
                         admin: 'ADMIN_TOPIC',
                     }),
                 })
@@ -152,13 +210,23 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
     });
 
     describe('2. Passenger Profile & Vehicle Metadata Snapshot Verification', () => {
-        it('captures custom passenger details and bus plate from journey store correctly', async () => {
-            useJourneyStore.setState({
-                bookingId: 'BKG-COL-KANDY-01',
-                passengerDetails: { id: 'PAS-991', name: 'Sarath Fonseka', phone: '0719876543' },
-                vehicleDetails: { plateNumber: 'WP-ND-8899', model: 'Ashok Leyland Super' },
-                driverId: 'DRV-770',
-                caregiverId: 'CG-552',
+        it("captures the signed-in passenger and their running journey's own booking, trip, bus and plate", async () => {
+            SESSIONS['session-sarath'] = 'PAS-991';
+            mockGetAdminDb.mockReturnValue(
+                seedOngoingJourneys([
+                    { bookingId: 'BKG-COL-KANDY-01', userId: 'PAS-991', tripId: 'TRIP-00021', busId: 'BUS-8811', trip: 'running' },
+                ])
+            );
+            useAuthStore.setState({
+                user: {
+                    uid: 'uid-PAS-991',
+                    passengerId: 'PAS-991',
+                    userName: 'Sarath Fonseka',
+                    email: 'sarath.fonseka@moreable.lk',
+                    phoneNumber: '0719876543',
+                    guardianDetails: { fullName: 'Nalini Fonseka', mobileNo: '0715525520' },
+                } as any,
+                token: 'session-sarath',
             });
 
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
@@ -181,21 +249,22 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
                 expect.objectContaining({
                     bookingId: 'BKG-COL-KANDY-01',
-                    passenger: { id: 'PAS-991', name: 'Sarath Fonseka', phone: '0719876543' },
-                    vehicle: { plateNumber: 'WP-ND-8899', model: 'Ashok Leyland Super' },
+                    tripId: 'TRIP-00021',
+                    busId: 'BUS-8811',
+                    passenger: expect.objectContaining({ id: 'PAS-991', name: 'Sarath Fonseka', phone: '0719876543' }),
+                    vehicle: { plateNumber: 'NB-8811', model: 'Viking' },
                     alertRecipients: {
-                        caregiver: 'CG-552',
-                        driver: 'DRV-770',
+                        caregiver: '0715525520',
+                        driver: 'BUS-8811',
                         admin: 'ADMIN_TOPIC',
                     },
                 })
             );
+            delete SESSIONS['session-sarath'];
         });
 
-        it('handles null caregiverId gracefully in alert recipients', async () => {
-            useJourneyStore.setState({
-                caregiverId: null,
-            });
+        it('sends a null caregiver when the signed-in passenger has no guardian', async () => {
+            useAuthStore.getState().updateUser({ guardianDetails: null, guardianId: null });
 
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
@@ -214,18 +283,16 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                 expect.objectContaining({
                     alertRecipients: expect.objectContaining({
                         caregiver: null,
-                        driver: 'DRV-112',
+                        driver: 'BUS-8899',
                         admin: 'ADMIN_TOPIC',
                     }),
                 })
             );
         });
 
-        it('handles null vehicleDetails gracefully when SOS is triggered outside a vehicle', async () => {
-            useJourneyStore.setState({
-                vehicleDetails: null,
-                driverId: null,
-            });
+        it('sends no journey identity or vehicle when no journey is running', async () => {
+            // Nimal holds a CONFIRMED booking whose trip has not started.
+            mockGetAdminDb.mockReturnValue(seedOngoingJourneys([{ ...NIMAL_RUNNING, trip: 'not-started' }]));
 
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
@@ -243,6 +310,9 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(result.success).toBe(true);
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
                 expect.objectContaining({
+                    bookingId: null,
+                    tripId: null,
+                    busId: null,
                     vehicle: null,
                     alertRecipients: expect.objectContaining({
                         driver: null,
@@ -311,9 +381,10 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledTimes(2);
         });
 
-        it('falls back to "Unknown Passenger" if passengerDetails is null in store', async () => {
+        it('names the signed-in passenger, never a passenger left in the journey store', async () => {
             useJourneyStore.setState({
-                passengerDetails: null,
+                passengerDetails: { id: 'PAS-OTHER-01', name: 'Someone Else', phone: '0700000001' },
+                caregiverId: '0700000002',
             });
 
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
@@ -325,8 +396,11 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
 
             await triggerSOSAlert();
 
-            const activeSOS = useJourneyStore.getState().activeSOS;
-            expect(activeSOS?.passengerName).toBe('Unknown Passenger');
+            expect(useJourneyStore.getState().activeSOS?.passengerName).toBe('Nimal Silva');
+            const payload = (EmergencyAdminApi.createEmergencyRequestApi as jest.Mock).mock.calls[0][0];
+            expect(payload.passenger).toMatchObject({ id: PASSENGER_NIMAL, name: 'Nimal Silva', phone: NIMAL_PHONE });
+            expect(payload.alertRecipients.caregiver).toBe(NIMAL_GUARDIAN_MOBILE);
+            expect(JSON.stringify(payload)).not.toMatch(/PAS-OTHER-01|Someone Else|0700000001|0700000002/);
         });
     });
 
@@ -466,7 +540,7 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(useJourneyStore.getState().activeSOS).toBeNull();
         });
 
-        it('retains passenger details and vehicle registration unchanged when SOS is cleared', async () => {
+        it('retains the running journey and vehicle registration unchanged when SOS is cleared', async () => {
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
             });
@@ -478,9 +552,9 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             useJourneyStore.getState().clearSOS();
 
             const state = useJourneyStore.getState();
-            expect(state.passengerDetails?.name).toBe('Nimal Silva');
-            expect(state.vehicleDetails?.plateNumber).toBe('WP-CBA-1234');
-            expect(state.bookingId).toBe('BKG-998877');
+            expect(state.vehicleDetails?.plateNumber).toBe('NB-8899');
+            expect(state.bookingId).toBe('BK-NIMAL-01');
+            expect(state.tripId).toBe('TRIP-00004');
         });
     });
 
@@ -498,8 +572,8 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
                 expect.objectContaining({
                     alertRecipients: {
-                        caregiver: 'CG-887',
-                        driver: 'DRV-112',
+                        caregiver: NIMAL_GUARDIAN_MOBILE,
+                        driver: 'BUS-8899',
                         admin: 'ADMIN_TOPIC',
                     },
                     status: 'ACTIVE',
@@ -507,7 +581,7 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             );
         });
 
-        it('logs accurate console message with entire serialized SOS payload', async () => {
+        it('does not log the SOS payload — no phone number, location or booking in the console', async () => {
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
             });
@@ -515,15 +589,17 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                 coords: { latitude: 6.9319, longitude: 79.8478 },
             });
 
-            await triggerSOSAlert();
+            const result = await triggerSOSAlert();
 
-            expect(console.log).toHaveBeenCalledWith(
-                'SOS Alert Triggered!',
-                expect.objectContaining({
-                    status: 'ACTIVE',
-                    bookingId: 'BKG-998877',
-                })
-            );
+            expect(result.success).toBe(true);
+            const logged = JSON.stringify([
+                (console.log as jest.Mock).mock.calls,
+                (console.warn as jest.Mock).mock.calls,
+                (console.error as jest.Mock).mock.calls,
+            ]);
+            expect(logged).not.toContain(NIMAL_PHONE);
+            expect(logged).not.toContain('6.9319');
+            expect(logged).not.toContain('BK-NIMAL-01');
         });
     });
 
@@ -593,15 +669,19 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             useAuthStore.setState({ user: null, token: null, isAuthenticated: false });
         });
 
-        it('dynamically prefers active bus session number plate over static store defaults', async () => {
-            const { useAuthStore } = require('../../../src/shared/store/authStore');
-            const BusSessionModule = require('../../../src/shared/utils/busSession');
-            jest.spyOn(BusSessionModule, 'getBusSession').mockResolvedValueOnce({
+        it("uses the passenger's running-journey vehicle; a bus session saved on the device never overrides it", async () => {
+            const busSession = jest.spyOn(BusSessionModule, 'getBusSession').mockResolvedValue({
                 busId: 'BUS-COLOMBO-138',
                 numberPlate: 'WP-ND-4521',
-                token: 'bus-driver-jwt',
+                token: 'bus-session-opaque',
             });
 
+            SESSIONS['session-amali'] = 'PAS-2026-00099';
+            mockGetAdminDb.mockReturnValue(
+                seedOngoingJourneys([
+                    { bookingId: 'BK-AMALI-01', userId: 'PAS-2026-00099', tripId: 'TRIP-00031', busId: 'BUS-6611', trip: 'running' },
+                ])
+            );
             useAuthStore.setState({
                 user: {
                     uid: 'USR-2026-9902',
@@ -611,7 +691,7 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                     role: 'COMMUTER',
                     isLowVisionPerson: true,
                 } as any,
-                token: 'token-amali',
+                token: 'session-amali',
                 isAuthenticated: true,
             });
 
@@ -633,10 +713,10 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
 
             expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    vehicle: expect.objectContaining({
-                        plateNumber: 'WP-ND-4521',
-                        model: 'Transit Bus',
-                    }),
+                    bookingId: 'BK-AMALI-01',
+                    tripId: 'TRIP-00031',
+                    busId: 'BUS-6611',
+                    vehicle: { plateNumber: 'NB-6611', model: 'Viking' },
                     passenger: expect.objectContaining({
                         name: 'Amali Wickramasinghe',
                         phone: '0773344556',
@@ -644,8 +724,11 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                     }),
                 })
             );
+            const payload = JSON.stringify((EmergencyAdminApi.createEmergencyRequestApi as jest.Mock).mock.calls[0][0]);
+            expect(payload).not.toMatch(/WP-ND-4521|BUS-COLOMBO-138/);
+            expect(busSession).not.toHaveBeenCalled();
 
-            useAuthStore.setState({ user: null, token: null, isAuthenticated: false });
+            delete SESSIONS['session-amali'];
         });
     });
 
@@ -802,7 +885,8 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             );
         });
 
-        it('gracefully falls back to system support hotline when guardian details are completely absent', async () => {
+        it('sends no caregiver when guardian details are absent — never a caregiver left in the store', async () => {
+            useJourneyStore.setState({ caregiverId: '0779990000' });
             useAuthStore.setState({
                 user: {
                     uid: 'USR-NOGUARDIAN-06',
@@ -819,8 +903,11 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             const res = await triggerSOSAlert();
             expect(res.success).toBe(true);
 
-            const store = useJourneyStore.getState();
-            expect(store.caregiverId).toBe('CG-887');
+            expect(EmergencyAdminApi.createEmergencyRequestApi).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    alertRecipients: expect.objectContaining({ caregiver: null }),
+                })
+            );
         });
 
         it('cleans up authStore state after custom profile testing', () => {
