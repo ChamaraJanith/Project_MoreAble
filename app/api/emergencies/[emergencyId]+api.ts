@@ -6,7 +6,10 @@ import {
     updateEmergencyStatus,
     EmergencyConflictError,
 } from '../../../src/shared/server/emergencies';
-import { authenticateRequest } from '../../../src/shared/api/authMiddleware';
+import {
+    authenticateEmergencyAdmin,
+    emergencyActorOf,
+} from '../../../src/shared/server/emergencyAdminAuthorization';
 
 export async function OPTIONS() {
     return new Response(null, {
@@ -33,9 +36,17 @@ function extractEmergencyId(request: Request, context: any): string {
 
 // GET /api/emergencies/:emergencyId
 //
-// Retrieves detailed information for a single emergency request.
+// Retrieves detailed information for a single emergency request, exactly as
+// stored. Nothing is "enriched" from other records: an old emergency with
+// incomplete details is shown incomplete, never patched with another user's
+// name, phone or vehicle.
+//
+// ADMIN ONLY (authenticateEmergencyAdmin), checked before anything is read.
 export async function GET(request: Request, context: any) {
     try {
+        const auth = await authenticateEmergencyAdmin(request);
+        if (!auth.ok) return auth.response;
+
         const emergencyId = extractEmergencyId(request, context);
         if (!emergencyId) {
             return emergencyErrorResponse(400, 'Emergency ID is required.');
@@ -46,36 +57,6 @@ export async function GET(request: Request, context: any) {
 
         if (!emergency) {
             return emergencyErrorResponse(404, `Emergency request '${emergencyId}' not found.`);
-        }
-
-        // Dynamically enrich passenger details from users collection if available
-        if (db && typeof db.collection === 'function' && emergency.passenger) {
-            try {
-                let dbUser: any = null;
-                if (emergency.passenger.id && emergency.passenger.id !== 'PAS-554') {
-                    const uDoc = await db.collection('users').doc(emergency.passenger.id).get().catch(() => null);
-                    if (uDoc?.exists) {
-                        dbUser = uDoc.data();
-                    }
-                }
-                if (!dbUser && (emergency.passenger.name === 'Nimal Silva' || emergency.passenger.id === 'PAS-554')) {
-                    const uSnap = await db.collection('users').where('role', '==', 'COMMUTER').limit(1).get().catch(() => null);
-                    if (uSnap && !uSnap.empty) {
-                        dbUser = uSnap.docs[0].data();
-                    }
-                }
-                if (dbUser) {
-                    emergency.passenger.id = dbUser.passengerId || dbUser.uid || emergency.passenger.id;
-                    emergency.passenger.name = dbUser.userName || emergency.passenger.name;
-                    emergency.passenger.phone = dbUser.phoneNumber || dbUser.secondaryPhoneNumber || emergency.passenger.phone;
-                    if (emergency.vehicle?.model === 'Toyota Prius' || emergency.vehicle?.plateNumber === 'WP-CBA-1234') {
-                        emergency.vehicle.model = 'Transit Bus';
-                        emergency.vehicle.plateNumber = 'WP-ND-4521';
-                    }
-                }
-            } catch (healErr) {
-                // non-blocking
-            }
         }
 
         return Response.json(
@@ -96,8 +77,14 @@ export async function GET(request: Request, context: any) {
 //
 // Updates emergency status: Pending -> Assigned -> Resolved
 // Enforces history recording with timestamp, actor, notes, and responder data.
+//
+// ADMIN ONLY. The actor recorded is the verified admin session; a `changedBy`
+// in the body is ignored.
 export async function PATCH(request: Request, context: any) {
     try {
+        const auth = await authenticateEmergencyAdmin(request);
+        if (!auth.ok) return auth.response;
+
         const emergencyId = extractEmergencyId(request, context);
         if (!emergencyId) {
             return emergencyErrorResponse(400, 'Emergency ID is required.');
@@ -108,9 +95,7 @@ export async function PATCH(request: Request, context: any) {
             return emergencyErrorResponse(400, "New status ('PENDING', 'ASSIGNED', or 'RESOLVED') is required.");
         }
 
-        const user = await authenticateRequest(request).catch(() => null);
-
-        const actorId = body.changedBy || user?.email || (user as any)?.name || 'Admin Dispatcher';
+        const actorId = emergencyActorOf(auth.admin);
 
         const db = getAdminDb();
         const updated = await updateEmergencyStatus(db, emergencyId, body, actorId);
@@ -135,8 +120,13 @@ export async function PATCH(request: Request, context: any) {
 // DELETE /api/emergencies/:emergencyId
 //
 // Dismisses or clears an emergency request from the active system.
+//
+// ADMIN ONLY, checked before the record is read or deleted.
 export async function DELETE(request: Request, context: any) {
     try {
+        const auth = await authenticateEmergencyAdmin(request);
+        if (!auth.ok) return auth.response;
+
         const emergencyId = extractEmergencyId(request, context);
         if (!emergencyId) {
             return emergencyErrorResponse(400, 'Emergency ID is required.');

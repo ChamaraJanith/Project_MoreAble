@@ -92,11 +92,13 @@ export type AdminAuthorization =
  *
  * `headers` is a parameter because this is also used by GET /api/reports, whose
  * CORS headers advertise a different set of methods; the rule is the same
- * either way.
+ * either way. `forbiddenMessage` likewise lets another admin-only area (the
+ * emergency dispatch routes) word its 403 without restating the rule.
  */
 export async function authenticateAdmin(
     request: Request,
-    headers: Record<string, string> = reviewCorsHeaders
+    headers: Record<string, string> = reviewCorsHeaders,
+    forbiddenMessage = 'Only an administrator can review accessibility reports.'
 ): Promise<AdminAuthorization> {
     const user = await authenticateRequest(request);
 
@@ -110,11 +112,7 @@ export async function authenticateAdmin(
     if (user.role !== ADMIN_ROLE) {
         return {
             ok: false,
-            response: reviewErrorResponse(
-                403,
-                'Only an administrator can review accessibility reports.',
-                headers
-            ),
+            response: reviewErrorResponse(403, forbiddenMessage, headers),
         };
     }
 

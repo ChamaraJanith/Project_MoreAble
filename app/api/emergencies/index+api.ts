@@ -9,6 +9,7 @@ import {
 import { CreateEmergencyInput, EMERGENCY_PRIORITIES, EmergencyPriority } from '../../../src/entities/emergency/model/types';
 import { PassengerOngoingJourney } from '../../../src/entities/booking/model/types';
 import { authenticateRequest } from '../../../src/shared/api/authMiddleware';
+import { authenticateEmergencyAdmin } from '../../../src/shared/server/emergencyAdminAuthorization';
 import { authoriseOngoingJourneyAccess } from '../../../src/shared/server/ongoingJourneyAuthorization';
 import { loadPassengerOngoingJourneys } from '../../../src/shared/server/passengerOngoingJourney';
 
@@ -23,8 +24,13 @@ export async function OPTIONS() {
 //
 // Lists emergency requests, ordered by newest first.
 // Supports ?status=PENDING|ASSIGNED|RESOLVED|ALL and ?search=
+//
+// ADMIN ONLY (authenticateEmergencyAdmin), checked before anything is read.
 export async function GET(request: Request) {
     try {
+        const auth = await authenticateEmergencyAdmin(request);
+        if (!auth.ok) return auth.response;
+
         const url = new URL(request.url);
         const statusParam = url.searchParams.get('status') || undefined;
         const searchParam = url.searchParams.get('search') || undefined;

@@ -7,8 +7,19 @@ jest.mock('../../../src/shared/config/firebaseAdmin', () => ({
     getAdminDb: jest.fn(() => ({})),
 }));
 
+// verifyToken is never reached (authenticateRequest is mocked below); stubbed
+// so the real authMiddleware helpers load without the ESM-only jose package.
+jest.mock('../../../src/shared/config/jwt', () => ({
+    JOURNEY_SHARING_SCOPE: 'JOURNEY_LOCATION',
+    verifyToken: jest.fn(async () => null),
+}));
+
+// Default session: a valid ADMIN, as the list/detail/PATCH routes require.
+// Authorization itself is driven against real sessions in
+// tests/api/emergencies/emergencyAdmin+api.route.test.ts.
 jest.mock('../../../src/shared/api/authMiddleware', () => ({
-    authenticateRequest: jest.fn(async () => ({ email: 'admin@moreable.lk', role: 'ADMIN' })),
+    ...jest.requireActual('../../../src/shared/api/authMiddleware'),
+    authenticateRequest: jest.fn(async () => ({ uid: 'uid-admin', passengerId: '', email: 'admin@moreable.lk', role: 'ADMIN' })),
 }));
 
 describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
@@ -581,9 +592,7 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
             );
         });
 
-        it('falls back to default actor ID when request authentication is unverified', async () => {
-            (authenticateRequest as jest.Mock).mockRejectedValueOnce(new Error('Invalid token'));
-
+        it('ignores a changedBy in the body and records the session admin', async () => {
             const updateSpy = jest.spyOn(EmergencyServer, 'updateEmergencyStatus').mockResolvedValueOnce({
                 id: 'EMG-TEST',
                 status: 'ASSIGNED',
@@ -595,6 +604,7 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
                     status: 'ASSIGNED',
                     responderName: 'Bus Conductor',
                     responderContact: '0712345678',
+                    changedBy: 'someone-else@transport.lk',
                 }),
             });
 
@@ -604,8 +614,29 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
                 expect.anything(),
                 'EMG-TEST',
                 expect.anything(),
-                'Admin Dispatcher'
+                'admin@moreable.lk'
             );
+        });
+
+        it('refuses PATCH with 401 and updates nothing when the request carries no verified session', async () => {
+            (authenticateRequest as jest.Mock).mockResolvedValueOnce(null);
+            const updateSpy = jest.spyOn(EmergencyServer, 'updateEmergencyStatus');
+
+            const req = new Request('http://localhost:8081/api/emergencies/EMG-TEST', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    status: 'ASSIGNED',
+                    responderName: 'Bus Conductor',
+                    responderContact: '0712345678',
+                    changedBy: 'Admin Dispatcher',
+                }),
+            });
+
+            const res = await patchEmergencyRoute(req, { params: Promise.resolve({ emergencyId: 'EMG-TEST' }) });
+
+            expect(res.status).toBe(401);
+            expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+            expect(updateSpy).not.toHaveBeenCalled();
         });
     });
 });
