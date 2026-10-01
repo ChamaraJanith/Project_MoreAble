@@ -85,8 +85,13 @@ export async function createEmergency(
     const emergencyRecord: EmergencyRequest = {
         id,
         bookingId: input.bookingId || undefined,
+        // Server-verified journey identity (POST /api/emergencies); absent when
+        // no ongoing journey was confirmed.
+        tripId: input.tripId || undefined,
+        busId: input.busId || undefined,
         passenger: {
-            id: input.passenger.id || `PAS-${Math.floor(100 + Math.random() * 900)}`,
+            // Never invented: an emergency with no known passenger says so.
+            id: input.passenger.id?.trim() || '',
             name: input.passenger.name.trim(),
             phone: input.passenger.phone.trim(),
             email: input.passenger.email?.trim(),

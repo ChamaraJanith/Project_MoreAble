@@ -19,8 +19,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { getEmergencies, updateEmergencyStatusApi } from '../src/features/admin/api/emergencyAdminApi';
-import { EmergencyRequest } from '../src/entities/emergency/model/types';
+import { BusCrewEmergency } from '../src/entities/emergency/model/types';
+import {
+    confirmCrewResolution,
+    findOpenBusEmergency,
+    sendCrewMessage,
+} from '../src/features/driver/services/busEmergencyConsole';
 
 import { TripControlTab } from '../src/features/driver/ui/TripControlTab';
 import { useTripJourney } from '../src/features/driver/ui/useTripJourney';
@@ -48,25 +52,25 @@ export default function VehicleDashboardScreen() {
     const { activeSOS, clearSOS } = useJourneyStore();
 
     // Live Dispatch Chat State
-    const [busEmergency, setBusEmergency] = useState<EmergencyRequest | null>(null);
+    const [busEmergency, setBusEmergency] = useState<BusCrewEmergency | null>(null);
     const [isChatModalVisible, setIsChatModalVisible] = useState(false);
     const [chatInputMessage, setChatInputMessage] = useState('');
     const [isSendingMessage, setIsSendingMessage] = useState(false);
     const chatScrollRef = useRef<ScrollView>(null);
 
+    // Emergency calls go out as the signed-in bus (its Bus Login token), and
+    // the server returns only this bus's own emergencies.
     const syncBusEmergency = useCallback(async () => {
         try {
-            const plate = session?.numberPlate;
-            if (!plate) return;
-            const list = await getEmergencies({ search: plate });
-            const active = list.find((e) => e.status !== 'RESOLVED');
+            if (!session?.busId) return;
+            const active = await findOpenBusEmergency();
             if (active) {
                 setBusEmergency(active);
             }
         } catch {
             // silent catch
         }
-    }, [session?.numberPlate]);
+    }, [session?.busId]);
 
     React.useEffect(() => {
         if (activeSOS?.isActive || isChatModalVisible) {
@@ -82,35 +86,29 @@ export default function VehicleDashboardScreen() {
         });
     };
 
-    const handleSendBusMessage = async (customText?: string) => {
+    const handleSendBusMessage = async (customText?: string): Promise<boolean> => {
         const text = (customText || chatInputMessage).trim();
-        if (!text) return;
+        if (!text) return false;
         setIsSendingMessage(true);
         try {
-            const plate = session?.numberPlate;
-            const emergencies = await getEmergencies({ search: plate });
-            const active = emergencies.find((e) => e.status !== 'RESOLVED') || emergencies[0];
-            if (active) {
-                const updated = await updateEmergencyStatusApi(active.id, {
-                    status: active.status === 'PENDING' ? 'ASSIGNED' : active.status,
-                    responderName: `Onboard Bus Crew (${identity.signedIn ? identity.numberPlate : 'Bus Crew'})`,
-                    responderContact: '0771234567',
-                    directiveMessage: text,
-                    changedBy: `Bus Crew (${identity.signedIn ? identity.numberPlate : 'Onboard'})`,
-                });
-                setBusEmergency(updated);
-                setChatInputMessage('');
+            const outcome = await sendCrewMessage(text);
+            if (!outcome.ok) {
+                Alert.alert('Transmission Failed', outcome.message);
+                return false;
             }
-        } catch {
-            Alert.alert('Transmission Failed', 'Unable to send message to Control Center.');
+            setBusEmergency(outcome.emergency);
+            setChatInputMessage('');
+            return true;
         } finally {
             setIsSendingMessage(false);
         }
     };
 
     const handleSendQuickAckToAdmin = async () => {
-        await handleSendBusMessage('Bus crew acknowledged directive. Currently attending to commuter.');
-        Alert.alert('Message Sent', 'Control Center notified: Bus crew attending to commuter.');
+        const sent = await handleSendBusMessage('Bus crew acknowledged directive. Currently attending to commuter.');
+        if (sent) {
+            Alert.alert('Message Sent', 'Control Center notified: Bus crew attending to commuter.');
+        }
     };
 
     const handleConfirmAssistedAndResolve = () => {
@@ -123,21 +121,15 @@ export default function VehicleDashboardScreen() {
                     text: 'Confirm Resolved',
                     style: 'default',
                     onPress: async () => {
-                        clearSOS();
-                        try {
-                            const plate = session?.numberPlate;
-                            const emergencies = await getEmergencies({ search: plate });
-                            if (emergencies.length > 0 && emergencies[0].status !== 'RESOLVED') {
-                                await updateEmergencyStatusApi(emergencies[0].id, {
-                                    status: 'RESOLVED',
-                                    actionTaken: `Passenger safely assisted onboard by bus crew (${identity.signedIn ? identity.numberPlate : 'Bus Crew'}). Normal transit operations resumed.`,
-                                    notes: 'Resolved via Bus Dashboard Console',
-                                    changedBy: `Bus Crew (${identity.signedIn ? identity.numberPlate : 'Onboard'})`,
-                                });
-                            }
-                        } catch {
-                            // Local clear already succeeded
+                        // The banner clears only once the server has
+                        // recorded the resolution; otherwise it stays up.
+                        const outcome = await confirmCrewResolution();
+                        if (!outcome.ok) {
+                            Alert.alert('Resolution Failed', `${outcome.message} The emergency is still open.`);
+                            return;
                         }
+                        setBusEmergency(null);
+                        clearSOS();
                         Alert.alert('Incident Resolved', 'Emergency status marked as resolved. Control Center notified.');
                     },
                 },

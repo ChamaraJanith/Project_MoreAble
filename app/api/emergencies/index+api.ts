@@ -6,7 +6,12 @@ import {
     listEmergencies,
     EmergencyConflictError,
 } from '../../../src/shared/server/emergencies';
+import { CreateEmergencyInput, EMERGENCY_PRIORITIES, EmergencyPriority } from '../../../src/entities/emergency/model/types';
+import { PassengerOngoingJourney } from '../../../src/entities/booking/model/types';
 import { authenticateRequest } from '../../../src/shared/api/authMiddleware';
+import { authenticateEmergencyAdmin } from '../../../src/shared/server/emergencyAdminAuthorization';
+import { authoriseOngoingJourneyAccess } from '../../../src/shared/server/ongoingJourneyAuthorization';
+import { loadPassengerOngoingJourneys } from '../../../src/shared/server/passengerOngoingJourney';
 
 export async function OPTIONS() {
     return new Response(null, {
@@ -19,8 +24,13 @@ export async function OPTIONS() {
 //
 // Lists emergency requests, ordered by newest first.
 // Supports ?status=PENDING|ASSIGNED|RESOLVED|ALL and ?search=
+//
+// ADMIN ONLY (authenticateEmergencyAdmin), checked before anything is read.
 export async function GET(request: Request) {
     try {
+        const auth = await authenticateEmergencyAdmin(request);
+        if (!auth.ok) return auth.response;
+
         const url = new URL(request.url);
         const statusParam = url.searchParams.get('status') || undefined;
         const searchParam = url.searchParams.get('search') || undefined;
@@ -48,108 +58,85 @@ export async function GET(request: Request) {
 
 // POST /api/emergencies
 //
-// Triggered when an SOS emergency is initiated by a passenger or conductor.
-// Initializes the request with status 'PENDING' and records initial status history.
+// A passenger's SOS. Who and which journey are decided here, never by the
+// request body:
+//
+//   who      the verified PASSENGER session (authoriseOngoingJourneyAccess, as
+//            GET /api/journeys/ongoing uses) -> that passenger's own user
+//            document. Nothing about the passenger is read from the body.
+//   journey  attached only when the body's bookingId names one of this
+//            passenger's ongoing journeys, as loadPassengerOngoingJourneys —
+//            the canonical running-journey match — returns them. bookingId,
+//            tripId, busId, vehicle, route and driver then come from that
+//            verified journey; anything the client sent for them is ignored.
+//
+// An SOS with no verified ongoing journey is still an emergency: it is
+// recorded without journey identity rather than refused, and never with a
+// guessed booking. If reading the journey fails, the same.
+//
+// From the body only: location, priority, notes, and the bookingId used to
+// pick among the passenger's own ongoing journeys.
+//
+// Access:
+//   no session (missing, malformed, expired or badly signed token)  -> 401
+//   a vehicle, scoped or non-PASSENGER session                      -> 403
 export async function POST(request: Request) {
     try {
+        const session = await authenticateRequest(request).catch(() => null);
+        const authorization = authoriseOngoingJourneyAccess(session);
+
+        if (!authorization.allowed) {
+            return emergencyErrorResponse(
+                authorization.status,
+                authorization.status === 401 ? 'Authentication required.' : 'Only a signed-in passenger can send an SOS.'
+            );
+        }
+
         const body = await request.json().catch(() => null);
         if (!body) {
             return emergencyErrorResponse(400, 'Request body is required.');
         }
 
-        const user = await authenticateRequest(request).catch(() => null);
-        const creatorName = user?.email || (user as any)?.name || body.passenger?.name || 'Passenger SOS';
-
+        const { passengerId } = authorization;
         const db = getAdminDb();
 
-        // Dynamically cross-reference real database passenger & booking if available
-        const enrichedBody = { ...body };
-        if (db && typeof db.collection === 'function') {
-            try {
-                const targetPassengerId = user?.passengerId || user?.uid || (body.passenger?.id !== 'PAS-554' ? body.passenger?.id : null);
-                let dbUser: any = null;
+        const profile = await loadPassengerProfile(db, passengerId);
+        const journey = await findVerifiedOngoingJourney(db, passengerId, body.bookingId);
 
-                if (targetPassengerId) {
-                    const uDoc = await db.collection('users').doc(targetPassengerId).get().catch(() => null);
-                    if (uDoc?.exists) {
-                        dbUser = uDoc.data();
-                    } else {
-                        const snap = await db.collection('users').where('passengerId', '==', targetPassengerId).limit(1).get().catch(() => null);
-                        if (snap && !snap.empty) dbUser = snap.docs[0].data();
-                    }
-                }
+        const passenger = {
+            id: passengerId,
+            name: nonEmpty(profile?.userName) ?? nonEmpty(session?.email) ?? passengerId,
+            phone: nonEmpty(profile?.phoneNumber) ?? nonEmpty(profile?.secondaryPhoneNumber) ?? PHONE_NOT_ON_FILE,
+            email: nonEmpty(profile?.email) ?? nonEmpty(session?.email) ?? undefined,
+            specialAssistance: specialAssistanceOf(profile),
+        };
 
-                if (!dbUser && (user?.email || body.passenger?.email)) {
-                    const email = (user?.email || body.passenger?.email || '').trim().toLowerCase();
-                    if (email) {
-                        const snap = await db.collection('users').where('email', '==', email).limit(1).get().catch(() => null);
-                        if (snap && !snap.empty) dbUser = snap.docs[0].data();
-                    }
-                }
+        const busId = journey ? nonEmpty(journey.busId) ?? nonEmpty(journey.booking.busId) : null;
 
-                if (dbUser) {
-                    enrichedBody.passenger = {
-                        ...enrichedBody.passenger,
-                        id: dbUser.passengerId || dbUser.uid || enrichedBody.passenger?.id,
-                        name: dbUser.userName || enrichedBody.passenger?.name,
-                        phone: dbUser.phoneNumber || dbUser.secondaryPhoneNumber || enrichedBody.passenger?.phone,
-                        email: dbUser.email || enrichedBody.passenger?.email,
-                    };
+        const input: CreateEmergencyInput = {
+            bookingId: journey?.booking.bookingId,
+            tripId: journey?.activeJourney.tripId ?? null,
+            busId,
+            passenger,
+            vehicle: journey
+                ? {
+                      plateNumber: nonEmpty(journey.booking.vehicle?.numberPlate) ?? busId ?? undefined,
+                      model: nonEmpty(journey.booking.vehicle?.busModel) ?? undefined,
+                      routeNumber: nonEmpty(journey.booking.journey?.routeNumber) ?? undefined,
+                      driverId: busId ?? undefined,
+                  }
+                : undefined,
+            location: body.location,
+            priority: EMERGENCY_PRIORITIES.includes(body.priority) ? (body.priority as EmergencyPriority) : undefined,
+            notes: typeof body.notes === 'string' ? body.notes : undefined,
+            alertRecipients: {
+                caregiver: nonEmpty(profile?.guardianDetails?.mobileNo) ?? nonEmpty(profile?.guardianId),
+                driver: busId,
+                admin: 'ADMIN_TOPIC',
+            },
+        };
 
-                    const needs: string[] = [];
-                    if (dbUser.isWheelchairUser) needs.push('Wheelchair Assistance');
-                    if (dbUser.isLowVisionPerson) needs.push('Low Vision Support');
-                    if (dbUser.isHearingImpaired) needs.push('Hearing Support');
-                    if (dbUser.isWalkingDifficultyPerson) needs.push('Walking Assistance');
-                    if (Array.isArray(dbUser.accessibilityNeeds)) needs.push(...dbUser.accessibilityNeeds);
-                    if (needs.length > 0 && !enrichedBody.passenger.specialAssistance) {
-                        enrichedBody.passenger.specialAssistance = Array.from(new Set(needs)).join(', ');
-                    }
-
-                    if (dbUser.guardianDetails?.mobileNo && !enrichedBody.alertRecipients?.caregiver) {
-                        enrichedBody.alertRecipients = {
-                            ...enrichedBody.alertRecipients,
-                            caregiver: dbUser.guardianDetails.mobileNo,
-                        };
-                    }
-                }
-
-                // Check for real bookings for this passenger
-                const resolvedPid = dbUser?.passengerId || dbUser?.uid || enrichedBody.passenger?.id;
-                let dbBooking: any = null;
-                const bkgId = enrichedBody.bookingId && enrichedBody.bookingId !== 'BKG-998877' ? enrichedBody.bookingId : null;
-
-                if (bkgId) {
-                    const bDoc = await db.collection('bookings').doc(bkgId).get().catch(() => null);
-                    if (bDoc?.exists) dbBooking = bDoc.data();
-                }
-
-                if (!dbBooking && resolvedPid && resolvedPid !== 'PAS-554') {
-                    const bSnap = await db.collection('bookings').where('userId', '==', resolvedPid).get().catch(() => null);
-                    if (bSnap && !bSnap.empty) {
-                        const bookings = bSnap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
-                        bookings.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-                        dbBooking = bookings.find((b: any) => b.status === 'CONFIRMED') || bookings[0];
-                    }
-                }
-
-                if (dbBooking) {
-                    enrichedBody.bookingId = dbBooking.bookingId || dbBooking.id || enrichedBody.bookingId;
-                    enrichedBody.vehicle = {
-                        ...enrichedBody.vehicle,
-                        plateNumber: dbBooking.vehicle?.numberPlate || dbBooking.numberPlate || (enrichedBody.vehicle?.plateNumber !== 'WP-CBA-1234' ? enrichedBody.vehicle?.plateNumber : 'WP-ND-4521'),
-                        model: dbBooking.vehicle?.busModel || dbBooking.vehicle?.model || (enrichedBody.vehicle?.model !== 'Toyota Prius' ? enrichedBody.vehicle?.model : 'Transit Bus'),
-                        routeNumber: dbBooking.journey?.routeNumber || dbBooking.routeNumber || enrichedBody.vehicle?.routeNumber,
-                        driverId: dbBooking.driverId || dbBooking.busId || enrichedBody.vehicle?.driverId,
-                        driverName: dbBooking.driverName || enrichedBody.vehicle?.driverName,
-                    };
-                }
-            } catch (enrichErr) {
-                console.warn('[EmergencyRoute] Data enrichment warning:', enrichErr);
-            }
-        }
-
-        const emergency = await createEmergency(db, enrichedBody, creatorName);
+        const emergency = await createEmergency(db, input, nonEmpty(session?.email) ?? passenger.name);
 
         return Response.json(
             {
@@ -168,3 +155,56 @@ export async function POST(request: Request) {
     }
 }
 
+/** Shown to dispatch when the passenger's own record could not be read — never another number. */
+const PHONE_NOT_ON_FILE = 'Not on file';
+
+function nonEmpty(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** The session passenger's own user document (users/{passengerId}), or null. */
+async function loadPassengerProfile(db: any, passengerId: string): Promise<any | null> {
+    try {
+        const doc = await db.collection('users').doc(passengerId).get();
+        return doc?.exists ? doc.data() ?? null : null;
+    } catch {
+        console.warn('[EmergencyRoute] Passenger profile unavailable; SOS recorded with session identity.');
+        return null;
+    }
+}
+
+/**
+ * The passenger's ongoing journey named by `bookingId`, exactly as
+ * loadPassengerOngoingJourneys returns it — or null: no bookingId, no such
+ * ongoing journey (another passenger's, future, completed, cancelled), or the
+ * journey could not be read. Never a guess.
+ */
+async function findVerifiedOngoingJourney(
+    db: any,
+    passengerId: string,
+    bookingId: unknown
+): Promise<PassengerOngoingJourney | null> {
+    const requested = nonEmpty(bookingId);
+    if (!requested) return null;
+
+    try {
+        const journeys = await loadPassengerOngoingJourneys(db, passengerId, new Date());
+        return journeys.find((journey) => journey.booking.bookingId === requested) ?? null;
+    } catch {
+        console.warn('[EmergencyRoute] Ongoing journey unavailable; SOS recorded without journey identity.');
+        return null;
+    }
+}
+
+function specialAssistanceOf(profile: any): string | undefined {
+    if (!profile) return undefined;
+
+    const needs: string[] = [];
+    if (profile.isWheelchairUser) needs.push('Wheelchair Assistance');
+    if (profile.isLowVisionPerson) needs.push('Low Vision Support');
+    if (profile.isHearingImpaired) needs.push('Hearing Support');
+    if (profile.isWalkingDifficultyPerson) needs.push('Walking Assistance');
+    if (Array.isArray(profile.accessibilityNeeds)) needs.push(...profile.accessibilityNeeds);
+
+    return needs.length > 0 ? Array.from(new Set(needs)).join(', ') : undefined;
+}
