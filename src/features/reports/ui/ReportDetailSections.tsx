@@ -52,6 +52,12 @@ interface ReportHeroProps {
      * REP-00014". Only the admin review screen passes one; omitted, nothing is drawn.
      */
     referenceLabel?: string | null;
+    /**
+     * Draw the type and status badges above the title rather than under it,
+     * so the page opens on where the report stands. The passenger details
+     * screen does; the admin review screen keeps the default.
+     */
+    badgesFirst?: boolean;
     /** Anything the screen needs under the date, e.g. a review flag. */
     children?: React.ReactNode;
 }
@@ -68,9 +74,22 @@ export function ReportHero({
     status,
     submittedLabel,
     referenceLabel,
+    badgesFirst = false,
     children,
 }: ReportHeroProps) {
     const tone = REPORT_TYPE_TONES[reportType];
+
+    const badges = (
+        <View
+            style={[
+                reportDetailStyles.heroBadge,
+                badgesFirst && reportDetailStyles.heroBadgeFirst,
+            ]}
+        >
+            <ReportTypeBadge type={reportType} size="medium" />
+            {!!status && <StatusBadge status={status} />}
+        </View>
+    );
 
     return (
         <View style={reportDetailStyles.hero}>
@@ -82,14 +101,13 @@ export function ReportHero({
                 <Ionicons name={icon} size={30} color={tone.iconColor} />
             </View>
 
+            {badgesFirst && badges}
+
             <Text style={reportDetailStyles.heroTitle} accessibilityRole="header">
                 {title}
             </Text>
 
-            <View style={reportDetailStyles.heroBadge}>
-                <ReportTypeBadge type={reportType} size="medium" />
-                {!!status && <StatusBadge status={status} />}
-            </View>
+            {!badgesFirst && badges}
 
             {!!referenceLabel && (
                 <Text style={reportDetailStyles.heroReference} selectable>
@@ -396,6 +414,7 @@ export const reportDetailStyles = StyleSheet.create({
         gap: 8,
         marginTop: 12,
     },
+    heroBadgeFirst: { marginTop: 14 },
     heroDate: {
         fontSize: 13,
         fontWeight: '600',

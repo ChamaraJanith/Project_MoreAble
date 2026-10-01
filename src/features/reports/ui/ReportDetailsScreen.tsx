@@ -34,9 +34,8 @@ import {
     reportGalleryPhotos,
     reportJourneyEntries,
     reportReviewOutcome,
-    reportTimelineRows,
 } from '../utils/reportSummary';
-import { reportTypeLabel } from '../utils/reportFormat';
+import { formatReportDate } from '../utils/reportFormat';
 import { CommunityFeedback } from './CommunityFeedback';
 import {
     ReportHero,
@@ -196,7 +195,6 @@ export const ReportDetailsScreen = () => {
         const summary = reportCardSummary(report);
         const journey = reportJourneyEntries(report);
         const photos = reportGalleryPhotos(report);
-        const isPositive = summary.reportType === 'POSITIVE';
 
         // Owning the report and being able to change it are two questions, and
         // the answers diverge the moment an admin decides it. Kept apart so the
@@ -211,98 +209,64 @@ export const ReportDetailsScreen = () => {
         // be looked at, where the hero's "Pending" badge is the whole story.
         const review = reportReviewOutcome(report);
 
-        // Only once there is more than one moment to show: on an untouched
-        // report the information card's submitted date is the timeline already.
-        const timelineRows = hasBeenEdited(report) ? reportTimelineRows(report) : [];
+        // The hero's one line of reference: the id a passenger can quote, the
+        // day it was filed, and whether it has changed since.
+        const heroMeta = [
+            report.reportId,
+            formatReportDate(report.createdAt),
+            hasBeenEdited(report) ? `Edited ${formatReportDate(report.updatedAt!)}` : null,
+        ]
+            .filter(Boolean)
+            .join(' · ');
+
+        // "Verified · 24 Aug 2026" — the decision and when, on one line.
+        const reviewHeadline = review
+            ? [review.statusLabel, review.reviewedAt].filter(Boolean).join(' · ')
+            : '';
 
         return (
             <>
-                {/* ---------------- Hero ---------------- */}
+                {/* ---------------- Hero ----------------
+                    Where the report stands first, then what it is, then the
+                    reference and date. */}
                 <ReportHero
                     icon={summary.icon}
                     reportType={summary.reportType}
                     title={summary.title}
                     status={passengerReportStatusBadge(report)}
-                    submittedLabel={summary.submittedLabel}
+                    submittedLabel={heroMeta}
+                    badgesFirst
                 />
 
-                {/* ---------------- Photo evidence ----------------
-                    Only when there is some: a report filed without photos
-                    simply has no evidence section. */}
-                {photos.length > 0 && (
-                    <>
-                        <ReportSectionTitle>Photo Evidence</ReportSectionTitle>
-
-                        <View style={reportDetailStyles.card}>
-                            <ReportPhotoGallery photos={photos} onOpen={setViewerIndex} />
-                        </View>
-                    </>
-                )}
-
-                {/* ---------------- Report information ---------------- */}
-                <ReportSectionTitle>Report Information</ReportSectionTitle>
+                {/* ---------------- Key details ----------------
+                    The bus and the route. The category and the date are
+                    already in the hero, so they are not repeated here. */}
+                <ReportSectionTitle>Key Details</ReportSectionTitle>
 
                 <View style={reportDetailStyles.card}>
-                    <ReportJourneyRow
-                        entry={{
-                            icon: summary.icon,
-                            label: 'Category',
-                            primary: summary.title,
-                            secondary: reportTypeLabel(summary.reportType),
-                        }}
-                        isFirst
-                    />
-
-                    {journey.map((entry) => (
-                        <ReportJourneyRow key={entry.label} entry={entry} isFirst={false} />
+                    {journey.map((entry, index) => (
+                        <ReportJourneyRow key={entry.label} entry={entry} isFirst={index === 0} />
                     ))}
-
-                    <ReportJourneyRow
-                        entry={{
-                            icon: 'calendar-outline',
-                            label: 'Submitted',
-                            primary: summary.dateLabel,
-                        }}
-                        isFirst={false}
-                    />
                 </View>
 
                 {/* ---------------- Description ---------------- */}
-                <ReportSectionTitle>
-                    {isPositive ? 'Your Experience' : 'Issue Description'}
-                </ReportSectionTitle>
+                <ReportSectionTitle>Description</ReportSectionTitle>
 
                 <View style={reportDetailStyles.card}>
                     <Text style={reportDetailStyles.descriptionText}>{report.description}</Text>
                 </View>
 
-                {/* ---------------- Timeline ---------------- */}
-                {timelineRows.length > 0 && (
+                {/* ---------------- Photos ----------------
+                    Only when there is some: a report filed without photos
+                    simply has no evidence section. */}
+                {photos.length > 0 && (
                     <>
-                        <ReportSectionTitle>Report Timeline</ReportSectionTitle>
+                        <ReportSectionTitle>
+                            {photos.length === 1 ? 'Photo' : 'Photos'}
+                        </ReportSectionTitle>
 
                         <View style={reportDetailStyles.card}>
-                            {timelineRows.map((row, index) => (
-                                <View
-                                    key={row.label}
-                                    style={[
-                                        reportDetailStyles.timelineRow,
-                                        index > 0 && reportDetailStyles.divided,
-                                    ]}
-                                >
-                                    <Ionicons
-                                        name={row.icon}
-                                        size={16}
-                                        color={adminColors.textSecondary}
-                                    />
-                                    <Text style={reportDetailStyles.timelineLabel}>
-                                        {row.label}
-                                    </Text>
-                                    <Text style={reportDetailStyles.timelineValue}>
-                                        {row.value}
-                                    </Text>
-                                </View>
-                            ))}
+                            <ReportPhotoGallery photos={photos} onOpen={setViewerIndex} />
                         </View>
                     </>
                 )}
@@ -317,56 +281,22 @@ export const ReportDetailsScreen = () => {
                         <ReportSectionTitle>Admin Review</ReportSectionTitle>
 
                         <View style={reportDetailStyles.card}>
-                            {/* No decision row on positive feedback: it is never decided. */}
-                            {!!review.statusLabel && (
-                                <View style={reportDetailStyles.timelineRow}>
+                            {/* No decision line on positive feedback: it is never decided. */}
+                            {!!reviewHeadline && (
+                                <View style={styles.reviewHeadline}>
                                     <Ionicons
                                         name="shield-checkmark-outline"
-                                        size={16}
-                                        color={adminColors.textSecondary}
+                                        size={18}
+                                        color={adminColors.primary}
                                     />
-                                    <Text style={reportDetailStyles.timelineLabel}>
-                                        Decision
-                                    </Text>
-                                    <Text style={reportDetailStyles.timelineValue}>
-                                        {review.statusLabel}
-                                    </Text>
-                                </View>
-                            )}
-
-                            {!!review.reviewedAt && (
-                                <View
-                                    style={[
-                                        reportDetailStyles.timelineRow,
-                                        reportDetailStyles.divided,
-                                    ]}
-                                >
-                                    <Ionicons
-                                        name="time-outline"
-                                        size={16}
-                                        color={adminColors.textSecondary}
-                                    />
-                                    <Text style={reportDetailStyles.timelineLabel}>
-                                        Reviewed
-                                    </Text>
-                                    <Text style={reportDetailStyles.timelineValue}>
-                                        {review.reviewedAt}
-                                    </Text>
+                                    <Text style={styles.reviewHeadlineText}>{reviewHeadline}</Text>
                                 </View>
                             )}
 
                             {!!review.remark && (
-                                // Divided only when a row sits above it.
-                                <View
-                                    style={
-                                        review.statusLabel || review.reviewedAt
-                                            ? reportDetailStyles.divided
-                                            : undefined
-                                    }
-                                >
-                                    <Text style={styles.remarkLabel}>
-                                        Administrator&apos;s remark
-                                    </Text>
+                                // Divided only when the headline sits above it.
+                                <View style={reviewHeadline ? reportDetailStyles.divided : undefined}>
+                                    <Text style={styles.remarkLabel}>Remark</Text>
                                     <Text style={reportDetailStyles.descriptionText}>
                                         {review.remark}
                                     </Text>
@@ -394,7 +324,7 @@ export const ReportDetailsScreen = () => {
                     report: nothing at all. */}
                 {isOwner && (
                     <View style={styles.actions}>
-                        <ReportSectionTitle>Manage Your Report</ReportSectionTitle>
+                        <ReportSectionTitle>Manage Report</ReportSectionTitle>
 
                         {!!editLockedMessage && (
                             <View style={styles.lockedNotice}>
@@ -483,6 +413,14 @@ const styles = StyleSheet.create({
     content: { padding: 20, paddingBottom: 40 },
 
     // ---- Admin review ----
+    reviewHeadline: { flexDirection: 'row', alignItems: 'center' },
+    reviewHeadlineText: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '700',
+        color: adminColors.textPrimary,
+        marginLeft: 10,
+    },
     remarkLabel: {
         fontSize: 11,
         fontWeight: '700',

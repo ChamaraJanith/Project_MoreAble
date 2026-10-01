@@ -21,6 +21,19 @@ export function formatReportDateTime(value: string): string {
     return `${day} · ${time}`;
 }
 
+/** e.g. "20 Aug 2026" — the date alone. Returns the raw value when it is unparseable. */
+export function formatReportDate(value: string): string {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return value;
+
+    return date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    });
+}
+
 /** "1 photo" / "3 photos" — keeps the pluralisation in one place. */
 export function formatPhotoCount(count: number): string {
     return `${count} photo${count === 1 ? '' : 's'}`;
