@@ -132,6 +132,25 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
     });
 
     describe('3. POST /api/emergencies Endpoint', () => {
+        // POST is a passenger's SOS: it needs a verified PASSENGER session
+        // (the file's default mock is an ADMIN). Route-level identity, journey
+        // and recipient rules are driven against a real database in
+        // tests/api/emergencies/createEmergencySos+api.route.test.ts.
+        const PASSENGER_SESSION = {
+            uid: 'uid-PAS-2026-00010',
+            passengerId: 'PAS-2026-00010',
+            role: 'PASSENGER',
+            email: 'passenger10@moreable.lk',
+        };
+
+        beforeEach(() => {
+            (authenticateRequest as jest.Mock).mockResolvedValue(PASSENGER_SESSION);
+        });
+
+        afterAll(() => {
+            (authenticateRequest as jest.Mock).mockImplementation(async () => ({ email: 'admin@moreable.lk', role: 'ADMIN' }));
+        });
+
         it('creates a new emergency and returns 201 with created record', async () => {
             const mockCreated: any = {
                 id: 'EMG-999',
@@ -162,12 +181,7 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
             expect(createSpy).toHaveBeenCalledTimes(1);
         });
 
-        it('resolves creator name from authenticated user profile', async () => {
-            (authenticateRequest as jest.Mock).mockResolvedValueOnce({
-                email: 'operator1@transit.gov.lk',
-                name: 'Operator 1',
-            });
-
+        it('records the creator as the passenger session, not the body', async () => {
             const mockCreated: any = { id: 'EMG-001', status: 'PENDING', passenger: { name: 'Sunil' } };
             const createSpy = jest.spyOn(EmergencyServer, 'createEmergency').mockResolvedValueOnce(mockCreated);
 
@@ -183,16 +197,17 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
 
             expect(createSpy).toHaveBeenCalledWith(
                 expect.anything(),
-                expect.anything(),
-                'operator1@transit.gov.lk'
+                expect.objectContaining({
+                    passenger: expect.objectContaining({ id: 'PAS-2026-00010' }),
+                }),
+                'passenger10@moreable.lk'
             );
+            expect(createSpy.mock.calls[0][1].passenger).not.toMatchObject({ name: 'Sunil' });
         });
 
-        it('falls back to passenger name when authenticateRequest rejects', async () => {
+        it('refuses with 401 when the request carries no verified session', async () => {
             (authenticateRequest as jest.Mock).mockRejectedValueOnce(new Error('No token'));
-
-            const mockCreated: any = { id: 'EMG-002', status: 'PENDING', passenger: { name: 'Kamal' } };
-            const createSpy = jest.spyOn(EmergencyServer, 'createEmergency').mockResolvedValueOnce(mockCreated);
+            const createSpy = jest.spyOn(EmergencyServer, 'createEmergency');
 
             const req = new Request('http://localhost:8081/api/emergencies', {
                 method: 'POST',
@@ -202,13 +217,32 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
                 }),
             });
 
-            await postEmergencyRoute(req);
+            const res = await postEmergencyRoute(req);
 
-            expect(createSpy).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.anything(),
-                'Kamal'
-            );
+            expect(res.status).toBe(401);
+            expect((await res.json()).success).toBe(false);
+            expect(createSpy).not.toHaveBeenCalled();
+        });
+
+        it('refuses with 403 when the session is not a passenger', async () => {
+            (authenticateRequest as jest.Mock).mockResolvedValueOnce({
+                email: 'operator1@transit.gov.lk',
+                role: 'ADMIN',
+            });
+            const createSpy = jest.spyOn(EmergencyServer, 'createEmergency');
+
+            const req = new Request('http://localhost:8081/api/emergencies', {
+                method: 'POST',
+                body: JSON.stringify({
+                    passenger: { name: 'Sunil', phone: '0771122334' },
+                    location: { latitude: 6.9, longitude: 79.8 },
+                }),
+            });
+
+            const res = await postEmergencyRoute(req);
+
+            expect(res.status).toBe(403);
+            expect(createSpy).not.toHaveBeenCalled();
         });
 
         it('returns 400 when request body cannot be parsed or is empty', async () => {
@@ -490,6 +524,13 @@ describe('MOV-236: Backend API Route Handlers (/api/emergencies)', () => {
         });
 
         it('ensures CORS headers are present on error responses (400 Bad Request)', async () => {
+            // POST needs a passenger session to reach body validation.
+            (authenticateRequest as jest.Mock).mockResolvedValueOnce({
+                uid: 'uid-PAS-2026-00010',
+                passengerId: 'PAS-2026-00010',
+                role: 'PASSENGER',
+                email: 'passenger10@moreable.lk',
+            });
             const req = new Request('http://localhost:8081/api/emergencies', {
                 method: 'POST',
                 body: 'not a json',

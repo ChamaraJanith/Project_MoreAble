@@ -16,6 +16,8 @@ export interface SeedBooking {
     trip: SeedTripState;
     /** Newer bookings sort first in any "most recent booking" lookup. */
     createdAt?: string;
+    /** CONFIRMED unless a test needs a cancelled booking. */
+    status?: 'CONFIRMED' | 'CANCELLED';
 }
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -35,8 +37,11 @@ function startedJourney(busId: string) {
     };
 }
 
-/** A fake Firestore holding these bookings, their trips and their buses. */
-export function seedOngoingJourneys(bookings: SeedBooking[]) {
+/**
+ * A fake Firestore holding these bookings, their trips and their buses, plus
+ * any `extra` collections a test needs alongside them (e.g. `users`).
+ */
+export function seedOngoingJourneys(bookings: SeedBooking[], extra: Record<string, Record<string, unknown>[]> = {}) {
     const trips = new Map<string, Record<string, unknown>>();
 
     for (const booking of bookings) {
@@ -66,7 +71,7 @@ export function seedOngoingJourneys(bookings: SeedBooking[]) {
             routeId: '177_KADUWELA_KOLLUPITIYA',
             busId: booking.busId,
             seatNumber: '05A',
-            status: 'CONFIRMED',
+            status: booking.status ?? 'CONFIRMED',
             journey: {
                 routeNumber: '177',
                 routeName: 'Kaduwela - Kollupitiya',
@@ -80,5 +85,6 @@ export function seedOngoingJourneys(bookings: SeedBooking[]) {
         })),
         vehicleLocations: [],
         buses: [...new Set(bookings.map((booking) => booking.busId))].map((busId) => ({ busId })),
+        ...extra,
     });
 }

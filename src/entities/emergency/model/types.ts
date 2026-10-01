@@ -107,6 +107,9 @@ export interface EmergencyResolution {
 export interface EmergencyRequest {
     id: string;
     bookingId?: string;
+    /** The verified running journey's trip and bus; absent when the SOS had no ongoing journey. */
+    tripId?: string;
+    busId?: string;
     passenger: EmergencyPassenger;
     vehicle: EmergencyVehicle;
     location: EmergencyLocation;
@@ -127,7 +130,11 @@ export interface EmergencyRequest {
 
 export interface CreateEmergencyInput {
     bookingId?: string;
-    /** The running journey's trip and bus, from GET /api/journeys/ongoing; null when nothing is running. */
+    /**
+     * The running journey's trip and bus. The client sends what GET
+     * /api/journeys/ongoing told it; POST /api/emergencies ignores those and
+     * passes on only the server-verified values. Null when nothing is running.
+     */
     tripId?: string | null;
     busId?: string | null;
     passenger: {
