@@ -2,7 +2,7 @@ import { AppText as Text } from '../../../src/shared/ui/AppText';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -17,6 +17,11 @@ import {
 } from 'react-native';
 import { Booking } from '../../../src/entities/booking/model/types';
 import { cancelBooking, getBookingHistory } from '../../../src/features/booking/api/bookingApi';
+import {
+    getBookingStatusDisplay,
+    isBookingUpcoming,
+    sortBookings,
+} from '../../../src/features/booking/utils/bookingFilter';
 import { formatDisplayDate } from '../../../src/features/journey/utils/dateTime';
 import { useAuthStore } from '../../../src/shared/store/authStore';
 import { statusBadgeStyles } from '../../../src/shared/ui/statusBadgeStyles';
@@ -27,6 +32,7 @@ export default function MyBookingsScreen() {
   const { t } = useTranslation();
     const { user } = useAuthStore();
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [now, setNow] = useState(() => new Date());
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState<FilterTab>('UPCOMING');
@@ -41,6 +47,7 @@ export default function MyBookingsScreen() {
         try {
             const data = await getBookingHistory(user.passengerId);
             setBookings(data);
+            setNow(new Date());
         } catch (err: any) {
             setError(err.message || 'Unable to fetch bookings.');
         } finally {
@@ -84,13 +91,18 @@ export default function MyBookingsScreen() {
         }
     }
 
-    const filtered = bookings.filter((b) => {
-        if (activeTab === 'UPCOMING') {
-            return b.status === 'CONFIRMED';
-        } else {
-            return b.status === 'CANCELLED';
-        }
-    });
+    const upcomingBookings = useMemo(
+        () => sortBookings(bookings.filter((b) => isBookingUpcoming(b, now)), 'UPCOMING'),
+        [bookings, now]
+    );
+
+    const historyBookings = useMemo(
+        () => sortBookings(bookings.filter((b) => !isBookingUpcoming(b, now)), 'HISTORY'),
+        [bookings, now]
+    );
+
+    const filtered = activeTab === 'UPCOMING' ? upcomingBookings : historyBookings;
+    const activeCount = upcomingBookings.length;
 
     if (!user) {
         return (
@@ -126,7 +138,7 @@ export default function MyBookingsScreen() {
                     </View>
                     <View style={styles.bookingCountBadge}>
                         <Text style={styles.bookingCountText}>
-                            {bookings.filter((b) => b.status === 'CONFIRMED').length} active
+                            {activeCount} active
                         </Text>
                     </View>
                 </View>
@@ -205,7 +217,8 @@ export default function MyBookingsScreen() {
                             </View>
                         }
                         renderItem={({ item }) => {
-                            const isUpcoming = item.status === 'CONFIRMED';
+                            const isUpcoming = isBookingUpcoming(item, now);
+                            const statusDisplay = getBookingStatusDisplay(item, now);
                             const hasAssistance =
                                 item.assistanceRequested?.wheelchairAssistance ||
                                 item.assistanceRequested?.boardingAssistance ||
@@ -228,20 +241,24 @@ export default function MyBookingsScreen() {
                                         <View
                                             style={[
                                                 styles.statusBadge,
-                                                item.status === 'CONFIRMED'
+                                                statusDisplay.variant === 'CONFIRMED' || statusDisplay.variant === 'COMPLETED'
                                                     ? statusBadgeStyles.active
-                                                    : styles.statusBadgeCancel,
+                                                    : statusDisplay.variant === 'CANCELLED'
+                                                    ? styles.statusBadgeCancel
+                                                    : styles.statusBadgePast,
                                             ]}
                                         >
                                             <Text
                                                 style={[
                                                     styles.statusText,
-                                                    item.status === 'CONFIRMED'
+                                                    statusDisplay.variant === 'CONFIRMED' || statusDisplay.variant === 'COMPLETED'
                                                         ? statusBadgeStyles.activeText
-                                                        : styles.statusTextCancel,
+                                                        : statusDisplay.variant === 'CANCELLED'
+                                                        ? styles.statusTextCancel
+                                                        : styles.statusTextPast,
                                                 ]}
                                             >
-                                                {item.status}
+                                                {statusDisplay.label}
                                             </Text>
                                         </View>
                                     </View>
@@ -319,7 +336,7 @@ export default function MyBookingsScreen() {
                                     <View style={styles.footerRow}>
                                         <Text style={styles.bookingIdText}>ID: {item.bookingId}</Text>
                                         <View style={styles.actionBtnGroup}>
-                                            {isUpcoming && (
+                                            {isUpcoming && item.status === 'CONFIRMED' && (
                                                 <TouchableOpacity
                                                     style={styles.cancelBtn}
                                                     onPress={() => handleCancel(item)}
@@ -623,12 +640,18 @@ const styles = StyleSheet.create({
     statusBadgeCancel: {
         backgroundColor: '#FEE2E2',
     },
+    statusBadgePast: {
+        backgroundColor: '#F1F5F9',
+    },
     statusText: {
         fontSize: 11,
         fontWeight: '900',
     },
     statusTextCancel: {
         color: '#B91C1C',
+    },
+    statusTextPast: {
+        color: '#475569',
     },
     routeSection: {
         flexDirection: 'row',
