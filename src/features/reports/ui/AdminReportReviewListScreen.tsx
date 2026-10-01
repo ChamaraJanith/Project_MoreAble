@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    Modal,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -13,10 +14,24 @@ import {
 import { useAuthStore } from '../../../shared/store/authStore';
 import { AdminScreenHeader } from '../../admin/ui/AdminScreenHeader';
 import { AdminSearchField } from '../../admin/ui/AdminSearchField';
-import { AdminSelectModal } from '../../admin/ui/AdminSelectModal';
 import { AdminEmptyState, AdminErrorState, AdminListSkeleton } from '../../admin/ui/AdminStates';
 import { adminColors, adminShadow } from '../../admin/ui/adminTheme';
+import { getComplaints } from '../../admin/api/complaintAdminApi';
 import { fetchReportsForReview } from '../api/reportReviewApi';
+import {
+    ADMIN_COMPLAINT_FILTERS,
+    COMPLAINT_INDEX_ERROR,
+    COMPLAINT_INDEX_LOADING,
+    COMPLAINT_STATUS_UNAVAILABLE_MESSAGE,
+    ComplaintBadge,
+    ComplaintBadgeTone,
+    ComplaintIndex,
+    ComplaintPresenceFilter,
+    adminComplaintFilterLabel,
+    filterReportsByComplaint,
+    indexComplaintsByReport,
+    reportComplaintBadge,
+} from '../utils/reportComplaintStatus';
 import {
     ADMIN_REPORT_TYPE_FILTERS,
     ADMIN_REVIEW_FILTERS,
@@ -73,7 +88,15 @@ export const AdminReportReviewListScreen = () => {
     // question to ask it — both reports have always come from the one
     // collection, told apart by the `type` the report already carries.
     const [typeFilter, setTypeFilter] = useState<ReportTypeFilter>('ALL');
-    const [isTypePickerOpen, setIsTypePickerOpen] = useState(false);
+
+    // Whether a verified issue already has a complaint, beside the type. Read
+    // off the existing complaint list, matched to the reports on screen — the
+    // report's own status never says, because it stays VERIFIED whatever
+    // happens to the complaint.
+    const [complaintFilter, setComplaintFilter] = useState<ComplaintPresenceFilter>('ALL');
+    const [complaintIndex, setComplaintIndex] = useState<ComplaintIndex>(COMPLAINT_INDEX_LOADING);
+
+    const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -102,7 +125,16 @@ export const AdminReportReviewListScreen = () => {
 
             setError(null);
 
-            const result = await fetchReportsForReview(token, target);
+            // Asked together, landing independently: complaints that fail to
+            // load cost the complaint badges, never the queue itself.
+            const [result, complaints] = await Promise.all([
+                fetchReportsForReview(token, target),
+                getComplaints(token),
+            ]);
+
+            setComplaintIndex(
+                complaints.ok ? indexComplaintsByReport(complaints.value) : COMPLAINT_INDEX_ERROR
+            );
 
             if (result.ok) {
                 // Replaces the list outright, so a refresh can never duplicate
@@ -138,10 +170,24 @@ export const AdminReportReviewListScreen = () => {
     // "NB-5678" + Positive Feedback is the pending positive feedback about that
     // bus, and clearing any one of them widens the list without disturbing the
     // other two.
+    //
+    // The complaint filter narrows last, and only ever to verified issue
+    // reports: positive feedback cannot have a complaint.
     const visibleReports = useMemo(
-        () => filterReportsByType(filterReportsBySearch(reports, search), typeFilter),
-        [reports, search, typeFilter]
+        () =>
+            filterReportsByComplaint(
+                filterReportsByType(filterReportsBySearch(reports, search), typeFilter),
+                complaintFilter,
+                complaintIndex
+            ),
+        [reports, search, typeFilter, complaintFilter, complaintIndex]
     );
+
+    const activeFilterCount = (typeFilter !== 'ALL' ? 1 : 0) + (complaintFilter !== 'ALL' ? 1 : 0);
+    const filterSummary = [
+        ...(typeFilter !== 'ALL' ? [adminReportTypeFilterLabel(typeFilter)] : []),
+        ...(complaintFilter !== 'ALL' ? [adminComplaintFilterLabel(complaintFilter)] : []),
+    ].join(', ');
 
     // Counted over what is actually on screen, so the line above the list
     // describes the queue the admin is looking at.
@@ -189,11 +235,17 @@ export const AdminReportReviewListScreen = () => {
                     icon="search-outline"
                     title="No matching reports"
                     description={
-                        typeFilter === 'ALL'
-                            ? 'No reports match your search. Try an issue, a bus, a route or a word from the description.'
-                            : `No ${adminReportTypeFilterLabel(
-                                  typeFilter
-                              ).toLowerCase()} match your search. Try another word, or show all report types.`
+                        complaintFilter !== 'ALL'
+                            ? complaintIndex.status === 'error'
+                                ? COMPLAINT_STATUS_UNAVAILABLE_MESSAGE
+                                : `No verified issue reports here match "${adminComplaintFilterLabel(
+                                      complaintFilter
+                                  )}". Try another tab, or show all complaint statuses.`
+                            : typeFilter === 'ALL'
+                              ? 'No reports match your search. Try an issue, a bus, a route or a word from the description.'
+                              : `No ${adminReportTypeFilterLabel(
+                                    typeFilter
+                                ).toLowerCase()} match your search. Try another word, or show all report types.`
                     }
                 />
             );
@@ -221,6 +273,7 @@ export const AdminReportReviewListScreen = () => {
                     <ReviewQueueCard
                         key={report.documentId || report.reportId}
                         report={report}
+                        complaintBadge={reportComplaintBadge(report, complaintIndex)}
                         // The id travels in the path and nowhere else — it is
                         // how the report is addressed, not something an admin
                         // reads off a row. The decision itself lives on the
@@ -338,43 +391,56 @@ export const AdminReportReviewListScreen = () => {
                         <TouchableOpacity
                             style={[
                                 styles.filterButton,
-                                typeFilter !== 'ALL' && styles.filterButtonActive,
+                                activeFilterCount > 0 && styles.filterButtonActive,
                             ]}
-                            onPress={() => setIsTypePickerOpen(true)}
+                            onPress={() => setIsFilterSheetOpen(true)}
                             accessibilityRole="button"
                             accessibilityLabel={
-                                typeFilter === 'ALL'
-                                    ? 'Filter by report type'
-                                    : `Filter by report type, showing ${adminReportTypeFilterLabel(
-                                          typeFilter
-                                      )}`
+                                activeFilterCount === 0
+                                    ? 'Filter reports'
+                                    : `Filter reports, showing ${filterSummary}`
                             }
                         >
                             <Ionicons
                                 name="options-outline"
                                 size={20}
-                                color={typeFilter !== 'ALL' ? '#FFFFFF' : adminColors.primary}
+                                color={activeFilterCount > 0 ? '#FFFFFF' : adminColors.primary}
                             />
+                            {activeFilterCount > 0 && (
+                                <View style={styles.filterCount}>
+                                    <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+                                </View>
+                            )}
                         </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Said once, above the list, rather than as a blank chip on
+                    every card: the queue is fine, only the complaint badges are
+                    missing. */}
+                {canSearch && complaintIndex.status === 'error' && (
+                    <View style={styles.complaintNotice} accessibilityLiveRegion="polite">
+                        <Ionicons
+                            name="alert-circle-outline"
+                            size={15}
+                            color={adminColors.textSecondary}
+                        />
+                        <Text style={styles.complaintNoticeText}>
+                            {COMPLAINT_STATUS_UNAVAILABLE_MESSAGE}
+                        </Text>
                     </View>
                 )}
 
                 {renderBody()}
             </ScrollView>
 
-            {/* The same picker the passenger filter sheet opens for its own
-                dropdowns, so one list of choices looks the same everywhere. */}
-            <AdminSelectModal
-                visible={isTypePickerOpen}
-                title="Report Type"
-                options={ADMIN_REPORT_TYPE_FILTERS.map(({ value, label }) => ({ value, label }))}
-                selectedValue={typeFilter}
-                emptyMessage="No report types available."
-                onClose={() => setIsTypePickerOpen(false)}
-                onSelect={(value) => {
-                    setTypeFilter(value as ReportTypeFilter);
-                    setIsTypePickerOpen(false);
-                }}
+            <ReviewFilterSheet
+                visible={isFilterSheetOpen}
+                typeFilter={typeFilter}
+                complaintFilter={complaintFilter}
+                onChangeType={setTypeFilter}
+                onChangeComplaint={setComplaintFilter}
+                onClose={() => setIsFilterSheetOpen(false)}
             />
         </View>
     );
@@ -416,9 +482,12 @@ function CountTile({ label, value, tone }: { label: string; value: number; tone:
  */
 function ReviewQueueCard({
     report,
+    complaintBadge,
     onOpen,
 }: {
     report: AdminReviewReport;
+    /** Verified issue reports only; null on everything else. */
+    complaintBadge: ComplaintBadge | null;
     onOpen: () => void;
 }) {
     // Everything the card puts on screen, derived in one place — including the
@@ -433,9 +502,16 @@ function ReviewQueueCard({
             summary={summary}
             status={summary.status}
             onOpen={onOpen}
-            accessibilityLabel={summary.accessibilityLabel}
+            accessibilityLabel={
+                complaintBadge
+                    ? `${summary.accessibilityLabel}, ${complaintBadge.label}`
+                    : summary.accessibilityLabel
+            }
             accessibilityHint="Opens the report for review"
             flagged={summary.needsReview}
+            statusAccessory={
+                complaintBadge ? <ComplaintStatusChip badge={complaintBadge} /> : null
+            }
             banner={
                 // Said in words and with an icon, never by the border alone: a
                 // flag carried only by colour is a flag half the admins using
@@ -455,6 +531,202 @@ function ReviewQueueCard({
                 ) : null
             }
         />
+    );
+}
+
+const COMPLAINT_CHIP_TONES: Record<
+    ComplaintBadgeTone,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; background: string; border: string }
+> = {
+    // Neutral: not a problem, nothing has happened yet.
+    none: {
+        icon: 'remove-circle-outline',
+        color: adminColors.textSecondary,
+        background: adminColors.surfaceMuted,
+        border: adminColors.border,
+    },
+    // Pending, Assigned, In Progress: being worked on.
+    active: {
+        icon: 'alert-circle-outline',
+        color: adminColors.warning,
+        background: adminColors.warningSoft,
+        border: adminColors.warningSoft,
+    },
+    // Resolved: done, said quietly.
+    resolved: {
+        icon: 'checkmark-done-outline',
+        color: adminColors.success,
+        background: adminColors.successSoft,
+        border: adminColors.successSoft,
+    },
+};
+
+/**
+ * The complaint status of a verified issue report, as a chip of its own.
+ *
+ * Deliberately not a StatusBadge: "Verified" is the report's status and this is
+ * the complaint's, and drawing them alike would read as one fact. Smaller,
+ * outlined rather than solid, and always carrying its words and an icon, so
+ * the colour is never the only thing that says which state it is in.
+ */
+function ComplaintStatusChip({ badge }: { badge: ComplaintBadge }) {
+    const tone = COMPLAINT_CHIP_TONES[badge.tone];
+
+    return (
+        <View
+            style={[
+                styles.complaintChip,
+                { backgroundColor: tone.background, borderColor: tone.border },
+            ]}
+            // Part of the card's own label already.
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+        >
+            <Ionicons name={tone.icon} size={12} color={tone.color} />
+            <Text style={[styles.complaintChipText, { color: tone.color }]} numberOfLines={1}>
+                {badge.label}
+            </Text>
+        </View>
+    );
+}
+
+// ------------------------------------------------------------------
+
+/**
+ * The queue's filters, behind the one filter button: report type, and whether
+ * a verified issue already has a complaint. Each choice applies at once, the
+ * way the single type picker before it did.
+ */
+function ReviewFilterSheet({
+    visible,
+    typeFilter,
+    complaintFilter,
+    onChangeType,
+    onChangeComplaint,
+    onClose,
+}: {
+    visible: boolean;
+    typeFilter: ReportTypeFilter;
+    complaintFilter: ComplaintPresenceFilter;
+    onChangeType: (value: ReportTypeFilter) => void;
+    onChangeComplaint: (value: ComplaintPresenceFilter) => void;
+    onClose: () => void;
+}) {
+    const canReset = typeFilter !== 'ALL' || complaintFilter !== 'ALL';
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <View style={styles.sheetBackdrop}>
+                <TouchableOpacity
+                    style={StyleSheet.absoluteFill}
+                    activeOpacity={1}
+                    onPress={onClose}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close filters"
+                />
+
+                <View style={styles.sheet}>
+                    <View style={styles.sheetHeader}>
+                        <Text style={styles.sheetTitle} accessibilityRole="header">
+                            Filter Reports
+                        </Text>
+
+                        <TouchableOpacity
+                            onPress={onClose}
+                            style={styles.sheetClose}
+                            accessibilityRole="button"
+                            accessibilityLabel="Close"
+                        >
+                            <Ionicons name="close" size={24} color={adminColors.textPrimary} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                        <FilterGroup
+                            title="Report Type"
+                            options={ADMIN_REPORT_TYPE_FILTERS}
+                            selected={typeFilter}
+                            onSelect={onChangeType}
+                        />
+
+                        <FilterGroup
+                            title="Complaint Status"
+                            hint="Verified issue reports only."
+                            options={ADMIN_COMPLAINT_FILTERS}
+                            selected={complaintFilter}
+                            onSelect={onChangeComplaint}
+                        />
+
+                        {canReset && (
+                            <TouchableOpacity
+                                style={styles.sheetReset}
+                                onPress={() => {
+                                    onChangeType('ALL');
+                                    onChangeComplaint('ALL');
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Clear all filters"
+                            >
+                                <Text style={styles.sheetResetText}>Clear Filters</Text>
+                            </TouchableOpacity>
+                        )}
+                    </ScrollView>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+/** One labelled set of choices in the filter sheet, as compact pills. */
+function FilterGroup<T extends string>({
+    title,
+    hint,
+    options,
+    selected,
+    onSelect,
+}: {
+    title: string;
+    hint?: string;
+    options: { value: T; label: string }[];
+    selected: T;
+    onSelect: (value: T) => void;
+}) {
+    return (
+        <View style={styles.filterGroup}>
+            <Text style={styles.filterGroupTitle} accessibilityRole="header">
+                {title}
+            </Text>
+            {!!hint && <Text style={styles.filterGroupHint}>{hint}</Text>}
+
+            <View style={styles.filterOptions} accessibilityRole="radiogroup">
+                {options.map((option) => {
+                    const isSelected = option.value === selected;
+
+                    return (
+                        <TouchableOpacity
+                            key={option.value}
+                            style={[styles.filterOption, isSelected && styles.filterOptionSelected]}
+                            onPress={() => onSelect(option.value)}
+                            accessibilityRole="radio"
+                            accessibilityState={{ checked: isSelected }}
+                            accessibilityLabel={`${title}: ${option.label}`}
+                        >
+                            {isSelected && (
+                                <Ionicons name="checkmark" size={15} color={adminColors.primary} />
+                            )}
+                            <Text
+                                style={[
+                                    styles.filterOptionText,
+                                    isSelected && styles.filterOptionTextSelected,
+                                ]}
+                            >
+                                {option.label}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+        </View>
     );
 }
 
@@ -512,6 +784,115 @@ const styles = StyleSheet.create({
         backgroundColor: adminColors.primary,
         borderColor: adminColors.primary,
     },
+    // How many filters are on, so two active filters are not mistaken for one.
+    filterCount: {
+        position: 'absolute',
+        top: 4,
+        right: 4,
+        minWidth: 16,
+        height: 16,
+        borderRadius: 8,
+        paddingHorizontal: 3,
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    filterCountText: { fontSize: 10, fontWeight: '800', color: adminColors.primary },
+
+    complaintNotice: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: adminColors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        marginBottom: 12,
+    },
+    complaintNoticeText: {
+        flex: 1,
+        fontSize: 12,
+        lineHeight: 17,
+        color: adminColors.textSecondary,
+    },
+
+    // ---- Complaint chip ----
+    complaintChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        borderWidth: 1,
+        borderRadius: 6,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+        maxWidth: '100%',
+    },
+    complaintChipText: { fontSize: 11, fontWeight: '700', flexShrink: 1 },
+
+    // ---- Filter sheet ----
+    sheetBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(26, 37, 48, 0.45)',
+        justifyContent: 'flex-end',
+    },
+    sheet: {
+        backgroundColor: adminColors.surface,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 28,
+        maxHeight: '75%',
+    },
+    sheetHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    sheetTitle: { fontSize: 18, fontWeight: '700', color: adminColors.textPrimary },
+    sheetClose: {
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+        alignItems: 'flex-end',
+    },
+    filterGroup: { marginTop: 14 },
+    filterGroupTitle: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: adminColors.textMuted,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+    },
+    filterGroupHint: { fontSize: 12, color: adminColors.textMuted, marginTop: 3 },
+    filterOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+    filterOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        minHeight: 44,
+        paddingHorizontal: 14,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: adminColors.border,
+        backgroundColor: adminColors.surface,
+    },
+    filterOptionSelected: {
+        borderColor: adminColors.primary,
+        backgroundColor: adminColors.primarySoft,
+    },
+    filterOptionText: { fontSize: 14, fontWeight: '600', color: adminColors.textSecondary },
+    filterOptionTextSelected: { color: adminColors.primary, fontWeight: '700' },
+    sheetReset: {
+        alignSelf: 'flex-start',
+        minHeight: 44,
+        justifyContent: 'center',
+        marginTop: 14,
+    },
+    sheetResetText: { fontSize: 14, fontWeight: '700', color: adminColors.primary },
 
     segmentedControl: {
         flexDirection: 'row',
