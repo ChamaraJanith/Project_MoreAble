@@ -4,6 +4,7 @@ import { useAuthStore } from '../../../shared/store/authStore';
 import { ActiveJourneySyncResult, syncActiveJourney } from './activeJourneySync';
 // import { firestore } from '@/api/firebase';
 import { createEmergencyRequestApi } from '../../admin/api/emergencyAdminApi';
+import { adminHttpStatusOf } from '../../admin/api/adminHttp';
 
 /**
  * How long SOS waits for a fresh GET /api/journeys/ongoing. It runs alongside
@@ -20,7 +21,81 @@ function withinSyncTimeout(sync: Promise<ActiveJourneySyncResult>): Promise<Acti
   return Promise.race([sync, timeout]).finally(() => clearTimeout(timer));
 }
 
-export const triggerSOSAlert = async () => {
+/** Why the server did not record an SOS. */
+export type SOSFailureReason =
+  /** 401: no session, or it expired. */
+  | 'NOT_AUTHENTICATED'
+  /** 403: this session may not send an SOS. */
+  | 'FORBIDDEN'
+  /** No answer from the server at all. */
+  | 'NETWORK_UNAVAILABLE'
+  /** Any other refusal (4xx) or a server fault (5xx). */
+  | 'REJECTED'
+  /** Answered, but with no created emergency in it: nothing confirms the SOS exists. */
+  | 'UNCONFIRMED';
+
+export type SOSAlertResult =
+  | { success: true; message: string }
+  | { success: false; message: string; reason?: SOSFailureReason };
+
+export const SOS_SENT_MESSAGE = 'Emergency SOS Sent Successfully!';
+
+const SOS_UNCONFIRMED: SOSAlertResult & { success: false } = {
+  success: false,
+  reason: 'UNCONFIRMED',
+  message: 'Your SOS could not be confirmed. Please try again or call for help directly.',
+};
+
+/**
+ * The failure the passenger sees when POST /api/emergencies did not create
+ * the emergency. Each says the SOS was not sent — or, for an answer that
+ * cannot be read, that it could not be confirmed — and never that help was
+ * notified.
+ */
+export function sosRequestFailure(error: unknown): SOSAlertResult & { success: false } {
+  const status = adminHttpStatusOf(error);
+  const serverMessage = error instanceof Error && error.message ? error.message : '';
+
+  if (status === 401) {
+    return {
+      success: false,
+      reason: 'NOT_AUTHENTICATED',
+      message: 'Your session has expired. Please sign in again. Your SOS was NOT sent.',
+    };
+  }
+  if (status === 403) {
+    return {
+      success: false,
+      reason: 'FORBIDDEN',
+      message: 'This account cannot send an SOS. Your SOS was NOT sent.',
+    };
+  }
+  if (status === null) {
+    return {
+      success: false,
+      reason: 'NETWORK_UNAVAILABLE',
+      message: 'Could not reach the emergency service. Your SOS was NOT sent. Please try again or call for help directly.',
+    };
+  }
+  if (status >= 200 && status < 300) {
+    // Answered, but not in the expected shape: nothing confirms the SOS.
+    return SOS_UNCONFIRMED;
+  }
+  if (status >= 500) {
+    return {
+      success: false,
+      reason: 'REJECTED',
+      message: 'The emergency service could not record your SOS. Your SOS was NOT sent. Please try again or call for help directly.',
+    };
+  }
+  return {
+    success: false,
+    reason: 'REJECTED',
+    message: `${serverMessage || 'The emergency service refused the request.'} Your SOS was NOT sent.`,
+  };
+}
+
+export const triggerSOSAlert = async (): Promise<SOSAlertResult> => {
   try {
     // The passenger is the signed-in user — never a cached profile or a
     // made-up id. Checked before asking for location.
@@ -100,17 +175,27 @@ export const triggerSOSAlert = async () => {
       status: 'ACTIVE'
     };
 
-    // Trigger local state update for driver/vehicle dashboard
-    useJourneyStore.getState().triggerLocalSOS(passenger.name);
-
-    // Save to Firebase or your backend API here
+    // The SOS is sent only when the server records it. A failed or
+    // unconfirmed POST is reported as not sent, never as success.
+    let created: unknown;
     try {
-      await createEmergencyRequestApi(sosData as any);
+      created = await createEmergencyRequestApi(sosData as any);
     } catch (apiErr) {
-      console.warn("Could not save to remote backend, local SOS active:", apiErr);
+      const failure = sosRequestFailure(apiErr);
+      console.warn('SOS was not recorded by the server:', failure.reason);
+      return failure;
     }
 
-    return { success: true, message: 'Emergency SOS Sent Successfully!' };
+    const createdId = (created as { id?: unknown } | null | undefined)?.id;
+    if (typeof createdId !== 'string' || !createdId.trim()) {
+      console.warn('SOS was not recorded by the server: UNCONFIRMED');
+      return SOS_UNCONFIRMED;
+    }
+
+    // Local state for the driver/vehicle dashboard, once the SOS exists.
+    useJourneyStore.getState().triggerLocalSOS(passenger.name);
+
+    return { success: true, message: SOS_SENT_MESSAGE };
   } catch (error: any) {
     console.error("SOS Trigger Failed: ", error);
     return { success: false, message: error.message || 'Failed to send SOS' };

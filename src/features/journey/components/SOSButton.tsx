@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { Button, ActivityIndicator } from 'react-native-paper';
 import { triggerSOSAlert } from '../services/sosService';
+import { sosButtonStateFor, sosButtonStateForError } from '../utils/sosButtonState';
 
 export const SOSButton = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -21,14 +22,15 @@ export const SOSButton = () => {
       const result = await triggerSOSAlert();
       setIsLoading(false);
 
-      if (result.success) {
-        setIsSOSActivated(true);
-      } else {
-        setErrorMessage(result.message || 'Failed to send SOS');
-      }
-    } catch (e: any) {
+      // Activated only when the server recorded the SOS.
+      const state = sosButtonStateFor(result);
+      setIsSOSActivated(state.activated);
+      setErrorMessage(state.errorMessage);
+    } catch (e: unknown) {
       setIsLoading(false);
-      setErrorMessage(e.message || 'Unknown error occurred');
+      const state = sosButtonStateForError(e);
+      setIsSOSActivated(state.activated);
+      setErrorMessage(state.errorMessage);
     }
   };
 
@@ -78,7 +80,7 @@ export const SOSButton = () => {
         </Button>
       )}
       {!!errorMessage && (
-        <View style={{marginTop: 10}}>
+        <View style={{marginTop: 10}} accessibilityRole="alert" accessibilityLiveRegion="assertive">
            <Button textColor="red" onPress={() => setErrorMessage('')}>{errorMessage}</Button>
         </View>
       )}

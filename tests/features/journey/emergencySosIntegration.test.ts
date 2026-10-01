@@ -88,6 +88,12 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
         useAuthStore.setState({ user: NIMAL, token: SESSION_NIMAL, isAuthenticated: true });
         resetActiveJourneySession();
 
+        // The server records the SOS unless a test says otherwise.
+        (EmergencyAdminApi.createEmergencyRequestApi as jest.Mock).mockResolvedValue({
+            id: 'EMG-10001',
+            status: 'PENDING',
+        });
+
         jest.spyOn(console, 'log').mockImplementation(() => {});
         jest.spyOn(console, 'warn').mockImplementation(() => {});
         jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -148,7 +154,7 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
             );
         });
 
-        it('retains local vehicle alert even if backend network call fails', async () => {
+        it('reports the SOS as NOT sent when the backend network call fails, and raises no local alert', async () => {
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
             });
@@ -156,16 +162,16 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                 coords: { latitude: 6.9271, longitude: 79.8612 },
             });
             (EmergencyAdminApi.createEmergencyRequestApi as jest.Mock).mockRejectedValueOnce(
-                new Error('Network offline')
+                Object.assign(new Error('Network error. Please check your connection and try again.'), { status: null })
             );
 
             const result = await triggerSOSAlert();
 
-            // Local alert is still successfully initiated for driver & onboard safety
-            expect(result.success).toBe(true);
-            const store = useJourneyStore.getState();
-            expect(store.activeSOS?.isActive).toBe(true);
-            expect(store.activeSOS?.passengerName).toBe('Nimal Silva');
+            // The server never recorded it: nothing may claim help was notified.
+            expect(result.success).toBe(false);
+            expect(result.message).not.toContain('Sent Successfully');
+            expect(result.message).toContain('NOT sent');
+            expect(useJourneyStore.getState().activeSOS).toBeNull();
         });
 
         it('returns failure message if location permission is not granted', async () => {
@@ -1129,7 +1135,7 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
     });
 
     describe('13. Offline Degradation, Network Resilience & Error Recovery', () => {
-        it('retains local activeSOS state even when backend emergency API network request fails', async () => {
+        it('reports a 503 from the emergency API as NOT sent, never as success', async () => {
             (Location.requestForegroundPermissionsAsync as jest.Mock).mockResolvedValueOnce({
                 status: 'granted',
             });
@@ -1137,18 +1143,17 @@ describe('MOV-231 / MOV-236: Passenger SOS Integration with Admin Emergency Disp
                 coords: { latitude: 6.9, longitude: 79.8 },
             });
             (EmergencyAdminApi.createEmergencyRequestApi as jest.Mock).mockRejectedValueOnce(
-                new Error('503 Service Unavailable: Transit dispatch gateway timeout')
+                Object.assign(new Error('Service Unavailable'), { status: 503 })
             );
 
             const result = await triggerSOSAlert();
 
-            expect(result.success).toBe(true);
-            expect(result.message).toContain('Emergency SOS Sent Successfully');
+            expect(result.success).toBe(false);
+            expect(result.message).not.toContain('Emergency SOS Sent Successfully');
+            expect(result.message).toContain('NOT sent');
 
-            // Crucial: Commuter local UI must still show active SOS alert
-            const store = useJourneyStore.getState();
-            expect(store.activeSOS).not.toBeNull();
-            expect(store.activeSOS?.isActive).toBe(true);
+            // No local "SOS triggered" alert for an SOS the server never recorded.
+            expect(useJourneyStore.getState().activeSOS).toBeNull();
         });
 
         it('handles Location permission denial cleanly with appropriate failure response', async () => {
