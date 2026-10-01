@@ -24,6 +24,11 @@ interface ReportListCardProps {
     banner?: React.ReactNode;
     /** Adds a warning edge, for a report the community flagged. */
     flagged?: boolean;
+    /**
+     * A second, smaller badge right-aligned under the status badge — the admin
+     * queue's complaint status. Absent everywhere else.
+     */
+    statusAccessory?: React.ReactNode;
 }
 
 /**
@@ -54,6 +59,7 @@ export function ReportListCard({
     accessibilityHint = 'Opens the full report',
     banner,
     flagged = false,
+    statusAccessory,
 }: ReportListCardProps) {
     const tone = REPORT_TYPE_TONES[summary.reportType];
 
@@ -129,6 +135,13 @@ export function ReportListCard({
                                 />
                                 <Text style={styles.ownChipText}>Your Report</Text>
                             </View>
+                        )}
+
+                        {/* Pushed to the right edge, under the status badge,
+                            so it reads as belonging to it without adding a
+                            row; wraps beneath on a narrow screen. */}
+                        {!!statusAccessory && (
+                            <View style={styles.statusAccessory}>{statusAccessory}</View>
                         )}
                     </View>
 
@@ -265,6 +278,7 @@ const styles = StyleSheet.create({
         gap: 4,
     },
     ownChipText: { fontSize: 11, fontWeight: '700', color: adminColors.primary },
+    statusAccessory: { marginLeft: 'auto', flexShrink: 1 },
 
     metaRow: {
         flexDirection: 'row',
