@@ -26,6 +26,7 @@ import { useJourneyStore } from '../../src/shared/store/journeyStore';
 import { AppText as Text } from '../../src/shared/ui/AppText';
 import { statusBadgeStyles } from '../../src/shared/ui/statusBadgeStyles';
 
+//this is the main home page
 export default function HomeScreen() {
   const { t } = useTranslation();
   const theme = useAppTheme();
