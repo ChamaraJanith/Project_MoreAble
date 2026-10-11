@@ -241,7 +241,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* 2. Personalized Commuter Welcome Hero Card */}
+        {/* 2. Personalized Commuter Welcome Hero Card & Hardware Connect Badge */}
         <TouchableOpacity
           style={[styles.heroCard, { backgroundColor: cardBg, borderColor: cardBorder }]}
           onPress={handleOpenProfile}
@@ -258,20 +258,51 @@ export default function HomeScreen() {
                 {displayUser.userName}
               </Text>
               <View style={styles.passengerBadgeRow}>
-                <View style={styles.passengerIdChip}>
-                  <Ionicons name="card" size={12} color="#0066CC" style={{ marginRight: 4 }} />
-                  <Text style={styles.passengerIdText}>{displayUser.passengerId}</Text>
-                </View>
                 {displayUser.isAccessibilityVerified && (
                   <View style={styles.verifiedChip}>
                     <Ionicons name="shield-checkmark" size={11} color="#065F46" style={{ marginRight: 3 }} />
                     <Text style={styles.verifiedText}>Verified Commuter</Text>
                   </View>
                 )}
+                {displayUser.role && (
+                  <View style={[styles.verifiedChip, { backgroundColor: '#F1F5F9' }]}>
+                    <Text style={[styles.verifiedText, { color: '#475569' }]}>{displayUser.role}</Text>
+                  </View>
+                )}
               </View>
             </View>
 
             <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+          </View>
+
+          {/* Prominent Passenger Digital ID / Hardware Pairing Banner */}
+          <View style={styles.passengerIdBanner}>
+            <View style={styles.passengerIdLeft}>
+              <View style={styles.hardwareChipIcon}>
+                <Ionicons name="hardware-chip-outline" size={18} color="#0284C7" />
+              </View>
+              <View>
+                <Text style={styles.passengerIdLabel}>PASSENGER ID (ESP32 DEVICE SYNC)</Text>
+                <Text style={styles.passengerIdValue}>{displayUser.passengerId}</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.copyIdBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (Platform.OS === 'web') {
+                  navigator.clipboard?.writeText(displayUser.passengerId);
+                  window.alert(`Passenger ID '${displayUser.passengerId}' copied!`);
+                } else {
+                  Alert.alert('ID Copied', `Passenger ID: ${displayUser.passengerId}\nUse this in your ESP32 configuration.`);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Copy Passenger ID"
+            >
+              <Ionicons name="copy-outline" size={14} color="#0066CC" style={{ marginRight: 4 }} />
+              <Text style={styles.copyIdBtnText}>Copy ID</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Commuter Accessibility Features Pills */}
@@ -285,12 +316,23 @@ export default function HomeScreen() {
           </View>
 
           {/* Guardian Info Banner if present */}
-          {displayUser.guardianDetails && (
+          {displayUser.guardianDetails ? (
             <View style={styles.guardianBanner}>
-              <Ionicons name="shield-half-outline" size={14} color="#0066CC" />
-              <Text style={styles.guardianBannerText}>
-                Guardian Linked: <Text style={styles.guardianNameText}>{displayUser.guardianDetails.fullName}</Text> (
-                {displayUser.guardianDetails.mobileNo}) • Auto-alerts on board
+              <Ionicons name="shield-half-outline" size={15} color="#0066CC" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.guardianBannerText}>
+                  Guardian Linked: <Text style={styles.guardianNameText}>{displayUser.guardianDetails.fullName}</Text>
+                </Text>
+                <Text style={styles.guardianEmailSubtext}>
+                  Email: {displayUser.guardianDetails.email || 'No email provided'} • {displayUser.guardianDetails.mobileNo}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.guardianBanner, { backgroundColor: '#FFFBEB', borderLeftColor: '#F59E0B' }]}>
+              <Ionicons name="alert-circle-outline" size={15} color="#D97706" />
+              <Text style={[styles.guardianBannerText, { color: '#B45309' }]}>
+                No Guardian linked yet. Tap here to add Guardian details & email for emergency alerts.
               </Text>
             </View>
           )}
@@ -842,6 +884,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0066CC',
   },
+  passengerIdBanner: {
+    marginTop: 14,
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  passengerIdLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  hardwareChipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#E0F2FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  passengerIdLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#0369A1',
+    letterSpacing: 0.5,
+  },
+  passengerIdValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: 0.5,
+  },
+  copyIdBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0284C7',
+    marginLeft: 8,
+  },
+  copyIdBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0066CC',
+  },
   guardianBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -851,17 +946,22 @@ const styles = StyleSheet.create({
     marginTop: 12,
     borderLeftWidth: 3,
     borderLeftColor: '#0066CC',
-    gap: 6,
+    gap: 8,
   },
   guardianBannerText: {
     fontSize: 11,
     color: '#334155',
-    flex: 1,
     fontWeight: '500',
   },
   guardianNameText: {
     fontWeight: '700',
     color: '#0066CC',
+  },
+  guardianEmailSubtext: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 2,
+    fontWeight: '600',
   },
   liveJourneyBanner: {
     backgroundColor: '#FFFFFF',

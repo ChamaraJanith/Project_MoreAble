@@ -456,6 +456,36 @@ export default function ProfileScreen() {
           <Text style={styles.userName}>{displayUser.userName}</Text>
           <Text style={styles.passengerIdText}>{t('profile.id', 'ID')}: {displayUser.passengerId}</Text>
 
+          {/* Quick ESP32 Device & Passenger ID Card */}
+          <View style={styles.hardwarePairingCard}>
+            <View style={styles.hardwareCardLeft}>
+              <View style={styles.hardwareBadgeIcon}>
+                <Ionicons name="hardware-chip" size={20} color="#0284C7" />
+              </View>
+              <View>
+                <Text style={styles.hardwareCardTitle}>ESP32 DEVICE SYNC ID</Text>
+                <Text style={styles.hardwareCardId}>{displayUser.passengerId}</Text>
+                <Text style={styles.hardwareCardSub}>Paste this into ESP32 `TARGET_PASSENGER_ID`</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.hardwareCopyBtn}
+              onPress={() => {
+                if (Platform.OS === 'web') {
+                  navigator.clipboard?.writeText(displayUser.passengerId);
+                  window.alert(`Passenger ID '${displayUser.passengerId}' copied!`);
+                } else {
+                  Alert.alert('ID Copied', `Passenger ID: ${displayUser.passengerId}\nCopied to clipboard for ESP32 configuration.`);
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Copy Passenger ID"
+            >
+              <Ionicons name="copy-outline" size={14} color="#0066CC" style={{ marginRight: 4 }} />
+              <Text style={styles.hardwareCopyBtnText}>Copy</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.tagContainer}>
             <View style={[styles.roleTag, displayUser.role === 'ADMIN' ? styles.adminTag : styles.passengerTag]}>
               <Ionicons
@@ -1522,8 +1552,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 8,
     overflow: 'hidden',
+  },
+  hardwarePairingCard: {
+    width: '100%',
+    backgroundColor: '#F0F9FF',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 6,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+  },
+  hardwareCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  hardwareBadgeIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#E0F2FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hardwareCardTitle: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#0284C7',
+    letterSpacing: 0.5,
+  },
+  hardwareCardId: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  hardwareCardSub: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  hardwareCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0284C7',
+    marginLeft: 8,
+  },
+  hardwareCopyBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0066CC',
   },
   tagContainer: {
     flexDirection: 'row',
