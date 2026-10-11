@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "BusAlarm",
+    "slug": "busalarm",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "busalarm",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.chamara_77.busalarm",
+      "permissions": [
+        "VIBRATE",
+        "WAKE_LOCK",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCPtRPd71ELPGumIADWfTccTCaHu_DA09w"
+        }
+      },
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0afa227b-1a22-4331-a5d8-7e1ce7c5c93a"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow BusAlarm to use your location for background tracking."
+        }
+      ]
+    ]
+  }
+}
