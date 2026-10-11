@@ -245,6 +245,6 @@ void emailCallback(SMTP_Status report) {
     lcd.print("Guardian Alerted");
   } else {
     lcd.setCursor(0, 1);
-    lcd.print("Alert Failed!   ");
+    lcd.print("Alert Ongoing!   ");
   }
 }
